@@ -1,0 +1,6 @@
+<svg width="240" height="96" viewBox="0 0 240 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="240" height="96" rx="20" fill="#FFFFFF"/>
+  <path d="M24 58C48 30 76 18 112 22C138 25 158 40 188 30" stroke="#14B8A6" stroke-opacity="0.2" stroke-width="12" stroke-linecap="round"/>
+  <path d="M176 24H200V48H176V24Z" stroke="#14B8A6" stroke-opacity="0.18" stroke-width="4"/>
+  <text x="24" y="70" fill="#10213A" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" letter-spacing="-0.03em">Prince Pipes</text>
+</svg>

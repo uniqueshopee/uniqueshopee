@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 320" fill="none" role="img" aria-labelledby="plumbing-title">
+  <title id="plumbing-title">Plumbing department illustration</title>
+  <rect width="480" height="320" fill="#F8FAFC"/>
+  <rect x="32" y="32" width="416" height="256" rx="24" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
+  <circle cx="400" cy="100" r="32" fill="#2563EB" opacity="0.1"/>
+  <circle cx="96" cy="88" r="24" fill="#0F172A" opacity="0.05"/>
+  <rect x="72" y="168" width="120" height="20" rx="10" fill="#64748B"/>
+  <rect x="192" y="168" width="96" height="20" rx="10" fill="#475569"/>
+  <rect x="288" y="168" width="120" height="20" rx="10" fill="#64748B"/>
+  <circle cx="192" cy="178" r="14" fill="#94A3B8" stroke="#64748B" stroke-width="3"/>
+  <circle cx="288" cy="178" r="14" fill="#94A3B8" stroke="#64748B" stroke-width="3"/>
+  <path d="M120 120 L120 168 L192 168" stroke="#64748B" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M360 120 L360 168 L288 168" stroke="#64748B" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <rect x="200" y="96" width="80" height="48" rx="12" fill="#2563EB" opacity="0.15" stroke="#2563EB" stroke-width="2"/>
+  <path d="M228 96 L228 72 C228 60 252 60 252 72 L252 96" stroke="#2563EB" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <ellipse cx="240" cy="72" rx="16" ry="8" fill="#2563EB"/>
+  <rect x="216" y="108" width="48" height="8" rx="4" fill="#2563EB"/>
+  <circle cx="240" cy="132" r="6" fill="#0F172A"/>
+  <rect x="328" y="208" width="64" height="72" rx="8" fill="#E2E8F0" stroke="#CBD5E1" stroke-width="2"/>
+  <rect x="336" y="216" width="48" height="40" rx="4" fill="#FFFFFF"/>
+  <rect x="344" y="260" width="32" height="12" rx="4" fill="#64748B"/>
+  <path d="M88 228 L104 212 L120 228 L136 212" stroke="#2563EB" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <circle cx="104" cy="212" r="8" fill="#2563EB" opacity="0.2" stroke="#2563EB" stroke-width="2"/>
+</svg>

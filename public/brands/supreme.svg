@@ -1,0 +1,5 @@
+<svg width="240" height="96" viewBox="0 0 240 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="240" height="96" rx="20" fill="#FFFFFF"/>
+  <path d="M24 58C48 30 76 18 112 22C138 25 158 40 188 30" stroke="#6366F1" stroke-opacity="0.2" stroke-width="12" stroke-linecap="round"/>
+  <text x="24" y="70" fill="#10213A" font-family="Inter, Arial, sans-serif" font-size="32" font-weight="800" letter-spacing="-0.03em">Supreme</text>
+</svg>

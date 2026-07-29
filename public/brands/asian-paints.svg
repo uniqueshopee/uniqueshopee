@@ -1,0 +1,7 @@
+<svg width="240" height="96" viewBox="0 0 240 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="240" height="96" rx="20" fill="#FFFFFF"/>
+  <path d="M24 58C46 28 74 16 110 20C136 23 154 38 186 28" stroke="#F97316" stroke-opacity="0.22" stroke-width="12" stroke-linecap="round"/>
+  <path d="M28 32H90" stroke="#10213A" stroke-opacity="0.14" stroke-width="6" stroke-linecap="round"/>
+  <path d="M28 44H78" stroke="#10213A" stroke-opacity="0.1" stroke-width="6" stroke-linecap="round"/>
+  <text x="28" y="70" fill="#10213A" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" letter-spacing="-0.03em">Asian Paints</text>
+</svg>

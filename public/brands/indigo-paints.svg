@@ -1,0 +1,6 @@
+<svg width="240" height="96" viewBox="0 0 240 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="240" height="96" rx="20" fill="#FFFFFF"/>
+  <path d="M26 61C44 34 70 22 104 24C132 26 156 41 188 31" stroke="#3B82F6" stroke-opacity="0.2" stroke-width="12" stroke-linecap="round"/>
+  <path d="M32 30L44 18L56 30L44 42L32 30Z" fill="#F97316" fill-opacity="0.18"/>
+  <text x="28" y="70" fill="#10213A" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="800" letter-spacing="-0.03em">Indigo Paints</text>
+</svg>

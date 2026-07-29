@@ -1,0 +1,6 @@
+<svg width="240" height="96" viewBox="0 0 240 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="240" height="96" rx="20" fill="#FFFFFF"/>
+  <path d="M24 60C44 34 72 22 108 24C136 26 160 40 188 32" stroke="#F59E0B" stroke-opacity="0.22" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="196" cy="28" r="8" fill="#FB923C" fill-opacity="0.2"/>
+  <text x="28" y="70" fill="#10213A" font-family="Inter, Arial, sans-serif" font-size="32" font-weight="800" letter-spacing="-0.03em">Berger</text>
+</svg>
