@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AdminActionButton, AdminSectionCard, AdminStatusBadge, PageHeader } from "@/components/admin/admin-kit";
 import { useAuth } from "@/components/auth/auth-provider";
 import { toast } from "@/hooks/use-toast";
+import { getQaProductCatalog, isQaBypassEnabled } from "@/lib/qa-mode";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { LayoutGrid, PenSquare, Plus, RotateCcw, Search, ShieldCheck, Trash2 } from "lucide-react";
 
@@ -108,6 +109,27 @@ export function DepartmentsAdminPage() {
   const loadDepartments = async () => {
     setIsLoading(true);
     setLoadError(null);
+
+    if (isQaBypassEnabled()) {
+      // DEV ONLY
+      // REMOVE OR DISABLE BEFORE PRODUCTION
+      const catalog = getQaProductCatalog();
+      setDepartments(
+        catalog.departments.map((department, index) => ({
+          id: department.id,
+          slug: department.slug,
+          name: department.name,
+          description: department.name === "Paints" ? "Interior and exterior paint catalog" : "Plumbing and hardware catalog",
+          sort_order: index,
+          is_active: department.is_active,
+          deleted_at: department.deleted_at,
+          created_at: "2026-07-01T00:00:00.000Z",
+          updated_at: "2026-07-29T00:00:00.000Z",
+        })),
+      );
+      setIsLoading(false);
+      return;
+    }
 
     const client = getSupabaseBrowserClient();
     if (!client) {

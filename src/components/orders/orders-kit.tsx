@@ -669,10 +669,9 @@ function ShipmentTrackingCard({ order }: { order: OrderRecord }) {
 
 function OrderSupportLinks() {
   const supportLinks = [
-    { label: "Contact Support", icon: MessageCircleQuestion, description: "Talk to our team" },
-    { label: "Return Policy", icon: RotateCcw, description: "Review return rules" },
-    { label: "Track Shipment", icon: Truck, description: "See delivery progress" },
-    { label: "Download Invoice", icon: FileText, description: "Get the billing copy" },
+    { label: "Contact Support", icon: MessageCircleQuestion, description: "Talk to our team", href: "/contact" },
+    { label: "Return Policy", icon: RotateCcw, description: "Review return rules", href: "/terms" },
+    { label: "Track Shipment", icon: Truck, description: "See delivery progress", href: "#shipment-tracking" },
   ];
 
   return (
@@ -685,22 +684,40 @@ function OrderSupportLinks() {
         {supportLinks.map((item) => {
           const Icon = item.icon;
           return (
-            <button
+            <Button
               key={item.label}
-              type="button"
-              onClick={() => toast({ title: item.label, description: `${item.description} is ready for future integration.` })}
-              className="flex items-center gap-3 rounded-[1.2rem] border border-border/70 bg-white/85 px-4 py-3 text-left transition-all hover:border-accent/20 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              asChild
+              variant="ghost"
+              className="h-auto justify-start rounded-[1.2rem] border border-border/70 bg-white/85 px-4 py-3 text-left hover:border-accent/20 hover:bg-white"
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/10 text-accent">
-                <Icon className="h-4 w-4" aria-hidden="true" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-bold text-text">{item.label}</span>
-                <span className="block text-xs font-medium text-muted">{item.description}</span>
-              </span>
-            </button>
+              <Link href={item.href} className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/10 text-accent">
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-text">{item.label}</span>
+                  <span className="block text-xs font-medium text-muted">{item.description}</span>
+                </span>
+              </Link>
+            </Button>
           );
         })}
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-auto justify-start rounded-[1.2rem] border border-border/70 bg-white/85 px-4 py-3 text-left hover:border-accent/20 hover:bg-white"
+          onClick={() => window.print()}
+        >
+          <span className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/10 text-accent">
+              <FileText className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-bold text-text">Download Invoice</span>
+              <span className="block text-xs font-medium text-muted">Print or save the billing copy</span>
+            </span>
+          </span>
+        </Button>
       </div>
     </Card>
   );
@@ -1162,14 +1179,15 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
                     Invoice
                   </Button>
                   <Button
-                    type="button"
+                    asChild
                     variant="ghost"
                     size="sm"
                     className="w-full justify-center border border-border/70 bg-white/75"
-                    onClick={() => toast({ title: "Need help", description: "Support contact flow is available for future integration." })}
                   >
-                    <MessageCircleQuestion className="h-4 w-4" aria-hidden="true" />
-                    Help
+                    <Link href="/contact">
+                      <MessageCircleQuestion className="h-4 w-4" aria-hidden="true" />
+                      Help
+                    </Link>
                   </Button>
                 </div>
               </div>
@@ -1312,14 +1330,15 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
             Invoice
           </Button>
           <Button
-            type="button"
+            asChild
             variant="ghost"
             size="sm"
             className="w-full border border-border/70 bg-white/75"
-            onClick={() => toast({ title: "Support", description: "Support contact is ready for future integration." })}
           >
-            <MessageCircleQuestion className="h-4 w-4" aria-hidden="true" />
-            Help
+            <Link href="/contact">
+              <MessageCircleQuestion className="h-4 w-4" aria-hidden="true" />
+              Help
+            </Link>
           </Button>
         </div>
       </div>

@@ -32,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { UI_MESSAGES, getFriendlyErrorMessage } from "@/lib/messages";
 import {
   DEFAULT_COUNTRY,
   formatAddressLine,
@@ -611,7 +612,7 @@ function AddressManagementPage() {
           setAddresses([]);
           toast({
             title: "Addresses unavailable",
-            description: error.message,
+            description: getFriendlyErrorMessage(error, UI_MESSAGES.generic.server),
             variant: "danger",
           });
         } else {
@@ -643,7 +644,7 @@ function AddressManagementPage() {
   const saveAddress = async (values: AddressFormValues) => {
     const client = getSupabaseBrowserClient();
     if (!client || !accountId) {
-      toast({ title: "Addresses unavailable", description: "Please sign in again to save your address.", variant: "danger" });
+      toast({ title: "Addresses unavailable", description: UI_MESSAGES.auth.sessionExpired, variant: "danger" });
       return;
     }
 
@@ -675,7 +676,7 @@ function AddressManagementPage() {
       setEditorBusy(false);
       toast({
         title: "Address not saved",
-        description: result.error.message,
+        description: getFriendlyErrorMessage(result.error.message, UI_MESSAGES.generic.server),
         variant: "danger",
       });
       return;
@@ -728,7 +729,7 @@ function AddressManagementPage() {
 
     const client = getSupabaseBrowserClient();
     if (!client || !accountId) {
-      toast({ title: "Addresses unavailable", description: "Please sign in again to delete the address.", variant: "danger" });
+      toast({ title: "Addresses unavailable", description: UI_MESSAGES.auth.sessionExpired, variant: "danger" });
       return;
     }
 
@@ -744,7 +745,7 @@ function AddressManagementPage() {
     if (error) {
       toast({
         title: "Address not deleted",
-        description: error.message,
+        description: getFriendlyErrorMessage(error, UI_MESSAGES.generic.server),
         variant: "danger",
       });
       return;

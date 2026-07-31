@@ -153,7 +153,7 @@ function AuthPageShell({ children, className }: AuthPageShellProps) {
         <div className="absolute right-0 top-16 h-72 w-72 rounded-full bg-sky-300/10 blur-3xl" />
         <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-amber-200/10 blur-3xl" />
       </div>
-      <div className="relative mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+      <div className="relative mx-auto w-full max-w-7xl px-4 py-[calc(1rem+env(safe-area-inset-top))] sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         {children}
       </div>
     </section>
@@ -267,17 +267,17 @@ function ValidationMessage({ tone = "info", title, description, action, classNam
       role={tone === "error" ? "alert" : "status"}
       aria-live="polite"
       className={cn(
-        "flex items-start gap-3 rounded-[1.2rem] border px-4 py-3 shadow-[var(--shadow-sm)]",
+        "flex flex-col items-start gap-3 rounded-[1.2rem] border px-4 py-3 shadow-[var(--shadow-sm)] sm:flex-row sm:items-start",
         styles[tone],
         className,
       )}
     >
       <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-bold">{title}</p>
-        {description ? <p className="mt-0.5 text-sm font-medium opacity-90">{description}</p> : null}
+        <p className="break-words text-sm font-bold">{title}</p>
+        {description ? <p className="mt-0.5 break-words text-sm font-medium opacity-90">{description}</p> : null}
       </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
+      {action ? <div className="shrink-0 sm:ml-auto">{action}</div> : null}
     </div>
   );
 }
@@ -591,7 +591,7 @@ function OtpInput({
   };
 
   return (
-    <div className={cn("flex items-center justify-between gap-2 sm:gap-3", className)} role="group" aria-label={ariaLabel}>
+    <div className={cn("grid w-full grid-cols-6 gap-1.5 sm:flex sm:items-center sm:justify-between sm:gap-3", className)} role="group" aria-label={ariaLabel}>
       {digits.map((digit, index) => (
         <input
           key={index}
@@ -609,7 +609,7 @@ function OtpInput({
           disabled={disabled}
           aria-label={`OTP digit ${index + 1}`}
           className={cn(
-            "h-12 w-11 rounded-[1rem] border border-border bg-white text-center text-base font-bold text-text shadow-[var(--shadow-sm)]",
+            "h-11 min-w-0 w-full rounded-[1rem] border border-border bg-white text-center text-base font-bold text-text shadow-[var(--shadow-sm)] sm:h-12 sm:w-11",
             "transition-all focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50",
             digit ? "border-accent/25" : "",
           )}

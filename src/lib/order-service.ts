@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getQaCheckoutPricingSummary, QA_ORDERS, isQaBypassEnabled } from "@/lib/qa-mode";
 import {
   ORDER_STATUS_DB_VALUES,
   getOrderById as getMockOrderById,
@@ -501,6 +502,10 @@ export async function loadOrdersForViewer(
   userId: string | null,
   options?: { roleKey?: OrderAccessRole | null },
 ) {
+  if (isQaBypassEnabled()) {
+    return QA_ORDERS;
+  }
+
   if (!client) {
     return getMockOrders();
   }
@@ -534,6 +539,10 @@ export async function loadOrderById(
   userId: string | null,
   options?: { roleKey?: OrderAccessRole | null },
 ) {
+  if (isQaBypassEnabled()) {
+    return QA_ORDERS.find((order) => order.id === orderId || order.orderNumber === orderId) ?? getMockOrderById(orderId) ?? null;
+  }
+
   if (!client) {
     return getMockOrderById(orderId) ?? null;
   }
@@ -566,6 +575,10 @@ export async function loadCheckoutPricing(
   client: SupabaseClient | null,
   options?: { couponCode?: string | null },
 ) {
+  if (isQaBypassEnabled()) {
+    return getQaCheckoutPricingSummary(options?.couponCode);
+  }
+
   if (!client) {
     return { error: "Supabase is not configured.", pricing: null as CheckoutPricingSummary | null };
   }
@@ -601,6 +614,14 @@ export async function loadCheckoutPricing(
 }
 
 export async function createCheckoutOrder(client: SupabaseClient | null, payload: CheckoutOrderPayload) {
+  if (isQaBypassEnabled()) {
+    return {
+      error: null,
+      orderId: QA_ORDERS[0]?.id ?? "qa-order-new",
+      orderNumber: QA_ORDERS[0]?.orderNumber ?? "US202600099",
+    };
+  }
+
   if (!client) {
     return { error: "Supabase is not configured." };
   }

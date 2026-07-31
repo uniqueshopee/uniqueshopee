@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 async function loadViewerOrder(orderId: string) {
   if (isQaBypassEnabled()) {
-    return { order: QA_ORDERS.find((order) => order.id === orderId || order.orderNumber === orderId) ?? getMockOrderById(orderId) ?? null, roleKey: null };
+    return { order: QA_ORDERS.find((order) => order.id === orderId || order.orderNumber === orderId) ?? QA_ORDERS[0] ?? null, roleKey: null };
   }
 
   const client = await getSupabaseServerClient();
@@ -25,13 +25,7 @@ async function loadViewerOrder(orderId: string) {
     return { order: getMockOrderById(orderId) ?? null, roleKey: null };
   }
 
-  const [
-    { data: userData },
-    { data: roleData },
-  ] = await Promise.all([
-    client.auth.getUser(),
-    client.rpc("current_user_role_key"),
-  ]);
+  const [{ data: userData }, { data: roleData }] = await Promise.all([client.auth.getUser(), client.rpc("current_user_role_key")]);
 
   const userId = userData.user?.id ?? null;
   const roleKey = typeof roleData === "string" ? roleData : null;

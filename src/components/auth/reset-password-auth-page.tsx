@@ -18,6 +18,7 @@ import {
 } from "./auth-kit";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { updateSupabasePassword } from "@/lib/supabase/auth";
+import { UI_MESSAGES } from "@/lib/messages";
 
 const resetSchema = z
   .object({
@@ -61,7 +62,7 @@ function ResetPasswordAuthPage() {
         setStatus({
           tone: "error",
           title: "Unable to continue",
-          description: "Please try again in a moment.",
+          description: UI_MESSAGES.generic.server,
         });
         return;
       }
@@ -79,16 +80,16 @@ function ResetPasswordAuthPage() {
         setIsSubmitting(false);
         setStatus({
           tone: "error",
-          title: "Unable to continue",
-          description: "Please check your password and try again.",
+          title: "Password update failed",
+          description: result.error,
         });
         return;
       }
 
       setStatus({
         tone: "success",
-        title: "Password updated",
-        description: "Your password has been changed successfully. Redirecting to login.",
+        title: "Password Updated",
+        description: UI_MESSAGES.profile.passwordUpdated,
       });
       router.replace("/login?reset=success");
       router.refresh();
@@ -98,7 +99,7 @@ function ResetPasswordAuthPage() {
       setStatus({
         tone: "error",
         title: "Please check the fields",
-        description: "The new password and confirmation need to match and meet the strength rules.",
+        description: UI_MESSAGES.generic.unexpected,
       });
     },
   );

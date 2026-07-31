@@ -1,7 +1,9 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import type { Session, User } from "@supabase/supabase-js";
+import { getQaAuthState, isQaBypassEnabled } from "@/lib/qa-mode";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   ensureCurrentUserProfile,
@@ -65,6 +67,7 @@ async function loadAuthState() {
 }
 
 function AuthProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AuthProfile | null>(null);
@@ -72,6 +75,18 @@ function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (isQaBypassEnabled()) {
+      // DEV ONLY
+      // REMOVE OR DISABLE BEFORE PRODUCTION
+      const qaState = getQaAuthState(pathname);
+      setSession(qaState.session);
+      setUser(qaState.user);
+      setProfile(qaState.profile);
+      setRole(qaState.role);
+      setLoading(false);
+      return;
+    }
+
     const client = getSupabaseBrowserClient();
 
     if (!client) {
@@ -135,7 +150,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       active = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [pathname]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -146,6 +161,15 @@ function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: !!session?.user,
       loading,
       refresh: async () => {
+        if (isQaBypassEnabled()) {
+          const qaState = getQaAuthState(pathname);
+          setSession(qaState.session);
+          setUser(qaState.user);
+          setProfile(qaState.profile);
+          setRole(qaState.role);
+          setLoading(false);
+          return;
+        }
         const nextState = await loadAuthState();
         setSession(nextState.session);
         setUser(nextState.user);
@@ -154,6 +178,11 @@ function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       },
       signOut: async () => {
+        if (isQaBypassEnabled()) {
+          // DEV ONLY
+          // REMOVE OR DISABLE BEFORE PRODUCTION
+          return { success: true, error: null };
+        }
         const result = await signOutSupabase();
         setSession(null);
         setUser(null);
@@ -162,7 +191,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         return result;
       },
     }),
-    [loading, profile, role, session, user],
+    [loading, pathname, profile, role, session, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

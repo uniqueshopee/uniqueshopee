@@ -34,12 +34,16 @@ export function buildAuthRedirectUrl(pathname: string, searchParams?: Record<str
 }
 
 export function resolvePostAuthPath(role: AuthRoleKey | null, redirectTo?: string | null) {
+  if (role && ADMIN_ROLES.includes(role)) {
+    return "/admin";
+  }
+
   const safeRedirect = redirectTo ? sanitizeRedirectPath(redirectTo, "") : "";
   if (safeRedirect) {
     return safeRedirect;
   }
 
-  return role && ADMIN_ROLES.includes(role) ? "/admin" : "/account";
+  return "/account";
 }
 
 export function isAdminRole(role: AuthRoleKey | null) {

@@ -3,6 +3,7 @@ import { OrdersListPage } from "@/components/orders/orders-kit";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { loadOrdersForViewer } from "@/lib/order-service";
 import { getOrders as getMockOrders } from "@/lib/orders-data";
+import { isQaBypassEnabled } from "@/lib/qa-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,10 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function OrdersRoute() {
+  if (isQaBypassEnabled()) {
+    return <OrdersListPage orders={getMockOrders()} />;
+  }
+
   const client = await getSupabaseServerClient();
 
   if (!client) {

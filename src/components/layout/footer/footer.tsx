@@ -21,7 +21,12 @@ function Footer() {
   const hideOnCheckout = pathname === "/checkout";
 
   return (
-    <footer className={cn("border-t border-border bg-white/80", (hideOnCartMobile || hideOnCheckout) && "hidden lg:block")}>
+    <footer
+      className={cn(
+        "border-t border-border bg-white/80 pb-[calc(8rem+env(safe-area-inset-bottom))] lg:pb-0",
+        (hideOnCartMobile || hideOnCheckout) && "hidden lg:block",
+      )}
+    >
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-12">
         <div className="grid gap-8 sm:grid-cols-3 lg:grid-cols-6">
           <div className="col-span-2 lg:col-span-2">

@@ -8,6 +8,7 @@ import { FormField, Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AdminActionButton, AdminSectionCard, AdminStatusBadge, PageHeader } from "@/components/admin/admin-kit";
+import { getQaProductCatalog, isQaBypassEnabled } from "@/lib/qa-mode";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -169,6 +170,32 @@ export function InventoryAdminLivePage() {
   const loadInventory = async () => {
     setIsLoading(true);
     setLoadError(null);
+
+    if (isQaBypassEnabled()) {
+      // DEV ONLY
+      // REMOVE OR DISABLE BEFORE PRODUCTION
+      const catalog = getQaProductCatalog();
+      setInventoryRows(
+        catalog.inventories.map((row) => ({
+          ...row,
+          created_at: "2026-07-30T00:00:00.000Z",
+          updated_at: "2026-07-30T00:00:00.000Z",
+        })),
+      );
+      setProducts(catalog.products.map((product) => ({ id: product.id, name: product.name, sku: product.sku, status: product.status, deleted_at: product.deleted_at })));
+      setVariants(catalog.productVariants.map((variant) => ({
+        id: variant.id,
+        product_id: variant.product_id,
+        sku: variant.sku,
+        variant_name: variant.variant_name,
+        option_label: variant.option_label,
+        option_value: variant.option_value,
+        is_default: variant.is_default,
+        deleted_at: variant.deleted_at,
+      })));
+      setIsLoading(false);
+      return;
+    }
 
     const client = getSupabaseBrowserClient();
     if (!client) {

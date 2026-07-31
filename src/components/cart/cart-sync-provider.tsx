@@ -16,8 +16,10 @@ import { clearGuestCart, readGuestCart, writeGuestCart } from "@/lib/cart-storag
 import { loadRemoteCartItems, replaceRemoteCartItems } from "@/lib/cart-service";
 import { ensureCurrentUserProfile } from "@/lib/supabase/auth";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getQaCartItems, isQaBypassEnabled } from "@/lib/qa-mode";
 import type { CartItem } from "@/types";
 import { toast } from "@/hooks/use-toast";
+import { UI_MESSAGES, getFriendlyErrorMessage } from "@/lib/messages";
 
 type CartMode = "guest" | "authenticated";
 
@@ -90,6 +92,20 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
       setCouponCode(guest.couponCode);
       setSyncError(null);
 
+      if (isQaBypassEnabled()) {
+        // DEV ONLY
+        // REMOVE OR DISABLE BEFORE PRODUCTION
+        const qaItems = getQaCartItems();
+        setMode("authenticated");
+        setResolvedProfileId("qa-profile");
+        setItems(qaItems);
+        setMergeAvailable(false);
+        setGuestItemCount(0);
+        setLoaded(true);
+        hydratingRef.current = false;
+        return;
+      }
+
       if (!user) {
         setMode("guest");
         setResolvedProfileId(null);
@@ -137,6 +153,10 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (isQaBypassEnabled()) {
+      return;
+    }
+
     if (!user || !resolvedProfileId) {
       return;
     }
@@ -152,7 +172,7 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
           setSyncError(result.error);
           toast({
             title: "Cart sync failed",
-            description: result.error,
+            description: getFriendlyErrorMessage(result.error, UI_MESSAGES.generic.server),
             variant: "danger",
           });
         } else {
@@ -192,7 +212,7 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
       setSyncError(result.error);
       toast({
         title: "Merge failed",
-        description: result.error,
+        description: getFriendlyErrorMessage(result.error, UI_MESSAGES.generic.server),
         variant: "danger",
       });
       return;

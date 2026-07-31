@@ -1,6 +1,7 @@
 "use client";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getQaCartItems, isQaBypassEnabled } from "@/lib/qa-mode";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureCurrentUserProfile } from "@/lib/supabase/auth";
 import type { CartItem } from "@/types";
@@ -116,6 +117,10 @@ async function getClient(client?: SupabaseClient | null) {
 }
 
 export async function loadRemoteCartItems(userId: string, client?: SupabaseClient | null) {
+  if (isQaBypassEnabled()) {
+    return getQaCartItems();
+  }
+
   const resolvedClient = await getClient(client);
 
   if (!resolvedClient) {
@@ -209,6 +214,10 @@ export async function replaceRemoteCartItems(
   items: CartItem[],
   client?: SupabaseClient | null,
 ) {
+  if (isQaBypassEnabled()) {
+    return { error: null };
+  }
+
   const resolvedClient = await getClient(client);
 
   if (!resolvedClient) {
@@ -325,6 +334,20 @@ export async function replaceRemoteCartItems(
 }
 
 export async function validateCartAddition(item: CartItem, quantity: number, client?: SupabaseClient | null) {
+  if (isQaBypassEnabled()) {
+    return {
+      error: null,
+      product: {
+        ...item,
+        inStock: true,
+        stockCount: item.stockCount ?? 99,
+        reservedCount: item.reservedCount ?? 0,
+        lowStockThreshold: item.lowStockThreshold ?? 10,
+      } satisfies CartItem,
+      quantity: Math.max(1, quantity),
+    };
+  }
+
   const resolvedClient = await getClient(client);
 
   if (!resolvedClient) {
@@ -410,6 +433,20 @@ export async function addValidatedCartItem(
   options?: { silent?: boolean },
 ) {
   const silent = options?.silent ?? false;
+
+  if (isQaBypassEnabled()) {
+    const product = { ...item, quantity: Math.max(1, quantity) } as CartItem;
+    useCartStore.getState().addItem(product, quantity);
+    if (!silent) {
+      toast({
+        title: "Added to cart",
+        description: product.name,
+        variant: "success",
+      });
+    }
+    return { success: true, error: null };
+  }
+
   const client = getSupabaseBrowserClient();
   const session = client ? await client.auth.getSession() : null;
   const user = session?.data.session?.user ?? null;

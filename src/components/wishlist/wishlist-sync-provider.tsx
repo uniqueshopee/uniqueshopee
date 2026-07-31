@@ -22,6 +22,7 @@ import {
 } from "@/lib/wishlist-service";
 import { ensureCurrentUserProfile } from "@/lib/supabase/auth";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getQaProductCatalog, isQaBypassEnabled } from "@/lib/qa-mode";
 import { toast } from "@/hooks/use-toast";
 
 type WishlistMode = "guest" | "authenticated";
@@ -61,6 +62,19 @@ function WishlistSyncProvider({ children }: { children: ReactNode }) {
       const guest = readGuestWishlist();
       const currentIds = Array.from(useWishlistStore.getState().productIds);
       setSyncError(null);
+
+      if (isQaBypassEnabled()) {
+        // DEV ONLY
+        // REMOVE OR DISABLE BEFORE PRODUCTION
+        const qaIds = getQaProductCatalog().products.slice(0, 3).map((product) => product.id);
+        setProductIds(qaIds);
+        setMode("authenticated");
+        setResolvedProfileId("qa-profile");
+        setLoaded(true);
+        previousUserIdRef.current = "qa-profile";
+        hydratingRef.current = false;
+        return;
+      }
 
       if (!user) {
         if (previousUserIdRef.current && currentIds.length > 0) {

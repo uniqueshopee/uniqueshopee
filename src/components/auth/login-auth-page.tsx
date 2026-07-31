@@ -18,8 +18,10 @@ import {
   PasswordField,
 } from "./auth-kit";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { ensureCurrentUserProfile, getCurrentUserRoleKey, sendPhoneOtp, signInWithEmailPassword } from "@/lib/supabase/auth";
+import { ensureCurrentUserProfile, getCurrentUserRoleKey, signInWithEmailPassword } from "@/lib/supabase/auth";
 import { resolvePostAuthPath, sanitizeRedirectPath } from "@/lib/auth";
+import { sendPhoneOtpRequest } from "@/lib/phone-auth";
+import { UI_MESSAGES } from "@/lib/messages";
 
 const loginSchema = z
   .object({
@@ -69,13 +71,13 @@ function LoginAuthPage() {
 
     await ensureCurrentUserProfile(client);
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
       const role = await getCurrentUserRoleKey(client);
       if (role) {
         return resolvePostAuthPath(role, redirectTo);
       }
 
-      await new Promise((resolve) => window.setTimeout(resolve, 120));
+      await new Promise((resolve) => window.setTimeout(resolve, 180));
     }
 
     return resolvePostAuthPath(null, redirectTo);
@@ -85,14 +87,14 @@ function LoginAuthPage() {
     async (values) => {
       const client = getSupabaseBrowserClient();
 
-      if (!client) {
-        setStatus({
-          tone: "error",
-          title: "Unable to continue",
-          description: "Please try again in a moment.",
-        });
-        return;
-      }
+        if (!client) {
+          setStatus({
+            tone: "error",
+            title: "Unable to continue",
+            description: UI_MESSAGES.generic.server,
+          });
+          return;
+        }
 
       setIsSubmitting(true);
       const identifier = values.identifier.trim();
@@ -114,8 +116,8 @@ function LoginAuthPage() {
           setIsSubmitting(false);
           setStatus({
             tone: "error",
-            title: "Unable to continue",
-            description: "Please check your details and try again.",
+            title: "Login failed",
+            description: result.error,
           });
           return;
         }
@@ -124,8 +126,8 @@ function LoginAuthPage() {
 
         setStatus({
           tone: "success",
-          title: "Logged in",
-          description: "Redirecting now.",
+          title: "Login Success",
+          description: UI_MESSAGES.auth.loginSuccess,
         });
         router.replace(target);
         router.refresh();
@@ -133,36 +135,37 @@ function LoginAuthPage() {
         return;
       }
 
-      setStatus({
-        tone: "info",
-        title: "Sending code",
-        description: "Please wait while we send a one-time code to your mobile number.",
-      });
+        setStatus({
+          tone: "info",
+          title: "Sending code",
+          description: UI_MESSAGES.auth.otpSent,
+        });
 
-      const result = await sendPhoneOtp({
+      const result = await sendPhoneOtpRequest({
         phone: identifier,
-        client,
-        shouldCreateUser: false,
+        purpose: "login",
       });
 
-      if (result.error || !result.phone) {
+      if (result.error || !result.phone || !result.challengeId) {
         setIsSubmitting(false);
         setStatus({
           tone: "error",
           title: "Unable to continue",
-          description: "Please check your mobile number and try again.",
+          description: result.error ?? UI_MESSAGES.generic.unexpected,
         });
         return;
       }
 
-      router.push(`/verify-otp?phone=${encodeURIComponent(result.phone)}&mode=phone-login`);
+      router.push(
+        `/verify-otp?phone=${encodeURIComponent(result.phone)}&challengeId=${encodeURIComponent(result.challengeId)}&mode=phone-login`,
+      );
       setIsSubmitting(false);
     },
     () => {
       setStatus({
         tone: "error",
         title: "Please check the fields",
-        description: "Make sure your email or mobile number and password are ready.",
+        description: UI_MESSAGES.generic.unexpected,
       });
     },
   );

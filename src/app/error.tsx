@@ -14,7 +14,9 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     // Wire this up to your monitoring provider (Sentry, etc.)
-    console.error(error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error(error);
+    }
   }, [error]);
 
   return (

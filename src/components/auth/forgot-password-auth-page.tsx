@@ -17,6 +17,7 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { sendPasswordResetEmail } from "@/lib/supabase/auth";
 import { buildAuthRedirectUrl } from "@/lib/auth/redirect";
+import { UI_MESSAGES } from "@/lib/messages";
 
 const forgotSchema = z.object({
   identifier: z.string().trim().email("Enter a valid email address"),
@@ -45,7 +46,7 @@ function ForgotPasswordAuthPage() {
         setStatus({
           tone: "error",
           title: "Unable to continue",
-          description: "Please try again in a moment.",
+          description: UI_MESSAGES.generic.server,
         });
         return;
       }
@@ -54,7 +55,7 @@ function ForgotPasswordAuthPage() {
       setStatus({
         tone: "info",
         title: "Sending reset email",
-        description: "Please wait while we send the reset link.",
+        description: UI_MESSAGES.auth.verificationEmailSent,
       });
 
       const result = await sendPasswordResetEmail(values.identifier, buildAuthRedirectUrl("/reset-password"), client);
@@ -64,15 +65,15 @@ function ForgotPasswordAuthPage() {
         setStatus({
           tone: "error",
           title: "Unable to continue",
-          description: "Please check your details and try again.",
+          description: result.error,
         });
         return;
       }
 
       setStatus({
         tone: "success",
-        title: "Reset email sent",
-        description: "Check your inbox and follow the secure link to finish resetting your password.",
+        title: "Verification email sent",
+        description: UI_MESSAGES.auth.verificationEmailSent,
       });
       router.refresh();
       setIsSubmitting(false);
@@ -81,7 +82,7 @@ function ForgotPasswordAuthPage() {
       setStatus({
         tone: "error",
         title: "Please check the field",
-        description: "Enter the email address linked to your account.",
+        description: UI_MESSAGES.generic.unexpected,
       });
     },
   );

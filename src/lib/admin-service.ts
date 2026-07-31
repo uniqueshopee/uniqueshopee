@@ -1,6 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Json } from "@/lib/supabase/types";
 import type { Database } from "@/lib/supabase/types";
+import {
+  getQaAdminBannerRows,
+  getQaAdminCouponRows,
+  getQaAdminCustomerRows,
+  getQaAdminDashboardData,
+  getQaAdminOrderRows,
+  getQaAdminReviewRows,
+  getQaAdminSettingsRows,
+  isQaBypassEnabled,
+} from "@/lib/qa-mode";
 
 export type AdminDashboardStat = {
   label: string;
@@ -95,6 +105,7 @@ export type AdminCouponRow = {
 export type AdminBannerRow = {
   id: string;
   title: string;
+  subtitle: string;
   placement: string;
   status: string;
   imageUrl: string;
@@ -131,6 +142,10 @@ function toTitleCase(value: string) {
 }
 
 export async function loadAdminDashboardData(client: SupabaseClient<Database>): Promise<AdminDashboardData> {
+  if (isQaBypassEnabled()) {
+    return getQaAdminDashboardData();
+  }
+
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
@@ -323,6 +338,10 @@ export async function loadAdminDashboardData(client: SupabaseClient<Database>): 
 }
 
 export async function loadAdminOrdersRows(client: SupabaseClient<Database>, limit = 25) {
+  if (isQaBypassEnabled()) {
+    return getQaAdminOrderRows().slice(0, limit);
+  }
+
   const [ordersResult, profilesResult] = await Promise.all([
     client
       .from("orders")
@@ -362,6 +381,10 @@ export async function loadAdminOrdersRows(client: SupabaseClient<Database>, limi
 }
 
 export async function loadAdminCustomerRows(client: SupabaseClient<Database>, limit = 25) {
+  if (isQaBypassEnabled()) {
+    return getQaAdminCustomerRows().slice(0, limit);
+  }
+
   const [profilesResult, ordersResult] = await Promise.all([
     client.from("profiles").select("id, full_name, email, status, created_at, deleted_at").is("deleted_at", null).order("created_at", { ascending: false }).limit(limit),
     client.from("orders").select("id, user_id, deleted_at").is("deleted_at", null),
@@ -383,6 +406,10 @@ export async function loadAdminCustomerRows(client: SupabaseClient<Database>, li
 }
 
 export async function loadAdminReviewRows(client: SupabaseClient<Database>, limit = 25) {
+  if (isQaBypassEnabled()) {
+    return getQaAdminReviewRows().slice(0, limit);
+  }
+
   const [reviewsResult, profilesResult, productsResult] = await Promise.all([
     client.from("reviews").select("id, user_id, product_id, rating, status, comment, created_at, deleted_at").is("deleted_at", null).order("created_at", { ascending: false }).limit(limit),
     client.from("profiles").select("id, full_name, email").is("deleted_at", null),
@@ -417,6 +444,10 @@ export async function loadAdminReviewRows(client: SupabaseClient<Database>, limi
 }
 
 export async function loadAdminCouponRows(client: SupabaseClient<Database>, limit = 50) {
+  if (isQaBypassEnabled()) {
+    return getQaAdminCouponRows().slice(0, limit);
+  }
+
   const { data } = await client
     .from("coupons")
     .select("id, code, title, description, coupon_type, value, minimum_order, maximum_discount, usage_limit, per_user_limit, start_at, expiry_at, status, applies_to, deleted_at")
@@ -458,6 +489,10 @@ export async function loadAdminCouponRows(client: SupabaseClient<Database>, limi
 }
 
 export async function loadAdminBannerRows(client: SupabaseClient<Database>, limit = 25) {
+  if (isQaBypassEnabled()) {
+    return getQaAdminBannerRows().slice(0, limit);
+  }
+
   const { data } = await client
     .from("banners")
     .select("id, slug, title, subtitle, placement, image_url, mobile_image_url, link_url, is_active, deleted_at")
@@ -468,6 +503,7 @@ export async function loadAdminBannerRows(client: SupabaseClient<Database>, limi
   return ((data ?? []) as Array<{
     id: string;
     title: string;
+    subtitle: string | null;
     placement: string;
     image_url: string;
     link_url: string | null;
@@ -475,6 +511,7 @@ export async function loadAdminBannerRows(client: SupabaseClient<Database>, limi
   }>).map((banner) => ({
     id: banner.id,
     title: banner.title,
+    subtitle: banner.subtitle?.trim() || "",
     placement: banner.placement,
     status: banner.is_active ? "Active" : "Inactive",
     imageUrl: banner.image_url,
@@ -483,6 +520,10 @@ export async function loadAdminBannerRows(client: SupabaseClient<Database>, limi
 }
 
 export async function loadAdminSettingsRows(client: SupabaseClient<Database>, limit = 100) {
+  if (isQaBypassEnabled()) {
+    return getQaAdminSettingsRows().slice(0, limit);
+  }
+
   const { data } = await client
     .from("settings")
     .select("id, key, value, description, is_public, deleted_at")

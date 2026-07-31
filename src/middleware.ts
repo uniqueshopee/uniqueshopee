@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseMiddlewareClient } from "@/lib/supabase/middleware";
 import type { AuthRoleKey } from "@/lib/supabase/auth";
 import { isAdminRole, resolvePostAuthPath, sanitizeRedirectPath } from "@/lib/auth";
+import { isQaBypassEnabled } from "@/lib/qa-mode";
 
 const PROTECTED_PREFIXES = ["/account", "/orders", "/wishlist", "/cart", "/checkout", "/notifications"];
 const AUTH_REDIRECT_PAGES = ["/login", "/register", "/forgot-password"];
@@ -15,6 +16,12 @@ function redirectTo(request: NextRequest, pathname: string) {
 }
 
 export async function middleware(request: NextRequest) {
+  if (isQaBypassEnabled()) {
+    // DEV ONLY
+    // REMOVE OR DISABLE BEFORE PRODUCTION
+    return NextResponse.next();
+  }
+
   const response = NextResponse.next({ request });
   const { supabase, response: nextResponse } = createSupabaseMiddlewareClient(request, response);
 

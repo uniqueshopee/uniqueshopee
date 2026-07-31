@@ -51,6 +51,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { uploadCloudinaryImage } from "@/lib/cloudinary";
 import { cn, formatPrice } from "@/lib/utils";
 import type { Json } from "@/lib/supabase/types";
+import { isQaBypassEnabled } from "@/lib/qa-mode";
 import {
   loadAdminBannerRows,
   loadAdminCouponRows,
@@ -247,7 +248,7 @@ function AdminSectionCard({
 }) {
   return (
     <Card className="rounded-[1.6rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)] sm:p-6">
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-black text-text">{title}</h2>
           {description ? <p className="mt-1 text-sm font-medium text-muted">{description}</p> : null}
@@ -271,7 +272,7 @@ function AdminActionButton({
   disabled?: boolean;
 }) {
   return (
-    <Button type="button" variant={variant} size="sm" onClick={onClick} disabled={disabled}>
+    <Button type="button" variant={variant} size="sm" onClick={onClick} disabled={disabled} className="w-full sm:w-auto">
       {children}
     </Button>
   );
@@ -386,14 +387,21 @@ function AdminShell({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={() => setDrawerOpen(true)}
                 aria-label="Open admin navigation"
-                className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] text-text hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
+                className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-md)] text-text hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
               >
                 <Menu className="h-5 w-5" aria-hidden="true" />
               </button>
 
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted">Admin Panel</p>
-                <h2 className="truncate text-lg font-black text-text">{mobileTitle}</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="truncate text-lg font-black text-text">{mobileTitle}</h2>
+                  {isQaBypassEnabled() ? (
+                    <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-warning">
+                      QA Mode
+                    </span>
+                  ) : null}
+                </div>
               </div>
 
               <div className="hidden max-w-lg flex-1 lg:block">
@@ -406,7 +414,7 @@ function AdminShell({ children }: { children: ReactNode }) {
               <div className="ml-auto flex items-center gap-2">
                 <button
                   type="button"
-                  className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] text-text hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-md)] text-text hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-label="Notifications"
                   onClick={() => toast({ title: "Notifications", description: "Admin notifications placeholder.", variant: "success" })}
                 >
@@ -442,7 +450,7 @@ function AdminShell({ children }: { children: ReactNode }) {
         onOpenChange={setDrawerOpen}
         title="Admin Navigation"
         description="Browse dashboard sections"
-        className="left-0 top-0 h-[100dvh] max-w-xs translate-x-0 translate-y-0 rounded-none p-5"
+        className="left-0 top-0 h-[100dvh] w-[min(90vw,20rem)] max-w-xs translate-x-0 translate-y-0 rounded-none p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
       >
         <div className="flex h-full flex-col">
           <div className="mb-4 flex items-center justify-between">
@@ -536,6 +544,12 @@ function DashboardAdminPage() {
   const topProducts = dashboard?.topProducts ?? [];
   const topCategories = dashboard?.topCategories ?? [];
   const recentReviews = dashboard?.recentReviews ?? [];
+  const quickActions = [
+    { label: "Create Product", href: "/admin/products", icon: Plus },
+    { label: "Review Orders", href: "/admin/orders", icon: ClipboardList },
+    { label: "Adjust Inventory", href: "/admin/inventory", icon: Warehouse },
+    { label: "Launch Banner", href: "/admin/banners", icon: Megaphone },
+  ];
 
   if (dashboardLoading) {
     return <AdminLoadingView title="Dashboard" />;
@@ -568,6 +582,29 @@ function DashboardAdminPage() {
         </Card>
       ) : null}
 
+      <AdminSectionCard
+        title="Quick Actions"
+        description="Fast links for the most common mobile admin tasks."
+        actions={<Badge variant="neutral" className="hidden sm:inline-flex">Mobile friendly</Badge>}
+      >
+        <div className="grid gap-3 sm:grid-cols-2 lg:hidden">
+          {quickActions.slice(0, 2).map((action) => {
+            const Icon = action.icon;
+            return (
+              <Button asChild key={action.label} variant={action.label === "Create Product" ? "accent" : "outline"} size="md" className="w-full justify-between">
+                <Link href={action.href}>
+                  <span className="flex items-center gap-3">
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                    {action.label}
+                  </span>
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              </Button>
+            );
+          })}
+        </div>
+      </AdminSectionCard>
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => (
           <AdminStatCard key={stat.label} stat={stat} />
@@ -588,21 +625,18 @@ function DashboardAdminPage() {
 
         <AdminSectionCard title="Quick Actions" description="Common admin shortcuts.">
           <div className="grid gap-3">
-            {[
-              { label: "Create Product", icon: Plus },
-              { label: "Review Orders", icon: ClipboardList },
-              { label: "Adjust Inventory", icon: Warehouse },
-              { label: "Launch Banner", icon: Megaphone },
-            ].map((action) => {
+            {quickActions.map((action) => {
               const Icon = action.icon;
               return (
-                <button key={action.label} type="button" className="flex items-center justify-between rounded-[1.2rem] border border-border/70 bg-background-secondary/35 px-4 py-3 text-left font-semibold text-text hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                  <span className="flex items-center gap-3">
-                    <Icon className="h-4 w-4 text-accent" aria-hidden="true" />
-                    {action.label}
-                  </span>
-                  <ArrowRight className="h-4 w-4 text-muted" aria-hidden="true" />
-                </button>
+                <Button asChild key={action.label} variant={action.label === "Create Product" ? "accent" : "outline"} size="md" className="w-full justify-between">
+                  <Link href={action.href}>
+                    <span className="flex items-center gap-3">
+                      <Icon className="h-4 w-4" aria-hidden="true" />
+                      {action.label}
+                    </span>
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </Link>
+                </Button>
               );
             })}
           </div>
@@ -3200,7 +3234,7 @@ function CouponsAdminPage() {
         onOpenChange={setCreateOpen}
         title="Create Coupon"
         description="Add a promotional offer directly to Supabase."
-        className="max-w-3xl"
+        className="max-w-5xl"
       >
         <div className="grid gap-4 md:grid-cols-2">
           <FormField label="Code" htmlFor="coupon-code">
@@ -3302,9 +3336,121 @@ function CouponsAdminPage() {
 }
 
 function BannersAdminPage() {
+  type BannerFormState = {
+    title: string;
+    slug: string;
+    subtitle: string;
+    placement: string;
+    imageUrl: string;
+    mobileImageUrl: string;
+    linkUrl: string;
+    sortOrder: string;
+    isActive: boolean;
+  };
+
+  const BANNER_FORM_INITIAL: BannerFormState = {
+    title: "",
+    slug: "",
+    subtitle: "",
+    placement: "home_hero",
+    imageUrl: "",
+    mobileImageUrl: "",
+    linkUrl: "",
+    sortOrder: "0",
+    isActive: true,
+  };
+
+  const { role } = useAuth();
+  const canManage = role === "admin" || role === "manager";
   const [rows, setRows] = useState<AdminBannerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [slugTouched, setSlugTouched] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<"title" | "slug" | "imageUrl", string>>>({});
+  const [form, setForm] = useState<BannerFormState>(BANNER_FORM_INITIAL);
+
+  const resetForm = () => {
+    setForm(BANNER_FORM_INITIAL);
+    setSlugTouched(false);
+    setFieldErrors({});
+    setUploading(false);
+  };
+
+  const openCreateBanner = () => {
+    resetForm();
+    setCreateOpen(true);
+  };
+
+  const updateForm = (patch: Partial<BannerFormState>) => {
+    setForm((current) => ({ ...current, ...patch }));
+  };
+
+  const slugifyBanner = (value: string) =>
+    value
+      .trim()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/&/g, "and")
+      .replace(/['"]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase();
+
+  const handleTitleChange = (value: string) => {
+    setForm((current) => ({
+      ...current,
+      title: value,
+      slug: slugTouched ? current.slug : slugifyBanner(value),
+    }));
+  };
+
+  const handleSlugChange = (value: string) => {
+    setSlugTouched(true);
+    updateForm({ slug: value });
+  };
+
+  const handleImageUpload = async (file: File | null, field: "imageUrl" | "mobileImageUrl") => {
+    if (!file) return;
+
+    setUploading(true);
+    const result = await uploadCloudinaryImage(file);
+    setUploading(false);
+
+    if (result.error) {
+      toast({ title: "Image upload failed", description: result.error, variant: "danger" });
+      return;
+    }
+
+    updateForm({ [field]: result.url ?? "" } as Partial<BannerFormState>);
+    toast({
+      title: "Image uploaded",
+      description: field === "imageUrl" ? "Desktop banner image is ready to save." : "Mobile banner image is ready to save.",
+      variant: "success",
+    });
+  };
+
+  const validateForm = () => {
+    const nextErrors: Partial<Record<"title" | "slug" | "imageUrl", string>> = {};
+    const normalizedSlug = slugifyBanner(form.slug || form.title);
+
+    if (!form.title.trim()) {
+      nextErrors.title = "Banner title is required";
+    }
+
+    if (!normalizedSlug) {
+      nextErrors.slug = "Slug is required";
+    }
+
+    if (!form.imageUrl.trim()) {
+      nextErrors.imageUrl = "Banner image is required";
+    }
+
+    setFieldErrors(nextErrors);
+    return { valid: Object.keys(nextErrors).length === 0, normalizedSlug };
+  };
 
   const loadRows = async () => {
     setLoading(true);
@@ -3329,6 +3475,78 @@ function BannersAdminPage() {
   useEffect(() => {
     void loadRows();
   }, []);
+
+  const createBanner = async () => {
+    if (!canManage) {
+      toast({ title: "Permission denied", description: "Only admins and managers can create banners.", variant: "danger" });
+      return;
+    }
+
+    const validation = validateForm();
+    if (!validation.valid) {
+      toast({ title: "Fix the highlighted fields", description: "Title, slug, and desktop image are required.", variant: "warning" });
+      return;
+    }
+
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      toast({ title: "Supabase unavailable", description: "Cannot create banners right now.", variant: "danger" });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const { data: duplicateRows, error: duplicateError } = await client
+        .from("banners")
+        .select("id")
+        .eq("slug", validation.normalizedSlug)
+        .is("deleted_at", null)
+        .limit(1);
+
+      if (duplicateError) {
+        throw duplicateError;
+      }
+
+      if ((duplicateRows ?? []).length > 0) {
+        setFieldErrors((current) => ({ ...current, slug: "Slug must be unique" }));
+        toast({ title: "Duplicate slug", description: "Choose a different banner slug.", variant: "warning" });
+        return;
+      }
+
+      const sortOrder = Number.parseInt(form.sortOrder || "0", 10);
+      const payload = {
+        slug: validation.normalizedSlug,
+        title: form.title.trim(),
+        subtitle: form.subtitle.trim() || null,
+        placement: form.placement.trim() || "home_hero",
+        image_url: form.imageUrl.trim(),
+        mobile_image_url: form.mobileImageUrl.trim() || null,
+        link_url: form.linkUrl.trim() || null,
+        sort_order: Number.isFinite(sortOrder) ? sortOrder : 0,
+        is_active: form.isActive,
+        deleted_at: null,
+      };
+
+      const { error: insertError } = await client.from("banners").insert([payload]);
+      if (insertError) {
+        throw insertError;
+      }
+
+      toast({ title: "Banner created", description: `${form.title.trim()} is now synced with Supabase.`, variant: "success" });
+      setCreateOpen(false);
+      resetForm();
+      await loadRows();
+    } catch (createError) {
+      toast({
+        title: "Create failed",
+        description: createError instanceof Error ? createError.message : "Something went wrong while saving the banner.",
+        variant: "danger",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const toggleBanner = async (row: AdminBannerRow) => {
     const client = getSupabaseBrowserClient();
@@ -3359,14 +3577,77 @@ function BannersAdminPage() {
     await loadRows();
   };
 
+  const bannerFaqs = [
+    {
+      question: "How do I add a new banner?",
+      answer: "Click Add Banner, fill in the title, slug, and desktop image, then save. You can optionally add a mobile image and link URL.",
+    },
+    {
+      question: "What should I use for placement?",
+      answer: "Use the placement value to group banners by where they will appear later in the storefront. Keep the same value for related promos.",
+    },
+    {
+      question: "Why is the slug important?",
+      answer: "The slug should be unique. It is the stable key used by the admin and frontend to identify the banner row.",
+    },
+  ];
+
   return (
     <section className="space-y-6">
       <PageHeader
         crumbs={[{ label: "Admin", href: "/admin" }, { label: "Banners" }]}
         title="Banners"
         subtitle="Manage promotional banners and placements using live Supabase records."
-        actions={<AdminActionButton variant="outline" onClick={() => void loadRows()}><RefreshCcw className="h-4 w-4" />Reload</AdminActionButton>}
+        actions={
+          <div className="flex items-center gap-2">
+            <AdminActionButton variant="outline" onClick={() => void loadRows()}>
+              <RefreshCcw className="h-4 w-4" />
+              Reload
+            </AdminActionButton>
+            <AdminActionButton variant="accent" onClick={openCreateBanner} disabled={!canManage}>
+              <Plus className="h-4 w-4" />
+              Add Banner
+            </AdminActionButton>
+          </div>
+        }
       />
+
+      <AdminSectionCard
+        title="Banner Quick Start"
+        description="A short guide for creating the first promo banner without leaving this page."
+      >
+        <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="rounded-[1.2rem] border border-border/70 bg-background-secondary/25 p-4">
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-accent">How to add a banner</p>
+            <ol className="mt-4 space-y-3 text-sm font-medium leading-6 text-muted">
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-bold text-accent">1</span>
+                <span>Click <span className="font-semibold text-text">Add Banner</span> from the page header.</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-bold text-accent">2</span>
+                <span>Enter a title, unique slug, placement, and upload the desktop image.</span>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent/10 text-xs font-bold text-accent">3</span>
+                <span>Add optional subtitle, mobile image, and destination URL, then save.</span>
+              </li>
+            </ol>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-accent">FAQ</p>
+            {bannerFaqs.map((faq) => (
+              <details key={faq.question} className="rounded-[1.2rem] border border-border/70 bg-white/85 p-4 shadow-[var(--shadow-sm)]">
+                <summary className="cursor-pointer list-none text-sm font-semibold text-text [&::-webkit-details-marker]:hidden">
+                  {faq.question}
+                </summary>
+                <p className="mt-2 text-sm font-medium leading-6 text-muted">{faq.answer}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </AdminSectionCard>
 
       {error ? (
         <Card className="rounded-[1.6rem] border-danger/20 bg-danger/5 p-5 shadow-[var(--shadow-sm)]">
@@ -3375,30 +3656,189 @@ function BannersAdminPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {loading ? (
-          Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-72 rounded-[1.6rem]" />)
-        ) : (
-          rows.map((row) => (
-            <AdminSectionCard key={row.id} title={row.title} description={row.placement} actions={<AdminStatusBadge status={row.status} />}>
+      {loading ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-72 rounded-[1.6rem]" />)}
+        </div>
+      ) : rows.length > 0 ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {rows.map((row) => (
+            <AdminSectionCard key={row.id} title={row.title} description={row.subtitle || row.placement} actions={<AdminStatusBadge status={row.status} />}>
               <div className="space-y-3">
                 <div className="flex min-h-40 items-center justify-center rounded-[1.2rem] border border-dashed border-border bg-[linear-gradient(135deg,rgba(255,247,235,0.85),rgba(255,255,255,0.96))]">
                   <Megaphone className="h-8 w-8 text-accent" aria-hidden="true" />
                 </div>
                 <p className="text-sm font-medium text-muted">{row.linkUrl || "No destination link set."}</p>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => void toggleBanner(row)}>
+                  <Button variant="outline" size="sm" onClick={() => void toggleBanner(row)} disabled={!canManage}>
                     {row.status.toLowerCase() === "active" ? "Deactivate" : "Activate"}
                   </Button>
-                  <Button variant="danger" size="sm" onClick={() => void archiveBanner(row)}>
+                  <Button variant="danger" size="sm" onClick={() => void archiveBanner(row)} disabled={!canManage}>
                     Archive
                   </Button>
                 </div>
               </div>
             </AdminSectionCard>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <Card className="rounded-[1.6rem] border-white/80 bg-white/92 p-8 text-center shadow-[var(--shadow-sm)]">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-accent/10 text-accent">
+            <Megaphone className="h-9 w-9" aria-hidden="true" />
+          </div>
+          <h3 className="mt-5 text-2xl font-black text-text">No Banners Yet</h3>
+          <p className="mt-2 text-sm font-medium text-muted">Create the first banner to start promoting offers and placements.</p>
+          <Button variant="accent" size="md" className="mt-6" onClick={openCreateBanner} disabled={!canManage}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Add Banner
+          </Button>
+        </Card>
+      )}
+
+      <Modal
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) {
+            resetForm();
+          }
+        }}
+        title="Create Banner"
+        description="Add a promotional banner directly to Supabase."
+        className="max-w-5xl"
+      >
+        <div className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Title" htmlFor="banner-title" error={fieldErrors.title}>
+              <Input id="banner-title" value={form.title} onChange={(event) => handleTitleChange(event.target.value)} placeholder="Big Festival Sale" />
+            </FormField>
+            <FormField label="Slug" htmlFor="banner-slug" error={fieldErrors.slug}>
+              <Input id="banner-slug" value={form.slug} onChange={(event) => handleSlugChange(event.target.value)} placeholder="big-festival-sale" />
+            </FormField>
+          </div>
+
+          <FormField label="Subtitle" htmlFor="banner-subtitle" hint="Optional short message under the title.">
+            <Input
+              id="banner-subtitle"
+              value={form.subtitle}
+              onChange={(event) => updateForm({ subtitle: event.target.value })}
+              placeholder="Up to 50% off selected paints"
+            />
+          </FormField>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Placement" htmlFor="banner-placement" hint="Controls where the banner is surfaced later.">
+              <Input
+                id="banner-placement"
+                value={form.placement}
+                onChange={(event) => updateForm({ placement: event.target.value })}
+                placeholder="home_hero"
+              />
+            </FormField>
+            <FormField label="Sort Order" htmlFor="banner-sort-order" hint="Lower numbers appear first in placement ordering.">
+              <Input
+                id="banner-sort-order"
+                type="number"
+                value={form.sortOrder}
+                onChange={(event) => updateForm({ sortOrder: event.target.value })}
+                placeholder="0"
+              />
+            </FormField>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+            <FormField label="Desktop Image" htmlFor="banner-image" error={fieldErrors.imageUrl}>
+              <div className="space-y-3 rounded-[1.2rem] border border-dashed border-border/70 bg-background-secondary/30 p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-[1rem] border border-border/70 bg-white/85">
+                    {form.imageUrl ? (
+                      <div
+                        className="h-full w-full bg-cover bg-center"
+                        style={{ backgroundImage: `url('${form.imageUrl}')` }}
+                        role="img"
+                        aria-label={form.title || "Banner preview"}
+                      />
+                    ) : (
+                      <Megaphone className="h-6 w-6 text-accent" aria-hidden="true" />
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-text">Upload a banner image</p>
+                    <p className="text-xs font-medium text-muted">Cloudinary stores the file and Supabase keeps the URL.</p>
+                  </div>
+                </div>
+                <label className="inline-flex cursor-pointer items-center justify-center rounded-full border border-border/80 bg-white/85 px-4 py-2 text-sm font-semibold text-text transition-colors hover:border-accent/25 hover:bg-white">
+                  <span>{uploading ? "Uploading..." : "Choose Image"}</span>
+                  <input
+                    id="banner-image"
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(event) => void handleImageUpload(event.target.files?.[0] ?? null, "imageUrl")}
+                    aria-label="Upload banner image"
+                  />
+                </label>
+              </div>
+            </FormField>
+
+            <div className="space-y-4">
+              <FormField label="Desktop Image URL" htmlFor="banner-image-url" hint="Stored after Cloudinary upload completes.">
+                <Input
+                  id="banner-image-url"
+                  value={form.imageUrl}
+                  onChange={(event) => updateForm({ imageUrl: event.target.value })}
+                  placeholder="https://res.cloudinary.com/..."
+                />
+              </FormField>
+
+              <FormField label="Mobile Image URL" htmlFor="banner-mobile-image-url" hint="Optional image for compact layouts.">
+                <Input
+                  id="banner-mobile-image-url"
+                  value={form.mobileImageUrl}
+                  onChange={(event) => updateForm({ mobileImageUrl: event.target.value })}
+                  placeholder="https://res.cloudinary.com/..."
+                />
+              </FormField>
+
+              <FormField label="Link URL" htmlFor="banner-link-url" hint="Optional click-through destination.">
+                <Input
+                  id="banner-link-url"
+                  value={form.linkUrl}
+                  onChange={(event) => updateForm({ linkUrl: event.target.value })}
+                  placeholder="/products"
+                />
+              </FormField>
+
+              <label className="flex items-center gap-3 rounded-[1.2rem] border border-border/70 bg-white/80 px-4 py-3 text-sm font-semibold text-text">
+                <input
+                  type="checkbox"
+                  checked={form.isActive}
+                  onChange={(event) => updateForm({ isActive: event.target.checked })}
+                  className="h-4 w-4 rounded border-border text-accent focus:ring-accent"
+                />
+                Active banner
+              </label>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="md"
+              onClick={() => {
+                setCreateOpen(false);
+                resetForm();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="button" variant="accent" size="md" loading={saving} onClick={() => void createBanner()} disabled={!canManage}>
+              Save Banner
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </section>
   );
 }

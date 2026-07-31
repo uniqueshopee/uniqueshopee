@@ -2,6 +2,7 @@ import type { Session, SupabaseClient, User } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient } from "./client";
 import { readEnvironmentValue } from "@/lib/environment";
 import type { Database } from "./types";
+import { UI_MESSAGES, getFriendlyErrorMessage } from "@/lib/messages";
 
 export type SupabaseAuthClient = SupabaseClient<Database>;
 export type AuthRoleKey = "customer" | "admin" | "manager" | "staff";
@@ -30,12 +31,6 @@ export type SignUpPayload = {
   phone: string;
   client?: SupabaseAuthClient | null;
   redirectTo?: string;
-};
-
-export type PhoneOtpPayload = {
-  phone: string;
-  client?: SupabaseAuthClient | null;
-  shouldCreateUser?: boolean;
 };
 
 export type OAuthProviderName = "google";
@@ -177,12 +172,12 @@ export async function signInWithEmailPassword({ identifier, password, client }: 
   const resolvedClient = client ?? getSupabaseBrowserClient();
 
   if (!resolvedClient) {
-    return { error: "Supabase is not configured." };
+    return { error: UI_MESSAGES.generic.server };
   }
 
   const email = identifier.trim();
   if (!email.includes("@")) {
-    return { error: "Use the email address linked to your account. Phone login is UI-only for now." };
+    return { error: "Enter a valid email address." };
   }
 
   const { error } = await resolvedClient.auth.signInWithPassword({
@@ -191,57 +186,7 @@ export async function signInWithEmailPassword({ identifier, password, client }: 
   });
 
   return {
-    error: error ? error.message : null,
-  };
-}
-
-export async function sendPhoneOtp({ phone, client, shouldCreateUser = false }: PhoneOtpPayload) {
-  const resolvedClient = client ?? getSupabaseBrowserClient();
-
-  if (!resolvedClient) {
-    return { error: "Supabase is not configured." };
-  }
-
-  const normalizedPhone = normalizePhoneNumber(phone);
-  if (!normalizedPhone) {
-    return { error: "Enter a valid mobile number." };
-  }
-
-  const { data, error } = await resolvedClient.auth.signInWithOtp({
-    phone: normalizedPhone,
-    options: {
-      shouldCreateUser,
-    },
-  });
-
-  return {
-    data,
-    error: error ? error.message : null,
-    phone: normalizedPhone,
-  };
-}
-
-export async function verifyPhoneOtp(phone: string, token: string, client?: SupabaseAuthClient | null) {
-  const resolvedClient = client ?? getSupabaseBrowserClient();
-
-  if (!resolvedClient) {
-    return { error: "Supabase is not configured." };
-  }
-
-  const normalizedPhone = normalizePhoneNumber(phone);
-  if (!normalizedPhone) {
-    return { error: "Enter a valid mobile number." };
-  }
-
-  const { data, error } = await resolvedClient.auth.verifyOtp({
-    phone: normalizedPhone,
-    token,
-    type: "sms",
-  });
-
-  return {
-    data,
-    error: error ? error.message : null,
+    error: error ? getFriendlyErrorMessage(error, UI_MESSAGES.auth.loginFailed) : null,
   };
 }
 
@@ -249,7 +194,7 @@ export async function signUpWithEmailPassword({ email, password, fullName, phone
   const resolvedClient = client ?? getSupabaseBrowserClient();
 
   if (!resolvedClient) {
-    return { error: "Supabase is not configured." };
+    return { error: UI_MESSAGES.generic.server };
   }
 
   const resolvedRedirectTo = redirectTo ? normalizeRedirectUrl(redirectTo) : undefined;
@@ -270,7 +215,7 @@ export async function signUpWithEmailPassword({ email, password, fullName, phone
 
   return {
     data,
-    error: error ? error.message : null,
+    error: error ? getFriendlyErrorMessage(error, UI_MESSAGES.auth.emailAlreadyRegistered) : null,
   };
 }
 
@@ -278,7 +223,7 @@ export async function sendPasswordResetEmail(email: string, redirectTo: string, 
   const resolvedClient = client ?? getSupabaseBrowserClient();
 
   if (!resolvedClient) {
-    return { error: "Supabase is not configured." };
+    return { error: UI_MESSAGES.generic.server };
   }
 
   const resolvedRedirectTo = normalizeRedirectUrl(redirectTo);
@@ -288,7 +233,7 @@ export async function sendPasswordResetEmail(email: string, redirectTo: string, 
   });
 
   return {
-    error: error ? error.message : null,
+    error: error ? getFriendlyErrorMessage(error, UI_MESSAGES.generic.server) : null,
   };
 }
 
@@ -296,7 +241,7 @@ export async function resendVerificationEmail(email: string, redirectTo: string,
   const resolvedClient = client ?? getSupabaseBrowserClient();
 
   if (!resolvedClient) {
-    return { error: "Supabase is not configured." };
+    return { error: UI_MESSAGES.generic.server };
   }
 
   const resolvedRedirectTo = normalizeRedirectUrl(redirectTo);
@@ -310,7 +255,7 @@ export async function resendVerificationEmail(email: string, redirectTo: string,
   });
 
   return {
-    error: error ? error.message : null,
+    error: error ? getFriendlyErrorMessage(error, UI_MESSAGES.generic.server) : null,
   };
 }
 
@@ -318,13 +263,13 @@ export async function updateSupabasePassword(password: string, client?: Supabase
   const resolvedClient = client ?? getSupabaseBrowserClient();
 
   if (!resolvedClient) {
-    return { error: "Supabase is not configured." };
+    return { error: UI_MESSAGES.generic.server };
   }
 
   const { error } = await resolvedClient.auth.updateUser({ password });
 
   return {
-    error: error ? error.message : null,
+    error: error ? getFriendlyErrorMessage(error, UI_MESSAGES.auth.sessionExpired) : null,
   };
 }
 
@@ -347,7 +292,7 @@ export async function signInWithOAuth(provider: OAuthProviderName, client?: Supa
   const resolvedClient = client ?? getSupabaseBrowserClient();
 
   if (!resolvedClient) {
-    return { data: null as { url: string | null } | null, error: "Supabase is not configured." };
+    return { data: null as { url: string | null } | null, error: UI_MESSAGES.generic.server };
   }
 
   const resolvedRedirectTo = redirectTo ? normalizeRedirectUrl(redirectTo) : undefined;
@@ -360,7 +305,7 @@ export async function signInWithOAuth(provider: OAuthProviderName, client?: Supa
 
   return {
     data,
-    error: error ? error.message : null,
+    error: error ? getFriendlyErrorMessage(error, UI_MESSAGES.generic.server) : null,
   };
 }
 
@@ -373,31 +318,4 @@ function normalizeRedirectUrl(value: string) {
   } catch {
     return undefined;
   }
-}
-
-function normalizePhoneNumber(value: string) {
-  const trimmed = value.trim().replace(/[\s()-]/g, "");
-  if (!trimmed) {
-    return "";
-  }
-
-  if (trimmed.startsWith("+")) {
-    const digits = `+${trimmed.slice(1).replace(/\D/g, "")}`;
-    return digits.length > 1 ? digits : "";
-  }
-
-  const digits = trimmed.replace(/\D/g, "");
-  if (!digits) {
-    return "";
-  }
-
-  if (digits.length === 10) {
-    return `+91${digits}`;
-  }
-
-  if (digits.length > 10 && digits.length <= 15) {
-    return `+${digits}`;
-  }
-
-  return "";
 }

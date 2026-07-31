@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getQaProductCatalog, isQaBypassEnabled } from "@/lib/qa-mode";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureCurrentUserProfile } from "@/lib/supabase/auth";
 
@@ -12,6 +13,10 @@ async function getClient(client?: SupabaseClient | null) {
 }
 
 export async function loadRemoteWishlistProductIds(userId: string, client?: SupabaseClient | null) {
+  if (isQaBypassEnabled()) {
+    return getQaProductCatalog().products.slice(0, 3).map((product) => product.id);
+  }
+
   const resolvedClient = await getClient(client);
 
   if (!resolvedClient) {
@@ -42,6 +47,10 @@ export async function replaceRemoteWishlistItems(
   productIds: string[],
   client?: SupabaseClient | null,
 ) {
+  if (isQaBypassEnabled()) {
+    return { error: null };
+  }
+
   const resolvedClient = await getClient(client);
 
   if (!resolvedClient) {

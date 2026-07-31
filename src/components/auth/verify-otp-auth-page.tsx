@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   AuthCard,
@@ -12,16 +12,20 @@ import {
   ValidationMessage,
 } from "./auth-kit";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getCurrentUserRoleKey, resendVerificationEmail, sendPhoneOtp, verifyPhoneOtp } from "@/lib/supabase/auth";
+import { getCurrentUserRoleKey, resendVerificationEmail } from "@/lib/supabase/auth";
 import { buildAuthRedirectUrl } from "@/lib/auth/redirect";
 import { resolvePostAuthPath } from "@/lib/auth";
+import { sendPhoneOtpRequest, verifyPhoneOtpRequest } from "@/lib/phone-auth";
+import { UI_MESSAGES } from "@/lib/messages";
 
 const RESEND_SECONDS = 28;
 
 function VerifyOtpAuthPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const email = searchParams.get("email")?.trim() ?? "";
   const phone = searchParams.get("phone")?.trim() ?? "";
+  const challengeId = searchParams.get("challengeId")?.trim() ?? "";
   const mode = searchParams.get("mode")?.trim() ?? "";
   const isPhoneVerification = Boolean(phone) && (mode === "phone-login" || mode === "phone-signup" || !email);
   const isEmailVerification = Boolean(email) || searchParams.get("mode") === "email-verification";
@@ -32,9 +36,9 @@ function VerifyOtpAuthPage() {
   >({
     tone: "info",
     title: isEmailVerification ? "Check your email" : "Enter the code to continue",
-    description: isEmailVerification
-      ? "We sent a verification link to your inbox. Open it to finish creating your account."
-      : "Enter the 6 digit code sent to your mobile number.",
+      description: isEmailVerification
+        ? UI_MESSAGES.auth.emailVerificationRequired
+        : "Enter the 6 digit code sent to your mobile number.",
   });
   const [resendTimer, setResendTimer] = useState(RESEND_SECONDS);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -69,17 +73,17 @@ function VerifyOtpAuthPage() {
       setStatus({
         tone: "error",
         title: "Enter all 6 digits",
-        description: "The OTP field needs a complete 6 digit code before verification can continue.",
+        description: UI_MESSAGES.auth.invalidOtp,
       });
       return;
     }
 
     setIsSubmitting(true);
-    setStatus({
-      tone: "info",
-      title: "Verifying code",
-      description: "Please wait while we confirm your code.",
-    });
+      setStatus({
+        tone: "info",
+        title: "Verifying code",
+        description: "Please wait while we confirm your code.",
+      });
 
     if (isPhoneVerification) {
       const client = getSupabaseBrowserClient();
@@ -89,22 +93,50 @@ function VerifyOtpAuthPage() {
         setStatus({
           tone: "error",
           title: "Unable to continue",
-          description: "Please try again in a moment.",
+          description: UI_MESSAGES.generic.server,
         });
         return;
       }
 
-      const result = await verifyPhoneOtp(phone, otp, client);
+      if (!challengeId) {
+        setIsSubmitting(false);
+        setStatus({
+          tone: "error",
+          title: "Missing verification session",
+          description: UI_MESSAGES.auth.expiredOtp,
+        });
+        return;
+      }
 
-      if (result.error) {
+      const result = await verifyPhoneOtpRequest({
+        phone,
+        otp,
+        challengeId,
+        purpose: mode === "phone-signup" ? "signup" : "login",
+        fullName: searchParams.get("name")?.trim() ?? "",
+        email: email || undefined,
+      });
+
+      if (result.error || !result.session) {
         setIsSubmitting(false);
         setStatus({
           tone: "error",
           title: "Unable to continue",
-          description: "Please check the code and try again.",
+          description: result.error ?? UI_MESSAGES.auth.invalidOtp,
         });
         return;
       }
+
+      await client.auth.setSession({
+        access_token: result.session.access_token,
+        refresh_token: result.session.refresh_token,
+      });
+
+      await client.auth.getSession();
+      await client.auth.refreshSession().catch(() => null);
+      await client.auth.getUser().catch(() => null);
+
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
 
       const role = await getCurrentUserRoleKey(client);
       const target = resolvePostAuthPath(role);
@@ -112,8 +144,8 @@ function VerifyOtpAuthPage() {
       setIsSubmitting(false);
       setStatus({
         tone: "success",
-        title: "Code verified",
-        description: "Redirecting now.",
+        title: "OTP Verified",
+        description: UI_MESSAGES.auth.otpVerified,
       });
       window.location.assign(target);
       return;
@@ -123,8 +155,8 @@ function VerifyOtpAuthPage() {
       setIsSubmitting(false);
       setStatus({
         tone: "success",
-        title: "Code verified",
-        description: "Your account is ready.",
+        title: "OTP Verified",
+        description: UI_MESSAGES.auth.otpVerified,
       });
     }, 750);
   };
@@ -134,8 +166,8 @@ function VerifyOtpAuthPage() {
     setOtp("");
     setStatus({
       tone: "info",
-      title: "Code resent",
-      description: "Please check your mobile number for the newest code.",
+      title: "OTP Resent",
+      description: UI_MESSAGES.auth.otpResent,
     });
   };
 
@@ -146,7 +178,7 @@ function VerifyOtpAuthPage() {
       setStatus({
         tone: "error",
         title: "Unable to resend",
-        description: "Please return to registration and request a fresh verification email.",
+        description: UI_MESSAGES.auth.emailVerificationRequired,
       });
       return;
     }
@@ -155,7 +187,7 @@ function VerifyOtpAuthPage() {
     setStatus({
       tone: "info",
       title: "Resending verification email",
-      description: "Please wait while we send the new link.",
+      description: UI_MESSAGES.auth.otpResent,
     });
 
     const result = await resendVerificationEmail(
@@ -172,7 +204,7 @@ function VerifyOtpAuthPage() {
       setStatus({
         tone: "error",
         title: "Unable to continue",
-        description: "Please try again in a moment.",
+        description: result.error ?? UI_MESSAGES.generic.server,
       });
       return;
     }
@@ -181,18 +213,16 @@ function VerifyOtpAuthPage() {
     setStatus({
       tone: "success",
       title: "Verification email sent",
-      description: "Please open the newest message in your inbox to continue.",
+      description: UI_MESSAGES.auth.verificationEmailSent,
     });
   };
 
   const handleResendPhoneCode = async () => {
-    const client = getSupabaseBrowserClient();
-
-    if (!client || !phone) {
+    if (!phone) {
       setStatus({
         tone: "error",
         title: "Unable to continue",
-        description: "Please return to login or sign-up and try again.",
+        description: UI_MESSAGES.generic.unexpected,
       });
       return;
     }
@@ -201,21 +231,22 @@ function VerifyOtpAuthPage() {
     setStatus({
       tone: "info",
       title: "Resending code",
-      description: "Please wait while we send a fresh code.",
+      description: UI_MESSAGES.auth.otpResent,
     });
 
-    const result = await sendPhoneOtp({
+    const result = await sendPhoneOtpRequest({
       phone,
-      client,
-      shouldCreateUser: mode === "phone-signup",
+      purpose: mode === "phone-signup" ? "signup" : "login",
+      fullName: searchParams.get("name")?.trim() ?? "",
+      email: email || undefined,
     });
 
-    if (result.error) {
+    if (result.error || !result.phone || !result.challengeId) {
       setResendLoading(false);
       setStatus({
         tone: "error",
         title: "Unable to continue",
-        description: "Please try again in a moment.",
+        description: result.error ?? UI_MESSAGES.generic.unexpected,
       });
       return;
     }
@@ -223,10 +254,15 @@ function VerifyOtpAuthPage() {
     setResendLoading(false);
     setResendTimer(RESEND_SECONDS);
     setOtp("");
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("challengeId", result.challengeId);
+    nextUrl.searchParams.set("phone", result.phone);
+    nextUrl.searchParams.set("mode", mode || (email ? "phone-login" : "phone-login"));
+    router.replace(`${nextUrl.pathname}${nextUrl.search}`);
     setStatus({
       tone: "success",
-      title: "Code resent",
-      description: "Please check your mobile number for the newest code.",
+      title: "OTP Resent",
+      description: UI_MESSAGES.auth.otpResent,
     });
   };
 

@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { softDeleteCurrentProfile } from "@/lib/account-service";
+import { UI_MESSAGES, getFriendlyErrorMessage } from "@/lib/messages";
 
 type MenuItem = {
   label: string;
@@ -193,7 +194,7 @@ function AccountPage() {
 
   const handleDeleteAccount = async () => {
     if (!accountId) {
-      toast({ title: "Account unavailable", description: "Please sign in again to manage your account.", variant: "danger" });
+      toast({ title: "Account unavailable", description: UI_MESSAGES.auth.sessionExpired, variant: "danger" });
       return;
     }
 
@@ -204,7 +205,7 @@ function AccountPage() {
 
     const client = getSupabaseBrowserClient();
     if (!client) {
-      toast({ title: "Supabase unavailable", description: "Please try again after reconnecting.", variant: "danger" });
+      toast({ title: "Account unavailable", description: UI_MESSAGES.generic.server, variant: "danger" });
       return;
     }
 
@@ -213,14 +214,14 @@ function AccountPage() {
     setDeleteBusy(false);
 
     if (result.error) {
-      toast({ title: "Delete failed", description: result.error, variant: "danger" });
+      toast({ title: "Delete failed", description: getFriendlyErrorMessage(result.error, UI_MESSAGES.generic.server), variant: "danger" });
       return;
     }
 
     await signOut();
     router.replace("/");
     router.refresh();
-    toast({ title: "Account deleted", description: "Your account was removed from this session.", variant: "success" });
+    toast({ title: "Account deleted", description: UI_MESSAGES.auth.logoutSuccess, variant: "success" });
   };
 
   const handleLanguageChange = (nextLanguage: "English" | "Hindi") => {
@@ -238,7 +239,7 @@ function AccountPage() {
 
   const handleReferralShare = async () => {
     if (!profile?.customer_code) {
-      toast({ title: "Referral unavailable", description: "Your referral code is not ready yet.", variant: "warning" });
+      toast({ title: "Referral unavailable", description: UI_MESSAGES.generic.unexpected, variant: "warning" });
       return;
     }
 
@@ -251,7 +252,7 @@ function AccountPage() {
       await navigator.clipboard.writeText(`${message} ${referralLink}`);
       toast({ title: "Referral copied", description: "Your referral text is ready to paste.", variant: "success" });
     } catch {
-      toast({ title: "Share unavailable", description: "We could not open the share flow.", variant: "danger" });
+      toast({ title: "Share unavailable", description: UI_MESSAGES.generic.unexpected, variant: "danger" });
     }
   };
 
@@ -269,19 +270,19 @@ function AccountPage() {
       await navigator.clipboard.writeText(shareUrl);
       toast({ title: "App link copied", description: "The app link is ready to share.", variant: "success" });
     } catch {
-      toast({ title: "Share unavailable", description: "We could not open the share flow.", variant: "danger" });
+      toast({ title: "Share unavailable", description: UI_MESSAGES.generic.unexpected, variant: "danger" });
     }
   };
 
   const handleSaveProfile = async () => {
     const client = getSupabaseBrowserClient();
     if (!client) {
-      toast({ title: "Profile unavailable", description: "Supabase is not configured in this session.", variant: "danger" });
+      toast({ title: "Profile unavailable", description: UI_MESSAGES.generic.server, variant: "danger" });
       return;
     }
 
     if (!profile) {
-      toast({ title: "Profile unavailable", description: "No live profile was found for this session.", variant: "danger" });
+      toast({ title: "Profile unavailable", description: UI_MESSAGES.auth.sessionExpired, variant: "danger" });
       return;
     }
 
@@ -297,13 +298,13 @@ function AccountPage() {
     setSaveBusy(false);
 
     if (error) {
-      toast({ title: "Profile update failed", description: error.message, variant: "danger" });
+      toast({ title: "Profile update failed", description: getFriendlyErrorMessage(error, UI_MESSAGES.generic.server), variant: "danger" });
       return;
     }
 
     await refresh();
     setEditOpen(false);
-    toast({ title: "Profile updated", description: "Your account details were saved successfully.", variant: "success" });
+    toast({ title: "Profile updated", description: UI_MESSAGES.profile.updated, variant: "success" });
   };
 
   return (

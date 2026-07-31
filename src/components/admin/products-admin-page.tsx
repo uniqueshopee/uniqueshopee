@@ -19,6 +19,7 @@ import {
   AdminStatusBadge,
   PageHeader,
 } from "@/components/admin/admin-kit";
+import { getQaProductCatalog, isQaBypassEnabled } from "@/lib/qa-mode";
 import {
   ChevronDown,
   Copy,
@@ -328,7 +329,30 @@ function stockStatusFromValues(currentQuantity: number, reservedQuantity: number
 }
 
 function makeId() {
-  return crypto.randomUUID();
+  if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.getRandomValues === "function") {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join("-");
 }
 
 function createImageDraft(url: string, index: number): ProductImageDraft {
@@ -716,6 +740,21 @@ function ProductsAdminPage() {
     setLoadError(null);
 
     try {
+      if (isQaBypassEnabled()) {
+        // DEV ONLY
+        // REMOVE OR DISABLE BEFORE PRODUCTION
+        const catalog = getQaProductCatalog();
+        setDepartments(catalog.departments as DepartmentRecord[]);
+        setCategories(catalog.categories as CategoryRecord[]);
+        setBrands(catalog.brands as BrandRecord[]);
+        setProducts(catalog.products as ProductRecord[]);
+        setProductImages(catalog.productImages as ProductImageRecord[]);
+        setProductVariants(catalog.productVariants as ProductVariantRecord[]);
+        setInventories(catalog.inventories as InventoryRecord[]);
+        setIsLoading(false);
+        return;
+      }
+
       const client = getSupabaseBrowserClient();
       if (!client) {
         setLoadError("Supabase is not configured for this environment.");

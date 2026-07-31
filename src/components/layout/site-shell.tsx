@@ -23,7 +23,7 @@ function SiteShell({ children }: { children: ReactNode }) {
   return (
     <>
       <Navbar />
-      <main id="main-content" className="flex-1 pb-16 lg:pb-0">
+      <main id="main-content" className="flex-1 pb-[calc(12rem+env(safe-area-inset-bottom))] lg:pb-0">
         {children}
       </main>
       <Footer />

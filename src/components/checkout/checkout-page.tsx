@@ -36,6 +36,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatRazorpayContact, getRazorpayKeyId, loadRazorpayCheckoutScript, type RazorpaySuccessResponse, type RazorpayWindow } from "@/lib/razorpay";
 import { toast } from "@/hooks/use-toast";
 import { useCartStore } from "@/store/cart-store";
+import { UI_MESSAGES, getFriendlyErrorMessage } from "@/lib/messages";
 
 type PaymentMethod = "cod" | "razorpay";
 
@@ -611,7 +612,7 @@ function CheckoutShell() {
       if (!user || !accountId) {
         setPricing(null);
         setPricingLoading(false);
-        setPricingError("Sign in to see live checkout totals.");
+        setPricingError(UI_MESSAGES.checkout.signInRequired);
         return;
       }
 
@@ -619,7 +620,7 @@ function CheckoutShell() {
       if (!client) {
         setPricing(null);
         setPricingLoading(false);
-        setPricingError("Supabase is not configured.");
+        setPricingError(UI_MESSAGES.checkout.checkoutUnavailable);
         return;
       }
 
@@ -632,7 +633,7 @@ function CheckoutShell() {
 
       if (result.error || !result.pricing) {
         setPricing(null);
-        setPricingError(result.error ?? "Unable to calculate checkout totals.");
+        setPricingError(result.error ? getFriendlyErrorMessage(result.error, UI_MESSAGES.generic.server) : UI_MESSAGES.generic.server);
       } else {
         setPricing(result.pricing);
         setPricingError(null);
@@ -867,7 +868,7 @@ function CheckoutShell() {
     if (!validateDraftAddress()) {
       toast({
         title: "Check address details",
-        description: "Please complete the required fields before saving.",
+        description: UI_MESSAGES.checkout.addressDetailsRequired,
         variant: "warning",
       });
       return;
@@ -877,7 +878,7 @@ function CheckoutShell() {
     if (!client || !accountId) {
       toast({
         title: "Supabase not ready",
-        description: "Please sign in again to save the address.",
+        description: UI_MESSAGES.auth.sessionExpired,
         variant: "warning",
       });
       return;
@@ -925,7 +926,7 @@ function CheckoutShell() {
       setAddressBusy(false);
       toast({
         title: "Address not saved",
-        description: errorMessage,
+        description: getFriendlyErrorMessage(errorMessage, UI_MESSAGES.generic.server),
         variant: "warning",
       });
       return;
@@ -983,7 +984,7 @@ function CheckoutShell() {
       setAddressBusy(false);
       toast({
         title: "Address not deleted",
-        description: error.message,
+        description: getFriendlyErrorMessage(error, UI_MESSAGES.generic.server),
         variant: "warning",
       });
       return;
@@ -1029,11 +1030,11 @@ function CheckoutShell() {
     const code = resolveCouponCode(couponInput);
     if (code) {
       setCouponCode(code);
-      toast({ title: "Coupon applied", description: `${code} will be validated against live pricing.`, variant: "success" });
+      toast({ title: "Coupon applied", description: UI_MESSAGES.checkout.couponApplied, variant: "success" });
       return;
     }
     setCouponCode(null);
-    toast({ title: "Coupon cleared", description: "Enter a coupon code to calculate live totals.", variant: "warning" });
+    toast({ title: "Coupon cleared", description: UI_MESSAGES.checkout.couponCleared, variant: "warning" });
   };
 
   const buildAddressSnapshot = (address: CheckoutAddress) => ({
@@ -1059,7 +1060,7 @@ function CheckoutShell() {
     if (!user || !accountId) {
       toast({
         title: "Sign in required",
-        description: user ? "Your account is still being prepared. Please try again in a moment." : "Please log in to place your order.",
+        description: user ? UI_MESSAGES.generic.server : UI_MESSAGES.checkout.signInRequired,
         variant: "warning",
       });
       return;
@@ -1068,7 +1069,7 @@ function CheckoutShell() {
     if (!selectedAddress) {
       toast({
         title: "Select Delivery Address",
-        description: "Choose a saved address or add a new one before placing the order.",
+        description: UI_MESSAGES.checkout.addressRequired,
         variant: "warning",
       });
       return;
@@ -1081,7 +1082,7 @@ function CheckoutShell() {
       if (!client) {
         toast({
           title: "Supabase not ready",
-          description: "The live checkout flow needs your database connection.",
+          description: UI_MESSAGES.checkout.checkoutUnavailable,
           variant: "warning",
         });
         return;
@@ -1105,7 +1106,7 @@ function CheckoutShell() {
       if (orderResult.error || !orderResult.orderId) {
         toast({
           title: "Order not placed",
-          description: orderResult.error ?? "We could not complete checkout right now.",
+          description: orderResult.error ? getFriendlyErrorMessage(orderResult.error, UI_MESSAGES.generic.server) : UI_MESSAGES.generic.server,
           variant: "warning",
         });
         return;
@@ -1121,7 +1122,7 @@ function CheckoutShell() {
 
       toast({
         title: "COD order placed",
-        description: `Your order ${orderResult.orderNumber ?? ""} is confirmed for delivery.`,
+        description: UI_MESSAGES.checkout.orderCreated,
         variant: "success",
       });
       router.push(`/orders/${orderResult.orderId}`);
@@ -1132,7 +1133,7 @@ function CheckoutShell() {
     if (!razorpayKeyId) {
       toast({
         title: "Razorpay not ready",
-        description: "Add the Razorpay public key to enable online payments.",
+        description: UI_MESSAGES.checkout.checkoutUnavailable,
         variant: "warning",
       });
       return;
@@ -1164,14 +1165,14 @@ function CheckoutShell() {
         | null;
 
       if (!createResponse.ok || !createData?.razorpayOrderId || !createData.amount || !createData.currency) {
-        throw new Error(createData?.error ?? "Unable to create Razorpay order.");
+        throw new Error(getFriendlyErrorMessage(createData?.error ?? "", UI_MESSAGES.generic.server));
       }
 
       await loadRazorpayCheckoutScript();
 
       const resolvedKey = createData.keyId ?? razorpayKeyId;
       if (!resolvedKey) {
-        throw new Error("Razorpay key is missing.");
+        throw new Error(UI_MESSAGES.checkout.checkoutUnavailable);
       }
 
       const paymentReference = createData.razorpayOrderId;
@@ -1179,7 +1180,7 @@ function CheckoutShell() {
       const RazorpayConstructor = (window as RazorpayWindow).Razorpay;
 
       if (!RazorpayConstructor) {
-        throw new Error("Razorpay checkout could not be loaded.");
+        throw new Error(UI_MESSAGES.checkout.checkoutUnavailable);
       }
 
       const paymentResult = await new Promise<RazorpaySuccessResponse>((resolve, reject) => {
@@ -1255,7 +1256,7 @@ function CheckoutShell() {
         | null;
 
       if (!verifyResponse.ok || !verifyData?.orderId) {
-        throw new Error(verifyData?.error ?? "Payment verified, but the order could not be finalized.");
+        throw new Error(getFriendlyErrorMessage(verifyData?.error ?? "", UI_MESSAGES.generic.server));
       }
 
       clearCart();
@@ -1268,12 +1269,12 @@ function CheckoutShell() {
 
       toast({
         title: "Payment successful",
-        description: `Your order ${verifyData.orderNumber ?? ""} is confirmed.`,
+        description: UI_MESSAGES.checkout.paymentSuccess,
         variant: "success",
       });
       router.push(`/orders/${verifyData.orderId}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "We could not complete the Razorpay payment.";
+      const message = getFriendlyErrorMessage(error, UI_MESSAGES.checkout.paymentFailed);
       toast({
         title: "Payment not completed",
         description: message,
@@ -1572,7 +1573,7 @@ function CheckoutShell() {
                   description="Adjust quantities, remove items, or open a product page without leaving checkout."
                 />
 
-                <div className="mt-5 grid grid-cols-2 gap-3">
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {items.map((item, index) => {
                     const product = cartProducts[index];
                     if (!product) {

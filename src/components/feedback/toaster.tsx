@@ -38,15 +38,15 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       exit={{ opacity: 0, x: 32, transition: { duration: 0.15 } }}
       transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        "pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-[var(--radius-lg)]",
-        "border border-border bg-background p-4 shadow-[var(--shadow-lg)]",
+        "pointer-events-auto flex w-full max-w-[calc(100vw-1.5rem)] items-start gap-3 rounded-[var(--radius-lg)]",
+        "border border-border bg-background p-4 shadow-[var(--shadow-lg)] sm:max-w-sm",
       )}
     >
       <Icon className={cn("mt-0.5 h-5 w-5 shrink-0", ICON_COLOR[variant])} aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-bold text-text">{toast.title}</p>
+        <p className="text-sm font-bold leading-5 text-text break-words">{toast.title}</p>
         {toast.description && (
-          <p className="mt-0.5 text-sm font-medium text-muted">{toast.description}</p>
+          <p className="mt-0.5 text-sm font-medium leading-5 text-muted break-words">{toast.description}</p>
         )}
       </div>
       <button
@@ -66,7 +66,7 @@ function Toaster() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[100] flex flex-col items-end gap-2 p-4 sm:bottom-4 sm:right-4 sm:left-auto"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-[100] flex flex-col items-stretch gap-2 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:bottom-4 sm:right-4 sm:left-auto sm:items-end sm:p-4"
       aria-live="polite"
     >
       <AnimatePresence>

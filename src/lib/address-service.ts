@@ -1,6 +1,7 @@
 "use client";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getQaAddresses, isQaBypassEnabled } from "@/lib/qa-mode";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export type CheckoutAddress = {
@@ -58,6 +59,10 @@ export function mapAddressRow(row: AddressRow): CheckoutAddress {
 }
 
 export async function loadUserAddresses(userId: string, client?: SupabaseClient | null) {
+  if (isQaBypassEnabled()) {
+    return getQaAddresses();
+  }
+
   const resolvedClient = await getClient(client);
   if (!resolvedClient) {
     return [] as CheckoutAddress[];

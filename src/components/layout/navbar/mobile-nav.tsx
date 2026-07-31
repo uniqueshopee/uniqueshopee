@@ -5,12 +5,22 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AnimatePresence, motion } from "framer-motion";
-import { LogOut, Menu, ShoppingCart, X } from "lucide-react";
+import { Heart, Home, LayoutGrid, LogOut, Menu, ShoppingCart, User, X } from "lucide-react";
 import type { SVGProps } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
-import { SITE_NAME, CATEGORIES } from "@/lib/constants";
+import { SITE_NAME, CATEGORIES, MOBILE_BOTTOM_NAV } from "@/lib/constants";
 import { useCartStore } from "@/store/cart-store";
 import { CONTACT_DETAILS } from "@/lib/support-data";
+import { cn } from "@/lib/utils";
+import { isQaBypassEnabled } from "@/lib/qa-mode";
+
+const ICONS = {
+  home: Home,
+  grid: LayoutGrid,
+  heart: Heart,
+  cart: ShoppingCart,
+  user: User,
+};
 
 function WhatsAppIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -52,7 +62,14 @@ function MobileNav() {
       </button>
 
       <Link href="/" className="flex-1 truncate text-base font-bold text-primary">
-        {SITE_NAME}
+        <span className="flex items-center gap-2">
+          {SITE_NAME}
+          {isQaBypassEnabled() ? (
+            <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-warning">
+              QA Mode
+            </span>
+          ) : null}
+        </span>
       </Link>
 
       <div className="flex items-center gap-1.5">
@@ -101,7 +118,7 @@ function MobileNav() {
                   animate={{ x: 0 }}
                   exit={{ x: "-100%" }}
                   transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                  className="fixed inset-y-0 left-0 z-50 flex w-[82%] max-w-xs flex-col bg-background p-5 shadow-[var(--shadow-lg)]"
+                  className="fixed inset-y-0 left-0 z-50 flex w-[min(88vw,22rem)] max-w-xs flex-col bg-background p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-lg)]"
                 >
                   <div className="mb-6 flex items-center justify-between">
                     <Dialog.Title className="text-base font-bold text-text">
@@ -117,17 +134,45 @@ function MobileNav() {
                     </Dialog.Close>
                   </div>
 
-                  <nav aria-label="Categories" className="flex flex-col gap-1">
-                    {CATEGORIES.map((category) => (
-                      <Link
-                        key={category.id}
-                        href={category.href}
-                        onClick={() => setMenuOpen(false)}
-                        className="rounded-[var(--radius-md)] px-3 py-3 text-sm font-semibold text-text hover:bg-background-secondary"
-                      >
-                        {category.name}
-                      </Link>
-                    ))}
+                  <nav aria-label="Primary" className="space-y-4">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Quick Actions</p>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        {MOBILE_BOTTOM_NAV.map((item) => {
+                          const Icon = ICONS[item.icon];
+                          return (
+                            <Link
+                              key={item.href}
+                              href={item.href}
+                              onClick={() => setMenuOpen(false)}
+                              className={cn(
+                                "flex items-center gap-2 rounded-[var(--radius-md)] px-3 py-3 text-sm font-semibold transition-colors",
+                                "text-text hover:bg-background-secondary",
+                              )}
+                            >
+                              <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                              <span className="truncate">{item.label}</span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Categories</p>
+                      <div className="mt-2 flex flex-col gap-1">
+                        {CATEGORIES.map((category) => (
+                          <Link
+                            key={category.id}
+                            href={category.href}
+                            onClick={() => setMenuOpen(false)}
+                            className="rounded-[var(--radius-md)] px-3 py-3 text-sm font-semibold text-text hover:bg-background-secondary"
+                          >
+                            {category.name}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
                   </nav>
 
                   <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">

@@ -19,9 +19,11 @@ import {
   ValidationMessage,
 } from "./auth-kit";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getCurrentUserRoleKey, sendPhoneOtp, signUpWithEmailPassword } from "@/lib/supabase/auth";
+import { getCurrentUserRoleKey, signUpWithEmailPassword } from "@/lib/supabase/auth";
 import { buildAuthRedirectUrl } from "@/lib/auth/redirect";
 import { resolvePostAuthPath } from "@/lib/auth";
+import { sendPhoneOtpRequest } from "@/lib/phone-auth";
+import { UI_MESSAGES } from "@/lib/messages";
 
 const registerSchema = z
   .object({
@@ -94,7 +96,7 @@ function RegisterAuthPage() {
         setStatus({
           tone: "info",
           title: "Please try again",
-          description: "Your account is still being prepared.",
+          description: UI_MESSAGES.generic.server,
         });
         return;
       }
@@ -108,7 +110,7 @@ function RegisterAuthPage() {
       setStatus({
         tone: "info",
         title: "Creating your account",
-        description: "Please wait while we create your account.",
+        description: UI_MESSAGES.auth.registrationSuccess,
       });
 
       const result = await signUpWithEmailPassword({
@@ -123,9 +125,9 @@ function RegisterAuthPage() {
       if (result.error) {
         setIsSubmitting(false);
         setStatus({
-          tone: "info",
-          title: "Please try again",
-          description: "Your account is still being prepared.",
+          tone: "error",
+          title: "Account creation failed",
+          description: result.error,
         });
         return;
       }
@@ -137,8 +139,8 @@ function RegisterAuthPage() {
         const target = resolvePostAuthPath(role);
         setStatus({
           tone: "success",
-          title: "Account created",
-          description: "Redirecting now.",
+          title: "Account Created",
+          description: UI_MESSAGES.auth.accountCreated,
         });
         router.replace(target);
         router.refresh();
@@ -148,8 +150,8 @@ function RegisterAuthPage() {
 
       setStatus({
         tone: "success",
-        title: "Check your inbox",
-        description: "Open the verification link to finish creating your account.",
+        title: "Verification email sent",
+        description: UI_MESSAGES.auth.verificationEmailSent,
       });
       router.replace(`/verify-otp?email=${encodeURIComponent(values.email)}&mode=email-verification`);
       setIsSubmitting(false);
@@ -158,7 +160,7 @@ function RegisterAuthPage() {
       setStatus({
         tone: "error",
         title: "Please check the fields",
-        description: "Make sure your account details are complete and valid.",
+        description: UI_MESSAGES.generic.unexpected,
       });
     },
   );
@@ -171,7 +173,7 @@ function RegisterAuthPage() {
       setStatus({
         tone: "info",
         title: "Please check the fields",
-        description: "Add your name, mobile number, and accept the terms to continue.",
+        description: UI_MESSAGES.generic.unexpected,
       });
       return;
     }
@@ -182,7 +184,7 @@ function RegisterAuthPage() {
       setStatus({
         tone: "info",
         title: "Please try again",
-        description: "Your account is still being prepared.",
+        description: UI_MESSAGES.generic.server,
       });
       return;
     }
@@ -191,31 +193,34 @@ function RegisterAuthPage() {
     setStatus({
       tone: "info",
       title: "Sending code",
-      description: "Please wait while we send a one-time code to your mobile number.",
+      description: UI_MESSAGES.auth.otpSent,
     });
 
-    const result = await sendPhoneOtp({
+    const result = await sendPhoneOtpRequest({
       phone: values.mobile,
-      client,
-      shouldCreateUser: true,
+      purpose: "signup",
+      fullName,
+      email: values.email,
     });
 
-    if (result.error || !result.phone) {
+    if (result.error || !result.phone || !result.challengeId) {
       setIsSubmitting(false);
       setStatus({
-        tone: "info",
-        title: "Please try again",
-        description: "Your account is still being prepared.",
+        tone: "error",
+        title: "Unable to continue",
+        description: result.error ?? UI_MESSAGES.generic.unexpected,
       });
       return;
     }
 
     setStatus({
       tone: "success",
-      title: "Code sent",
-      description: "Enter the verification code on the next screen.",
+      title: "OTP Sent",
+      description: UI_MESSAGES.auth.otpSent,
     });
-    router.push(`/verify-otp?phone=${encodeURIComponent(result.phone)}&mode=phone-signup&name=${encodeURIComponent(fullName)}`);
+    router.push(
+      `/verify-otp?phone=${encodeURIComponent(result.phone)}&challengeId=${encodeURIComponent(result.challengeId)}&mode=phone-signup&name=${encodeURIComponent(fullName)}`,
+    );
     setIsSubmitting(false);
   };
 
