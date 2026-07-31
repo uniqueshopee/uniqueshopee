@@ -23,7 +23,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open the local development URL shown in your terminal after running `npm run dev`.
 
 ## Folder structure
 

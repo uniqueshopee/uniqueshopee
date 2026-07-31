@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { FaqPage } from "@/components/support/support-kit";
+import { createPageMetadata } from "@/lib/seo";
 
-export async function generateMetadata(): Promise<Metadata> {
-  return {
-    title: "FAQ | UniqueShopee",
-    description: "Browse frequently asked questions with categories, search, and expandable answers.",
-  };
-}
+export const metadata: Metadata = createPageMetadata({
+  title: "FAQ | UniqueShopee",
+  description: "Browse frequently asked questions with categories, search, and expandable answers.",
+  pathname: "/faq",
+});
 
 export default function FaqRoute() {
   return (

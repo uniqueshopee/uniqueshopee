@@ -1,8 +1,8 @@
 import type { Session, SupabaseClient, User } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient } from "./client";
-import { readEnvironmentValue } from "@/lib/environment";
 import type { Database } from "./types";
 import { UI_MESSAGES, getFriendlyErrorMessage } from "@/lib/messages";
+import { getSiteUrl } from "@/lib/seo";
 
 export type SupabaseAuthClient = SupabaseClient<Database>;
 export type AuthRoleKey = "customer" | "admin" | "manager" | "staff";
@@ -310,8 +310,7 @@ export async function signInWithOAuth(provider: OAuthProviderName, client?: Supa
 }
 
 function normalizeRedirectUrl(value: string) {
-  const siteUrl = readEnvironmentValue("NEXT_PUBLIC_SITE_URL");
-  const baseUrl = siteUrl ?? (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+  const baseUrl = getSiteUrl();
 
   try {
     return new URL(value, baseUrl).toString();

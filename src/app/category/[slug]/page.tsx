@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { redirect } from "next/navigation";
 import { CategoryLandingPage } from "@/components/category/category-landing-page";
+import { JsonLdScript } from "@/components/seo/json-ld";
 import { getCatalogSnapshot, getLiveCategoryBySlug } from "@/lib/catalog";
+import { breadcrumbJsonLd, createPageMetadata, faqJsonLd, absoluteUrl } from "@/lib/seo";
 import type { Product } from "@/types";
 
 type CategoryPageProps = {
@@ -25,10 +27,11 @@ export async function generateMetadata({ params }: CategoryPageProps): Promise<M
     };
   }
 
-  return {
+  return createPageMetadata({
     title: `${category.title} Category | UniqueShopee`,
     description: category.description,
-  };
+    pathname: `/category/${slug}`,
+  });
 }
 
 export default async function CategoryPage({ params }: CategoryPageProps) {
@@ -55,10 +58,16 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
   const recentProducts: Product[] = catalog.length > 0 ? catalog.slice(0, 4) : snapshot.products.slice(0, 4);
 
   return (
-    <CategoryLandingPage
-      category={category}
-      products={catalog}
-      recentProducts={recentProducts}
-    />
+    <>
+      <JsonLdScript
+        data={breadcrumbJsonLd([
+          { name: "Home", item: absoluteUrl("/") },
+          { name: "Categories", item: absoluteUrl("/categories") },
+          { name: category.title, item: absoluteUrl(`/category/${category.slug}`) },
+        ])}
+      />
+      {category.faq.length > 0 && <JsonLdScript data={faqJsonLd(category.faq)} />}
+      <CategoryLandingPage category={category} products={catalog} recentProducts={recentProducts} />
+    </>
   );
 }

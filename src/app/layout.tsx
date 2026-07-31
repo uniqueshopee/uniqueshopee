@@ -6,14 +6,49 @@ import { CartSyncProvider } from "@/components/cart/cart-sync-provider";
 import { WishlistSyncProvider } from "@/components/wishlist/wishlist-sync-provider";
 import { Toaster } from "@/components/feedback/toaster";
 import { SiteShell } from "@/components/layout/site-shell";
+import { JsonLdScript } from "@/components/seo/json-ld";
 import { formatMissingEnvironmentMessage } from "@/lib/environment";
+import { absoluteUrl, getSiteUrl, organizationJsonLd } from "@/lib/seo";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(getSiteUrl()),
   title: {
     default: "UniqueShopee",
-    template: "%s · UniqueShopee",
+    template: "%s | UniqueShopee",
   },
   description: "Premium online store for Paints, Plumbing Products and Home Improvement.",
+  openGraph: {
+    title: "UniqueShopee",
+    description: "Premium online store for Paints, Plumbing Products and Home Improvement.",
+    url: "/",
+    siteName: "UniqueShopee",
+    type: "website",
+    images: [
+      {
+        url: absoluteUrl("/images/seo/og-default.svg"),
+        width: 1200,
+        height: 630,
+        alt: "UniqueShopee storefront",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "UniqueShopee",
+    description: "Premium online store for Paints, Plumbing Products and Home Improvement.",
+    images: [absoluteUrl("/images/seo/og-default.svg")],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
 };
 
 export const viewport: Viewport = {
@@ -46,6 +81,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             </WishlistSyncProvider>
           </CartSyncProvider>
         </AuthProvider>
+        <JsonLdScript data={organizationJsonLd()} />
         <Toaster />
       </body>
     </html>

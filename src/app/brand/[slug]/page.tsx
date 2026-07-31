@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { BrandLandingPage } from "@/components/brand/brand-landing-page";
+import { JsonLdScript } from "@/components/seo/json-ld";
 import { getCatalogSnapshot, getLiveBrandBySlug } from "@/lib/catalog";
+import { absoluteUrl, breadcrumbJsonLd, createPageMetadata, faqJsonLd } from "@/lib/seo";
 
 type BrandPageProps = {
   params: Promise<{
@@ -23,10 +25,11 @@ export async function generateMetadata({ params }: BrandPageProps): Promise<Meta
     };
   }
 
-  return {
+  return createPageMetadata({
     title: `${brand.name} | UniqueShopee`,
     description: brand.description,
-  };
+    pathname: `/brand/${slug}`,
+  });
 }
 
 export default async function BrandPage({ params }: BrandPageProps) {
@@ -46,11 +49,21 @@ export default async function BrandPage({ params }: BrandPageProps) {
   );
 
   return (
-    <BrandLandingPage
-      brand={brand}
-      featuredProducts={featuredProducts}
-      recentProducts={recentProducts.length > 0 ? recentProducts : snapshot.products.slice(0, 4)}
-      relatedBrands={relatedBrands}
-    />
+    <>
+      <JsonLdScript
+        data={breadcrumbJsonLd([
+          { name: "Home", item: absoluteUrl("/") },
+          { name: "Products", item: absoluteUrl("/products") },
+          { name: brand.name, item: absoluteUrl(`/brand/${brand.slug}`) },
+        ])}
+      />
+      {brand.faqs.length > 0 && <JsonLdScript data={faqJsonLd(brand.faqs)} />}
+      <BrandLandingPage
+        brand={brand}
+        featuredProducts={featuredProducts}
+        recentProducts={recentProducts.length > 0 ? recentProducts : snapshot.products.slice(0, 4)}
+        relatedBrands={relatedBrands}
+      />
+    </>
   );
 }

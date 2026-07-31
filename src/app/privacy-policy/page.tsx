@@ -4,11 +4,13 @@ import { Mail, MessageCircleMore, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CONTACT_DETAILS } from "@/lib/support-data";
+import { createPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = createPageMetadata({
   title: "Privacy Policy | UniqueShopee",
   description: "Read how UniqueShopee collects, uses, and protects customer information.",
-};
+  pathname: "/privacy-policy",
+});
 
 const SUPPORT_PHONE_DIGITS = CONTACT_DETAILS.customerCare.replace(/\D/g, "");
 const WHATSAPP_URL = SUPPORT_PHONE_DIGITS ? `https://wa.me/${SUPPORT_PHONE_DIGITS}` : "https://wa.me/";

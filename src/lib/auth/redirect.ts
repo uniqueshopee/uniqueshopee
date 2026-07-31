@@ -1,4 +1,4 @@
-import { readEnvironmentValue } from "@/lib/environment";
+import { getSiteUrl } from "@/lib/seo";
 import type { AuthRoleKey } from "@/lib/supabase/auth";
 
 const ADMIN_ROLES: AuthRoleKey[] = ["admin", "manager"];
@@ -16,7 +16,7 @@ export function sanitizeRedirectPath(value: string | null | undefined, fallback 
 }
 
 export function buildAuthRedirectUrl(pathname: string, searchParams?: Record<string, string | number | boolean | null | undefined>) {
-  const baseUrl = readEnvironmentValue("NEXT_PUBLIC_SITE_URL") ?? (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+  const baseUrl = getSiteUrl();
   const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
   const url = new URL(normalizedPath, baseUrl);
 

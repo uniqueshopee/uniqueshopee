@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { SearchExperience } from "@/components/search/search-experience";
 import { getLiveSearchData } from "@/lib/catalog";
+import { createPageMetadata } from "@/lib/seo";
 
 type SearchPageProps = {
   searchParams: Promise<{
@@ -12,12 +13,13 @@ export async function generateMetadata({ searchParams }: SearchPageProps): Promi
   const { q } = await searchParams;
   const query = typeof q === "string" ? q.trim() : "";
 
-  return {
+  return createPageMetadata({
     title: query ? `Search results for "${query}" | UniqueShopee` : "Search | UniqueShopee",
     description: query
       ? `Search results for ${query} across UniqueShopee's premium Paint and Plumbing catalog.`
       : "Search UniqueShopee's premium Paint and Plumbing catalog.",
-  };
+    pathname: "/search",
+  });
 }
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {

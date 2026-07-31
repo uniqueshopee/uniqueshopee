@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { DepartmentLandingPage } from "@/components/department/department-landing-page";
+import { JsonLdScript } from "@/components/seo/json-ld";
 import { getCatalogSnapshot, getLiveDepartmentBySlug } from "@/lib/catalog";
+import { absoluteUrl, breadcrumbJsonLd, createPageMetadata } from "@/lib/seo";
 
 type DepartmentPageProps = {
   params: Promise<{
@@ -23,10 +25,11 @@ export async function generateMetadata({ params }: DepartmentPageProps): Promise
     };
   }
 
-  return {
+  return createPageMetadata({
     title: `${department.title} Department | UniqueShopee`,
     description: department.description,
-  };
+    pathname: `/department/${slug}`,
+  });
 }
 
 export default async function DepartmentPage({ params }: DepartmentPageProps) {
@@ -40,5 +43,15 @@ export default async function DepartmentPage({ params }: DepartmentPageProps) {
   const snapshot = await getCatalogSnapshot();
   const featuredProducts = snapshot.products.filter((product) => department.featuredProductIds.includes(product.id));
 
-  return <DepartmentLandingPage department={department} featuredProducts={featuredProducts} />;
+  return (
+    <>
+      <JsonLdScript
+        data={breadcrumbJsonLd([
+          { name: "Home", item: absoluteUrl("/") },
+          { name: department.title, item: absoluteUrl(`/department/${department.slug}`) },
+        ])}
+      />
+      <DepartmentLandingPage department={department} featuredProducts={featuredProducts} />
+    </>
+  );
 }
