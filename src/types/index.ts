@@ -32,6 +32,8 @@ export interface CartItem {
   quantity: number;
   slug?: string;
   category?: string;
+  brand?: string;
+  variant?: string;
   compareAtPrice?: number;
   inStock?: boolean;
   stockCount?: number;

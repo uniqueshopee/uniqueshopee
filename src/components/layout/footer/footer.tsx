@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Mail, MessageCircleMore, Phone } from "lucide-react";
@@ -17,8 +18,13 @@ const SOCIALS = [
 
 function Footer() {
   const pathname = usePathname();
+  const [currentYear, setCurrentYear] = useState<number | null>(null);
   const hideOnCartMobile = pathname === "/cart";
   const hideOnCheckout = pathname === "/checkout";
+
+  useEffect(() => {
+    setCurrentYear(new Date().getFullYear());
+  }, []);
 
   return (
     <footer
@@ -73,15 +79,12 @@ function Footer() {
                         type="button"
                         disabled
                         aria-disabled="true"
-                        className="text-sm font-medium text-muted/70 transition-colors cursor-not-allowed"
+                        className="cursor-not-allowed text-sm font-medium text-muted/70 transition-colors"
                       >
                         {link.label}
                       </button>
                     ) : (
-                      <Link
-                        href={link.href}
-                        className="text-sm font-medium text-muted transition-colors hover:text-accent"
-                      >
+                      <Link href={link.href} className="text-sm font-medium text-muted transition-colors hover:text-accent">
                         {link.label}
                       </Link>
                     )}
@@ -96,7 +99,7 @@ function Footer() {
       <div className="border-t border-border/70">
         <div className="mx-auto flex max-w-7xl flex-col-reverse items-center justify-between gap-3 px-4 py-5 sm:flex-row sm:px-6">
           <p className="text-xs font-medium text-muted">
-            © {new Date().getFullYear()} {SITE_NAME}. All rights reserved.
+            (c) {currentYear ?? ""} {SITE_NAME}. All rights reserved.
           </p>
           <p className="text-xs font-medium text-muted">
             Genuine brands, competitive prices and fast delivery.

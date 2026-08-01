@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowRight,
   Ban,
@@ -37,6 +37,7 @@ import {
   ORDER_MUTABLE_STATUS_OPTIONS,
   ORDER_STATUS_LABELS,
   ORDER_STATUS_TONE,
+  canCancelOrder,
   type OrderMutableStatus,
   type OrderItem,
   type OrderRecord,
@@ -44,10 +45,9 @@ import {
   type OrderStatus,
   type OrderTab,
   getOrderTab,
-  isOrderActive,
 } from "@/lib/orders-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { loadOrderById, updateOrderStatus, updateOrderTrackingNumber, type OrderAccessRole } from "@/lib/order-service";
+import { cancelOrder, loadOrderById, updateOrderStatus, updateOrderTrackingNumber, type OrderAccessRole } from "@/lib/order-service";
 import type { Product } from "@/types";
 import type { ReactNode } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -334,7 +334,36 @@ function OrderActionRow({
   order: OrderRecord;
 }) {
   const canReturn = order.status === "Delivered";
-  const canCancel = isOrderActive(order.status);
+  const canCancel = canCancelOrder(order.status);
+  const cancelMessage = "Order can no longer be cancelled because it has already been shipped.";
+  const router = useRouter();
+  const [cancelling, setCancelling] = useState(false);
+
+  const handleCancel = async () => {
+    if (!canCancel || cancelling) {
+      return;
+    }
+
+    setCancelling(true);
+    try {
+      const client = getSupabaseBrowserClient();
+      if (!client) {
+        toast({ title: "Supabase unavailable", description: "Order cancellation needs a connected Supabase client.", variant: "danger" });
+        return;
+      }
+
+      const result = await cancelOrder(client, order.id);
+      if (result.error) {
+        toast({ title: "Unable to cancel order", description: result.error, variant: "danger" });
+        return;
+      }
+
+      toast({ title: "Order cancelled", description: order.orderNumber, variant: "success" });
+      router.refresh();
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:grid-cols-3">
@@ -392,17 +421,24 @@ function OrderActionRow({
         <RotateCcw className="h-4 w-4" aria-hidden="true" />
         Return
       </Button>
-      <Button
-        type="button"
-        variant="danger"
-        size="sm"
-        className="w-full"
-        disabled={!canCancel}
-        onClick={() => toast({ title: "Cancel order", description: "Order cancellation is a frontend placeholder.", variant: "danger" })}
-      >
-        <Ban className="h-4 w-4" aria-hidden="true" />
-        Cancel
-      </Button>
+      {canCancel ? (
+        <Button
+          type="button"
+          variant="danger"
+          size="sm"
+          className="w-full"
+          loading={cancelling}
+          disabled={cancelling}
+          onClick={() => void handleCancel()}
+        >
+          <Ban className="h-4 w-4" aria-hidden="true" />
+          Cancel
+        </Button>
+      ) : (
+        <p className="w-full rounded-[1rem] border border-border/70 bg-background-secondary px-3 py-2 text-sm font-medium text-muted min-[420px]:col-span-2 lg:col-span-1">
+          {cancelMessage}
+        </p>
+      )}
     </div>
   );
 }
@@ -1073,11 +1109,28 @@ function OrderStatusUpdateCard({
 
 function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: OrderAccessRole | null }) {
   const shouldReduceMotion = useReducedMotion();
+  const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const [liveOrder, setLiveOrder] = useState(order);
   const [liveSyncState, setLiveSyncState] = useState<"live" | "refreshing" | "offline">("live");
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const recommendedProducts = useMemo(() => buildProductSubset(liveOrder.items), [liveOrder.items]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") {
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const expected = window.sessionStorage.getItem("checkout.navigationTarget");
+    if (expected && expected === pathname) {
+      console.debug("[checkout] router navigation complete", { pathname });
+      window.sessionStorage.removeItem("checkout.navigationTarget");
+    }
+  }, [pathname]);
 
   useEffect(() => {
     setLiveOrder(order);

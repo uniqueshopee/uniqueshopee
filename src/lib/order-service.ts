@@ -162,6 +162,7 @@ type CheckoutOrderPayload = {
   billingAddressId?: string | null;
   paymentMethod: string;
   paymentReference?: string | null;
+  paymentStatus?: string | null;
   couponCode?: string | null;
   notes?: string | null;
   shippingAddressSnapshot?: AddressSnapshot | null;
@@ -631,6 +632,7 @@ export async function createCheckoutOrder(client: SupabaseClient | null, payload
     p_billing_address_id: payload.billingAddressId ?? null,
     p_payment_method: payload.paymentMethod,
     p_payment_reference: payload.paymentReference ?? null,
+    p_payment_status: payload.paymentStatus ?? null,
     p_coupon_code: payload.couponCode ?? null,
     p_notes: payload.notes ?? null,
     p_shipping_address_snapshot: payload.shippingAddressSnapshot ?? null,
@@ -693,4 +695,28 @@ export async function updateOrderTrackingNumber(
     .eq("id", orderId);
 
   return { error: error ? error.message : null };
+}
+
+export async function cancelOrder(
+  client: SupabaseClient | null,
+  orderId: string,
+): Promise<{ error: string | null }> {
+  if (!client) {
+    return { error: "Supabase is not configured." };
+  }
+
+  const { data, error } = await client.rpc("cancel_order", {
+    p_order_id: orderId,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  const result = Array.isArray(data) ? data[0] : data;
+  if (!result) {
+    return { error: "Unable to cancel order." };
+  }
+
+  return { error: null };
 }

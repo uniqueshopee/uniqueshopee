@@ -49,6 +49,7 @@ function WishlistSyncProvider({ children }: { children: ReactNode }) {
   const hydratingRef = useRef(false);
   const syncTimerRef = useRef<number | null>(null);
   const previousUserIdRef = useRef<string | null>(null);
+  const lastSyncedSignatureRef = useRef<string>("");
 
   useEffect(() => {
     if (loading) {
@@ -72,6 +73,7 @@ function WishlistSyncProvider({ children }: { children: ReactNode }) {
         setResolvedProfileId("qa-profile");
         setLoaded(true);
         previousUserIdRef.current = "qa-profile";
+        lastSyncedSignatureRef.current = JSON.stringify({ mode: "qa", ids: qaIds.slice().sort() });
         hydratingRef.current = false;
         return;
       }
@@ -87,6 +89,7 @@ function WishlistSyncProvider({ children }: { children: ReactNode }) {
         setResolvedProfileId(null);
         setLoaded(true);
         previousUserIdRef.current = null;
+        lastSyncedSignatureRef.current = JSON.stringify({ mode: "guest", ids: guest.productIds.slice().sort() });
         hydratingRef.current = false;
         return;
       }
@@ -99,6 +102,7 @@ function WishlistSyncProvider({ children }: { children: ReactNode }) {
         setSyncError("Your account is still syncing. Tap retry in a moment.");
         setLoaded(true);
         previousUserIdRef.current = null;
+        lastSyncedSignatureRef.current = JSON.stringify({ mode: "guest", ids: guest.productIds.slice().sort() });
         hydratingRef.current = false;
         return;
       }
@@ -111,6 +115,7 @@ function WishlistSyncProvider({ children }: { children: ReactNode }) {
       setResolvedProfileId(resolvedProfile.id);
       setLoaded(true);
       previousUserIdRef.current = resolvedProfile.id;
+      lastSyncedSignatureRef.current = JSON.stringify({ mode: "authenticated", ids: mergedIds.slice().sort() });
 
       if (guest.productIds.length > 0) {
         const result = await replaceRemoteWishlistItems(resolvedProfile.id, mergedIds, client);
@@ -145,7 +150,13 @@ function WishlistSyncProvider({ children }: { children: ReactNode }) {
     const ids = Array.from(productIds);
 
     if (mode === "guest") {
+      const signature = JSON.stringify({ mode: "guest", ids: ids.slice().sort() });
+      if (signature === lastSyncedSignatureRef.current) {
+        return;
+      }
+
       writeGuestWishlist({ productIds: ids });
+      lastSyncedSignatureRef.current = signature;
       return;
     }
 
@@ -155,6 +166,11 @@ function WishlistSyncProvider({ children }: { children: ReactNode }) {
 
     if (syncTimerRef.current) {
       window.clearTimeout(syncTimerRef.current);
+    }
+
+    const signature = JSON.stringify({ mode: "authenticated", ids: ids.slice().sort() });
+    if (signature === lastSyncedSignatureRef.current) {
+      return;
     }
 
     syncTimerRef.current = window.setTimeout(() => {
@@ -169,6 +185,7 @@ function WishlistSyncProvider({ children }: { children: ReactNode }) {
           });
         } else {
           setSyncError(null);
+          lastSyncedSignatureRef.current = signature;
         }
       })();
     }, 250);

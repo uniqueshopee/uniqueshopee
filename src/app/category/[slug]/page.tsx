@@ -1,11 +1,34 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import { redirect } from "next/navigation";
-import { CategoryLandingPage } from "@/components/category/category-landing-page";
-import { JsonLdScript } from "@/components/seo/json-ld";
-import { getCatalogSnapshot, getLiveCategoryBySlug } from "@/lib/catalog";
-import { breadcrumbJsonLd, createPageMetadata, faqJsonLd, absoluteUrl } from "@/lib/seo";
-import type { Product } from "@/types";
+import { notFound, redirect } from "next/navigation";
+import { getLiveCategoryBySlug } from "@/lib/catalog";
+import { createPageMetadata } from "@/lib/seo";
+
+const FALLBACK_CATEGORY_SLUGS = [
+  "paints",
+  "interior-paint",
+  "exterior-paint",
+  "primer",
+  "wall-putty",
+  "waterproofing",
+  "paint-accessories",
+  "plumbing",
+  "pvc-pipes",
+  "cpvc-pipes",
+  "fittings",
+  "faucets",
+  "valves",
+  "water-tanks",
+];
+
+const PLUMBING_CATEGORY_SLUGS = new Set([
+  "plumbing",
+  "pvc-pipes",
+  "cpvc-pipes",
+  "fittings",
+  "faucets",
+  "valves",
+  "water-tanks",
+]);
 
 type CategoryPageProps = {
   params: Promise<{
@@ -14,7 +37,7 @@ type CategoryPageProps = {
 };
 
 export async function generateStaticParams() {
-  return getCatalogSnapshot().then((snapshot) => snapshot.categories.map((category) => ({ slug: category.slug })));
+  return FALLBACK_CATEGORY_SLUGS.map((slug) => ({ slug }));
 }
 
 export async function generateMetadata({ params }: CategoryPageProps): Promise<Metadata> {
@@ -42,32 +65,11 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
     notFound();
   }
 
-  if (slug === "paints") {
-    redirect("/products");
+  const department = PLUMBING_CATEGORY_SLUGS.has(slug) ? "plumbing" : "paints";
+  const query = new URLSearchParams({ department });
+  if (category.title !== (department === "paints" ? "Paints" : "Plumbing")) {
+    query.set("category", category.title);
   }
 
-  const snapshot = await getCatalogSnapshot();
-  const catalog = snapshot.products
-    .filter((product) => category.productIds.includes(product.id))
-    .map((product) => ({
-      ...product,
-      brand: product.brandName,
-      isFeatured: product.featured,
-      isNew: product.isNew,
-    }));
-  const recentProducts: Product[] = catalog.length > 0 ? catalog.slice(0, 4) : snapshot.products.slice(0, 4);
-
-  return (
-    <>
-      <JsonLdScript
-        data={breadcrumbJsonLd([
-          { name: "Home", item: absoluteUrl("/") },
-          { name: "Categories", item: absoluteUrl("/categories") },
-          { name: category.title, item: absoluteUrl(`/category/${category.slug}`) },
-        ])}
-      />
-      {category.faq.length > 0 && <JsonLdScript data={faqJsonLd(category.faq)} />}
-      <CategoryLandingPage category={category} products={catalog} recentProducts={recentProducts} />
-    </>
-  );
+  redirect(`/products?${query.toString()}`);
 }

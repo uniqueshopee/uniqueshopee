@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Check,
@@ -28,6 +28,9 @@ type Department = {
 
 type ProductListingPageProps = {
   products: CatalogProduct[];
+  initialDepartment?: DepartmentKey;
+  initialQuery?: string;
+  initialCategory?: string;
 };
 
 const DEPARTMENTS: Department[] = [
@@ -165,19 +168,32 @@ function getProductTags(product: CatalogProduct) {
   };
 }
 
-function ProductListingPage({ products }: ProductListingPageProps) {
+function ProductListingPage({ products, initialDepartment = "paints", initialQuery = "", initialCategory = "" }: ProductListingPageProps) {
   const shouldReduceMotion = useReducedMotion();
 
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const deferredQuery = useDeferredValue(query);
-  const [department, setDepartment] = useState<DepartmentKey>("paints");
+  const [department, setDepartment] = useState<DepartmentKey>(initialDepartment);
   const [density, setDensity] = useState<ProductDensity>("comfortable");
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(
+    initialCategory ? [initialCategory] : [],
+  );
   const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
   const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
   const [selectedFinishes, setSelectedFinishes] = useState<string[]>([]);
+
+  useEffect(() => {
+    setDepartment(initialDepartment);
+    setQuery(initialQuery);
+    setSelectedCategories(initialCategory ? [initialCategory] : []);
+    setSelectedBrands([]);
+    setSelectedCollections([]);
+    setSelectedRooms([]);
+    setSelectedFinishes([]);
+    setPage(1);
+  }, [initialCategory, initialDepartment, initialQuery]);
 
   const departmentProducts = useMemo(
     () => products.filter((product) => product.departmentSlug === department),

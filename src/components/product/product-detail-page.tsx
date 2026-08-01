@@ -163,7 +163,7 @@ function getStockState(product: Product) {
 
   if (!product.inStock || stockCount <= 0) {
     return {
-      label: "Out of stock",
+      label: "Out of Stock",
       note: "This item is currently unavailable.",
     };
   }
@@ -208,12 +208,14 @@ function ProductDetailPage({
   const [zoomPoint, setZoomPoint] = useState<ZoomPoint>({ x: 50, y: 50 });
   const [isZooming, setIsZooming] = useState(false);
   const [showStickyBar, setShowStickyBar] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const actionsRef = useRef<HTMLDivElement | null>(null);
 
   const tone = useMemo(() => getBrandTone(detail.brandAccent), [detail.brandAccent]);
   const variantGroups = useMemo(() => buildVariantGroups(detail.variants), [detail.variants]);
   const activeImage = detail.gallery[activeImageIndex] ?? product.image;
   const stockState = useMemo(() => getStockState(product), [product]);
+  const isOutOfStock = !product.inStock || (product.stockCount ?? 0) <= 0;
   const compareAtPrice = product.compareAtPrice && product.compareAtPrice > product.price ? product.compareAtPrice : undefined;
   const discountPercent = compareAtPrice ? Math.max(1, Math.round((1 - product.price / compareAtPrice) * 100)) : null;
   const selectedVariantSummary = useMemo(
@@ -238,6 +240,10 @@ function ProductDetailPage({
   useEffect(() => {
     setSelectedVariants((current) => syncSelections(current, variantGroups));
   }, [variantGroups]);
+
+  useEffect(() => {
+    setDescriptionExpanded(false);
+  }, [product.id]);
 
   useEffect(() => {
     const target = actionsRef.current;
@@ -280,6 +286,10 @@ function ProductDetailPage({
   };
 
   const handleAddToCart = async () => {
+    if (isOutOfStock) {
+      return;
+    }
+
     const result = await addValidatedCartItem(
       {
         productId: product.id,
@@ -308,6 +318,10 @@ function ProductDetailPage({
   };
 
   const handleBuyNow = async () => {
+    if (isOutOfStock) {
+      return;
+    }
+
     const result = await addValidatedCartItem(
       {
         productId: product.id,
@@ -357,7 +371,7 @@ function ProductDetailPage({
   );
 
   return (
-    <main className="bg-background">
+    <main className="bg-background pb-64 sm:pb-72 lg:pb-8">
       <motion.section
         aria-labelledby="product-detail-title"
         className="relative isolate overflow-hidden border-b border-border surface-warm"
@@ -444,14 +458,16 @@ function ProductDetailPage({
               )}
             </section>
 
-            <section className="space-y-4">
+            <section className="space-y-3">
               <Card className="overflow-hidden">
-                <div className="space-y-6 p-5 sm:p-6">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-2">
+                <div className="space-y-3 p-3 sm:space-y-5 sm:p-5">
+                  <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 space-y-1.5">
                       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted">{detail.brand}</p>
-                      <h1 id="product-detail-title" className="text-2xl font-bold text-text sm:text-3xl">
-                        {product.name}
+                      <h1 
+                         id="product-detail-title" 
+                         className="break-words text-[1.7rem] font-bold leading-[1.08] text-text sm:text-3xl">
+                         {product.name}
                       </h1>
                       <Rating rating={product.rating ?? 4.6} reviewCount={product.reviewCount ?? 0} />
                     </div>
@@ -462,18 +478,18 @@ function ProductDetailPage({
                       onClick={handleWishlist}
                       aria-label={wishlistHas ? "Remove from wishlist" : "Add to wishlist"}
                       aria-pressed={wishlistHas}
-                      className="shrink-0"
+                      className="self-start shrink-0 sm:self-auto"
                     >
                       <Heart className={cn("h-4 w-4", wishlistHas && "fill-danger text-danger")} />
                       Wishlist
                     </Button>
                   </div>
 
-                  <div className="flex flex-wrap items-end gap-3">
+                  <div className="flex flex-wrap items-end gap-2.5">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted">Selling Price</p>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <span className="text-3xl font-bold text-text">{formatPrice(product.price)}</span>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <span className="text-[2rem] font-bold leading-none text-text">{formatPrice(product.price)}</span>
                         {compareAtPrice && (
                           <span className="text-sm font-medium text-muted line-through">{formatPrice(compareAtPrice)}</span>
                         )}
@@ -486,16 +502,34 @@ function ProductDetailPage({
                     </Badge>
                   </div>
 
-                  <p className="max-w-2xl text-sm font-medium leading-7 text-muted line-clamp-3">{detail.description}</p>
+                  <div className="space-y-1.5">
+                    <p
+                      className={cn(
+                        "max-w-xl text-sm font-medium leading-5 text-muted",
+                        descriptionExpanded ? "line-clamp-none" : "line-clamp-1",
+                      )}
+                    >
+                      {detail.description}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 rounded-full px-2 text-accent"
+                      onClick={() => setDescriptionExpanded((current) => !current)}
+                    >
+                      {descriptionExpanded ? "Show less" : "Read more"}
+                    </Button>
+                  </div>
 
                   {variantGroups.length > 0 && (
-                    <div className="space-y-5">
+                    <div className="space-y-3.5">
                       {variantGroups.map((group) => {
                         const selectedValue = selectedVariants[group.label];
                         const selectedOption = group.options.find((option) => option.value === selectedValue) ?? group.options[0];
 
                         return (
-                          <div key={group.label} className="space-y-3">
+                          <div key={group.label} className="space-y-2.5">
                             <div className="flex items-center justify-between gap-3">
                               <div>
                                 <p className="text-sm font-bold text-text">{group.label}</p>
@@ -538,7 +572,7 @@ function ProductDetailPage({
                     </div>
                   )}
 
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-bold text-text">Quantity</p>
                       <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Minimum 1</span>
@@ -566,13 +600,14 @@ function ProductDetailPage({
                     </div>
                   </div>
 
-                  <div ref={actionsRef} className="grid gap-3 sm:grid-cols-2">
+                  <div ref={actionsRef} className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
                     <Button
                       variant="primary"
                       size="lg"
                       type="button"
                       onClick={() => void handleAddToCart()}
                       className="w-full"
+                      disabled={isOutOfStock}
                     >
                       <ShoppingCart className="h-4 w-4" aria-hidden="true" />
                       Add to Cart
@@ -583,6 +618,7 @@ function ProductDetailPage({
                       type="button"
                       onClick={() => void handleBuyNow()}
                       className="w-full"
+                      disabled={isOutOfStock}
                     >
                       Buy Now
                       <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -684,27 +720,27 @@ function ProductDetailPage({
 
       {showStickyBar && (
         <motion.div
-          className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-30 px-4 lg:hidden"
+          className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] z-30 px-3 lg:hidden"
           initial={shouldReduceMotion ? false : { opacity: 0, y: 24 }}
           animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
           transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
         >
-          <div className="mx-auto max-w-2xl rounded-[1.5rem] border border-border/70 bg-white/98 px-3 py-3 shadow-[var(--shadow-lg)] backdrop-blur-xl">
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">Price</p>
-                <div className="flex flex-wrap items-baseline gap-2">
-                  <span className="text-lg font-bold text-text">{formatPrice(product.price)}</span>
-                  {compareAtPrice && <span className="text-xs font-medium text-muted line-through">{formatPrice(compareAtPrice)}</span>}
+          <div className="mx-auto max-w-2xl rounded-[1.35rem] border border-border/70 bg-white/98 px-3 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-xl">
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">Price</p>
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="text-[1.05rem] font-bold text-text">{formatPrice(product.price)}</span>
+                    {compareAtPrice && <span className="text-xs font-medium text-muted line-through">{formatPrice(compareAtPrice)}</span>}
+                  </div>
                 </div>
               </div>
-              </div>
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" size="md" type="button" onClick={() => void handleAddToCart()} className="w-full">
+                <Button variant="outline" size="md" type="button" onClick={() => void handleAddToCart()} className="w-full" disabled={isOutOfStock}>
                   Add to Cart
                 </Button>
-                <Button variant="primary" size="md" type="button" onClick={() => void handleBuyNow()} className="w-full">
+                <Button variant="primary" size="md" type="button" onClick={() => void handleBuyNow()} className="w-full" disabled={isOutOfStock}>
                   Buy Now
                 </Button>
               </div>
@@ -717,4 +753,3 @@ function ProductDetailPage({
 }
 
 export { ProductDetailPage };
-

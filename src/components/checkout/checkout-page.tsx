@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowRight,
   BadgeCheck,
@@ -24,13 +24,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
+import { calculateCartPricing, defaultShippingResolver, resolveCouponCode } from "@/lib/checkout-pricing";
 import { cn, formatPrice } from "@/lib/utils";
-import { resolveCouponCode } from "@/lib/checkout-pricing";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useCartSync } from "@/components/cart/cart-sync-provider";
 import { loadUserAddresses, type CheckoutAddress } from "@/lib/address-service";
-import { createCheckoutOrder, loadCheckoutPricing, type CheckoutPricingSummary } from "@/lib/order-service";
-import { validateCartAddition } from "@/lib/cart-service";
+import { createCheckoutOrder, type CheckoutPricingSummary } from "@/lib/order-service";
 import { ensureCurrentUserProfile } from "@/lib/supabase/auth";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatRazorpayContact, getRazorpayKeyId, loadRazorpayCheckoutScript, type RazorpaySuccessResponse, type RazorpayWindow } from "@/lib/razorpay";
@@ -53,35 +52,28 @@ type DraftAddressState = {
 };
 
 type ProductMeta = {
-  productId: string;
   brand: string;
   variant: string;
-  slug: string;
 };
 
 type ProductRow = {
   id: string;
   slug: string;
   brand_id: string;
-  og_image_url: string | null;
-  deleted_at: string | null;
-  status: string;
 };
 
 type BrandRow = {
   id: string;
   name: string;
-  deleted_at: string | null;
 };
 
 type VariantRow = {
   id: string;
   product_id: string;
-  variant_name: string;
+  variant_name: string | null;
   option_label: string | null;
   option_value: string | null;
   is_default: boolean;
-  deleted_at: string | null;
 };
 
 const SECTION_VARIANTS = {
@@ -134,12 +126,6 @@ function formatAddressType(type: CheckoutAddress["type"]) {
   return "Home";
 }
 
-function formatVariantLabel(row?: VariantRow | null) {
-  if (!row) return "Standard";
-  const extra = row.option_label && row.option_value ? `${row.option_label}: ${row.option_value}` : "";
-  return [row.variant_name, extra].filter(Boolean).join(" - ") || "Standard";
-}
-
 function buildAddressDraft(profileName: string, profilePhone: string): DraftAddressState {
   return {
     name: profileName,
@@ -151,6 +137,53 @@ function buildAddressDraft(profileName: string, profilePhone: string): DraftAddr
     state: "",
     pin: "",
     type: "Home",
+  };
+}
+
+function buildCheckoutPricingSummary(
+  items: Array<{ price: number; quantity: number; compareAtPrice?: number | null }>,
+  couponCode: string | null,
+): CheckoutPricingSummary {
+  const pricing = calculateCartPricing(
+    items,
+    couponCode,
+    defaultShippingResolver,
+    (item) => item.compareAtPrice ?? item.price,
+  );
+
+  return {
+    couponId: couponCode,
+    couponCode,
+    subtotal: pricing.subtotal,
+    discountTotal: pricing.discount,
+    couponDiscount: pricing.couponDiscount,
+    taxableAmount: pricing.taxableAmount,
+    taxTotal: pricing.gst,
+    shippingTotal: pricing.shipping,
+    totalAmount: pricing.grandTotal,
+    itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
+  };
+}
+
+function devCheckoutLog(message: string, payload?: Record<string, unknown>) {
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[checkout]", message, payload ?? "");
+  }
+}
+
+function getErrorDetails(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack ?? null,
+    };
+  }
+
+  return {
+    name: typeof error,
+    message: String(error),
+    stack: null,
   };
 }
 
@@ -182,9 +215,9 @@ function SectionTitle({
 }) {
   return (
     <div>
-      <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-accent">{eyebrow}</p>
-      <h2 className="mt-2 text-xl font-bold text-text">{title}</h2>
-      {description ? <p className="mt-2 text-sm font-medium leading-7 text-muted">{description}</p> : null}
+      <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-accent sm:text-[11px]">{eyebrow}</p>
+      <h2 className="mt-1.5 text-lg font-bold text-text sm:mt-2 sm:text-xl">{title}</h2>
+      {description ? <p className="mt-1.5 text-xs font-medium leading-6 text-muted sm:mt-2 sm:text-sm sm:leading-7">{description}</p> : null}
     </div>
   );
 }
@@ -205,7 +238,7 @@ function AddressCard({
   return (
     <article
       className={cn(
-        "group w-full rounded-[1.35rem] border p-4 text-left transition-all duration-200",
+        "group w-full rounded-[1.35rem] border p-3 text-left transition-all duration-200 sm:p-4",
         selected
           ? "border-accent/30 bg-accent/5 shadow-[var(--shadow-lg)]"
           : "border-border/70 bg-white hover:border-accent/20 hover:shadow-[var(--shadow-sm)]",
@@ -268,13 +301,13 @@ function CheckoutItem({
   onRemove: () => void;
 }) {
   return (
-    <div className="rounded-[1.35rem] border border-border/70 bg-white p-3 shadow-[var(--shadow-sm)]">
-      <div className="grid gap-3 sm:grid-cols-[88px_minmax(0,1fr)]">
+    <div className="rounded-[1.35rem] border border-border/70 bg-white p-2.5 shadow-[var(--shadow-sm)] sm:p-3">
+      <div className="grid gap-2.5 sm:grid-cols-[88px_minmax(0,1fr)] sm:gap-3">
         <div className="relative aspect-square overflow-hidden rounded-[1rem] border border-border/60 bg-background-secondary">
           <Image src={product.image} alt={product.name} fill sizes="88px" className="object-cover" />
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">{brand}</p>
@@ -288,14 +321,14 @@ function CheckoutItem({
             </Button>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
             <div className="space-y-1">
               <div className="flex items-center gap-2 text-sm font-medium text-muted">
                 <span>Qty</span>
-                <div className="inline-flex h-9 items-center overflow-hidden rounded-full border border-border/70 bg-white shadow-[var(--shadow-sm)]">
+                <div className="inline-flex h-11 items-center overflow-hidden rounded-full border border-border/70 bg-white shadow-[var(--shadow-sm)]">
                   <button
                     type="button"
-                    className="flex h-9 w-9 items-center justify-center text-text transition-colors hover:bg-background-secondary"
+                    className="flex h-11 w-11 items-center justify-center text-text transition-colors hover:bg-background-secondary"
                     onClick={onDecrease}
                     aria-label={`Decrease quantity for ${product.name}`}
                     disabled={quantity <= 1}
@@ -305,7 +338,7 @@ function CheckoutItem({
                   <span className="min-w-8 px-2 text-center text-sm font-bold text-text">{quantity}</span>
                   <button
                     type="button"
-                    className="flex h-9 w-9 items-center justify-center text-text transition-colors hover:bg-background-secondary"
+                    className="flex h-11 w-11 items-center justify-center text-text transition-colors hover:bg-background-secondary"
                     onClick={onIncrease}
                     aria-label={`Increase quantity for ${product.name}`}
                   >
@@ -481,8 +514,10 @@ function Field({
 }
 
 function CheckoutShell() {
+  const isDev = process.env.NODE_ENV !== "production";
   const shouldReduceMotion = useReducedMotion();
   const router = useRouter();
+  const pathname = usePathname();
   const { user, profile, loading: authLoading } = useAuth();
   const { loaded: cartLoaded } = useCartSync();
   const items = useCartStore((state) => state.items);
@@ -492,7 +527,6 @@ function CheckoutShell() {
   const removeItem = useCartStore((state) => state.removeItem);
   const clearCart = useCartStore((state) => state.clear);
 
-  const [metaByProductId, setMetaByProductId] = useState<Record<string, ProductMeta>>({});
   const [addresses, setAddresses] = useState<CheckoutAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
   const [showAddressForm, setShowAddressForm] = useState(false);
@@ -505,17 +539,70 @@ function CheckoutShell() {
   const [notes, setNotes] = useState("");
   const [placingOrder, setPlacingOrder] = useState(false);
   const [razorpayLoading, setRazorpayLoading] = useState(false);
-  const [pricing, setPricing] = useState<CheckoutPricingSummary | null>(null);
-  const [pricingLoading, setPricingLoading] = useState(true);
-  const [pricingError, setPricingError] = useState<string | null>(null);
-  const [cartValidationLoading, setCartValidationLoading] = useState(true);
-  const [cartValidationError, setCartValidationError] = useState<string | null>(null);
+  const [metaByProductId, setMetaByProductId] = useState<Record<string, ProductMeta>>({});
   const [resolvedAccountId, setResolvedAccountId] = useState<string | null>(null);
+  const navigationTargetRef = useRef<string | null>(null);
 
   const accountId = resolvedAccountId;
   const profileName = profile?.full_name ?? "";
   const profilePhone = profile?.phone ?? "";
   const hasSavedAddresses = addresses.length > 0;
+
+  useEffect(() => {
+    devCheckoutLog("loading state changed", {
+      authLoading,
+      cartLoaded,
+      placingOrder,
+      razorpayLoading,
+      addressBusy,
+    });
+  }, [addressBusy, authLoading, cartLoaded, placingOrder, razorpayLoading]);
+
+  useEffect(() => {
+    const expected = navigationTargetRef.current;
+    if (!expected || pathname !== expected) {
+      return;
+    }
+
+    if (isDev) {
+      console.log("NAV_COMPLETE", { pathname, expected });
+    }
+    navigationTargetRef.current = null;
+  }, [isDev, pathname]);
+
+  useEffect(() => {
+    if (!isDev || typeof window === "undefined") {
+      return;
+    }
+
+    const handleWindowError = (event: ErrorEvent) => {
+      console.error("WINDOW_ERROR", {
+        message: event.message,
+        source: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+        error: getErrorDetails(event.error),
+        route: pathname,
+        userAgent: window.navigator.userAgent,
+      });
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      console.error("UNHANDLED_REJECTION", {
+        reason: getErrorDetails(event.reason),
+        route: pathname,
+        userAgent: window.navigator.userAgent,
+      });
+    };
+
+    window.addEventListener("error", handleWindowError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener("error", handleWindowError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+    };
+  }, [isDev, pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -604,104 +691,9 @@ function CheckoutShell() {
   useEffect(() => {
     let cancelled = false;
 
-    const loadPricing = async () => {
+    const hydrateAddresses = async () => {
       if (authLoading || !cartLoaded || (user && !accountId)) {
         return;
-      }
-
-      if (!user || !accountId) {
-        setPricing(null);
-        setPricingLoading(false);
-        setPricingError(UI_MESSAGES.checkout.signInRequired);
-        return;
-      }
-
-      const client = getSupabaseBrowserClient();
-      if (!client) {
-        setPricing(null);
-        setPricingLoading(false);
-        setPricingError(UI_MESSAGES.checkout.checkoutUnavailable);
-        return;
-      }
-
-      setPricingLoading(true);
-      const result = await loadCheckoutPricing(client, { couponCode });
-
-      if (cancelled) {
-        return;
-      }
-
-      if (result.error || !result.pricing) {
-        setPricing(null);
-        setPricingError(result.error ? getFriendlyErrorMessage(result.error, UI_MESSAGES.generic.server) : UI_MESSAGES.generic.server);
-      } else {
-        setPricing(result.pricing);
-        setPricingError(null);
-      }
-
-      setPricingLoading(false);
-    };
-
-    void loadPricing();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accountId, authLoading, cartLoaded, couponCode, items, user]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const hydrate = async () => {
-      if (authLoading || !cartLoaded || (user && !accountId)) {
-        return;
-      }
-
-      const client = getSupabaseBrowserClient();
-      if (!client) {
-        return;
-      }
-
-      const productIds = Array.from(new Set(items.map((item) => item.productId)));
-      if (productIds.length > 0) {
-        const [productResult, brandResult, variantResult] = await Promise.all([
-          client.from("products").select("id, slug, brand_id, og_image_url, deleted_at, status").in("id", productIds).is("deleted_at", null),
-          client.from("brands").select("id, name, deleted_at").is("deleted_at", null),
-          client
-            .from("product_variants")
-            .select("id, product_id, variant_name, option_label, option_value, is_default, deleted_at")
-            .in("product_id", productIds)
-            .is("deleted_at", null),
-        ]);
-
-        if (!cancelled && !productResult.error && !brandResult.error && !variantResult.error) {
-          const products = (productResult.data ?? []) as ProductRow[];
-          const brands = new Map(((brandResult.data ?? []) as BrandRow[]).map((row) => [row.id, row.name]));
-          const variants = (variantResult.data ?? []) as VariantRow[];
-          const variantsByProductId = new Map<string, VariantRow[]>();
-
-          for (const variant of variants) {
-            const current = variantsByProductId.get(variant.product_id) ?? [];
-            current.push(variant);
-            variantsByProductId.set(variant.product_id, current);
-          }
-
-          const next: Record<string, ProductMeta> = {};
-          for (const product of products) {
-            const brand = brands.get(product.brand_id) ?? "Brand";
-            const chosenVariant = variantsByProductId.get(product.id)?.find((variant) => variant.is_default) ??
-              variantsByProductId.get(product.id)?.[0] ??
-              null;
-            next[product.id] = {
-              productId: product.id,
-              brand,
-              variant: formatVariantLabel(chosenVariant),
-              slug: product.slug,
-            };
-          }
-
-          setMetaByProductId(next);
-        }
       }
 
       if (!accountId) {
@@ -727,49 +719,91 @@ function CheckoutShell() {
       }
     };
 
-    void hydrate();
+    void hydrateAddresses();
 
     return () => {
       cancelled = true;
     };
-  }, [accountId, authLoading, cartLoaded, items, profileName, profilePhone, user]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const validateItems = async () => {
-      if (!cartLoaded) {
-        return;
-      }
-
-      if (items.length === 0) {
-        setCartValidationLoading(false);
-        setCartValidationError(null);
-        return;
-      }
-
-      setCartValidationLoading(true);
-      const checks = await Promise.all(items.map((item) => validateCartAddition(item, item.quantity)));
-      if (cancelled) {
-        return;
-      }
-
-      setCartValidationError(checks.find((check) => check.error)?.error ?? null);
-      setCartValidationLoading(false);
-    };
-
-    void validateItems();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cartLoaded, items]);
+  }, [accountId, authLoading, cartLoaded, profileName, profilePhone, user]);
 
   useEffect(() => {
     if (!showAddressForm && !hasSavedAddresses) {
       setShowAddressForm(true);
     }
   }, [hasSavedAddresses, showAddressForm]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const missingMetaIds = Array.from(
+      new Set(items.filter((item) => !item.brand || !item.variant).map((item) => item.productId)),
+    );
+
+    if (missingMetaIds.length === 0) {
+      setMetaByProductId({});
+      return;
+    }
+
+    const loadMissingMeta = async () => {
+      const client = getSupabaseBrowserClient();
+      if (!client) {
+        return;
+      }
+
+      const [productResult, variantResult] = await Promise.all([
+        client.from("products").select("id, slug, brand_id").in("id", missingMetaIds),
+        client
+          .from("product_variants")
+          .select("id, product_id, variant_name, option_label, option_value, is_default")
+          .in("product_id", missingMetaIds),
+      ]);
+
+      if (cancelled || productResult.error || variantResult.error) {
+        return;
+      }
+
+      const brandIds = Array.from(new Set(((productResult.data ?? []) as ProductRow[]).map((product) => product.brand_id)));
+      const { data: brandData, error: brandError } =
+        brandIds.length > 0
+          ? await client.from("brands").select("id, name").in("id", brandIds)
+          : { data: [] as BrandRow[], error: null as null };
+
+      if (cancelled || brandError) {
+        return;
+      }
+
+      const brands = new Map(((brandData ?? []) as BrandRow[]).map((row) => [row.id, row.name]));
+      const variants = (variantResult.data ?? []) as VariantRow[];
+      const variantsByProductId = new Map<string, VariantRow[]>();
+
+      for (const variant of variants) {
+        const current = variantsByProductId.get(variant.product_id) ?? [];
+        current.push(variant);
+        variantsByProductId.set(variant.product_id, current);
+      }
+
+      const next: Record<string, ProductMeta> = {};
+      for (const product of (productResult.data ?? []) as ProductRow[]) {
+        const chosenVariant =
+          variantsByProductId.get(product.id)?.find((variant) => variant.is_default) ??
+          variantsByProductId.get(product.id)?.[0] ??
+          null;
+        const extra = chosenVariant?.option_label && chosenVariant.option_value ? `${chosenVariant.option_label}: ${chosenVariant.option_value}` : "";
+        next[product.id] = {
+          brand: brands.get(product.brand_id) ?? "Brand",
+          variant: [chosenVariant?.variant_name, extra].filter(Boolean).join(" - ") || "Standard",
+        };
+      }
+
+      setMetaByProductId(next);
+    };
+
+    void loadMissingMeta();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
 
   const selectedAddress = useMemo(
     () => addresses.find((address) => address.id === selectedAddressId) ?? addresses[0] ?? null,
@@ -793,11 +827,23 @@ function CheckoutShell() {
       })) satisfies Product[],
     [items],
   );
+  const hasOutOfStockItems = useMemo(
+    () => items.some((item) => (item.stockCount ?? 0) <= 0),
+    [items],
+  );
 
-  const deliveryEstimate = useMemo(() => formatExpectedDelivery(), []);
+  const [deliveryEstimate, setDeliveryEstimate] = useState("Calculating delivery window...");
+  const pricing = useMemo(
+    () => buildCheckoutPricingSummary(items, couponCode),
+    [couponCode, items],
+  );
+
+  useEffect(() => {
+    setDeliveryEstimate(formatExpectedDelivery());
+  }, []);
 
   const empty = items.length === 0;
-  const summarySavings = Math.max(0, (pricing?.discountTotal ?? 0) + (pricing?.couponDiscount ?? 0));
+  const summarySavings = Math.max(0, pricing.discountTotal + pricing.couponDiscount);
   const selectedAddressLine = selectedAddress
     ? `${selectedAddress.city}, ${selectedAddress.state}`
     : "Select a delivery address";
@@ -1053,7 +1099,16 @@ function CheckoutShell() {
   });
 
   const handlePlaceOrder = async () => {
-    if (placingOrder || pricingLoading || cartValidationLoading || cartValidationError || pricingError) {
+    if (placingOrder) {
+      return;
+    }
+
+    if (hasOutOfStockItems) {
+      toast({
+        title: "Unable to place order",
+        description: "Some items in your cart are out of stock.",
+        variant: "warning",
+      });
       return;
     }
 
@@ -1076,6 +1131,16 @@ function CheckoutShell() {
     }
 
     const snapshot = buildAddressSnapshot(selectedAddress);
+    const rawCheckoutMetrics = {
+      userId: user?.id ?? null,
+      route: pathname,
+      addressId: selectedAddress.id,
+      cartItemCount: items.length,
+      subtotal: pricing.subtotal,
+      discount: pricing.discountTotal,
+      shipping: pricing.shippingTotal,
+      grandTotal: pricing.totalAmount,
+    };
 
     if (paymentMethod === "cod") {
       const client = getSupabaseBrowserClient();
@@ -1089,43 +1154,122 @@ function CheckoutShell() {
       }
 
       setPlacingOrder(true);
+      devCheckoutLog("order submission start", { method: "cod", itemCount: items.length });
+      if (isDev) {
+        console.log("ORDER_START", { method: "cod", phase: "create_checkout_order", ...rawCheckoutMetrics });
+        console.log("ORDER_REQUEST", {
+          component: "CheckoutShell",
+          method: "cod",
+          endpoint: "create_checkout_order",
+          request: {
+            shippingAddressId: selectedAddress.id,
+            billingAddressId: selectedAddress.id,
+            paymentMethod: "Cash on Delivery",
+            paymentReference: "COD",
+            paymentStatus: "pending",
+            couponCode,
+          },
+          ...rawCheckoutMetrics,
+        });
+      }
 
-      const orderResult = await createCheckoutOrder(client, {
-        shippingAddressId: selectedAddress.id,
-        billingAddressId: selectedAddress.id,
-        paymentMethod: "Cash on Delivery",
-        paymentReference: "COD",
-        couponCode,
-        notes: notes.trim() || null,
-        shippingAddressSnapshot: snapshot,
-        billingAddressSnapshot: snapshot,
-      });
+      try {
+        const orderResult = await createCheckoutOrder(client, {
+          shippingAddressId: selectedAddress.id,
+          billingAddressId: selectedAddress.id,
+          paymentMethod: "Cash on Delivery",
+          paymentReference: "COD",
+          paymentStatus: "pending",
+          couponCode,
+          notes: notes.trim() || null,
+          shippingAddressSnapshot: snapshot,
+          billingAddressSnapshot: snapshot,
+        });
 
-      setPlacingOrder(false);
+        if (orderResult.error || !orderResult.orderId) {
+          if (isDev) {
+            console.error("ORDER_RESPONSE", {
+              component: "CheckoutShell",
+              method: "cod",
+              endpoint: "create_checkout_order",
+              response: orderResult,
+              ...rawCheckoutMetrics,
+            });
+          }
+          if (isDev) {
+            console.error("ORDER_FAILURE", orderResult.error ?? new Error("missing order id"), {
+              method: "cod",
+              phase: "create_checkout_order",
+              ...rawCheckoutMetrics,
+            });
+          }
+          devCheckoutLog("order submission failure", { method: "cod", error: orderResult.error ?? "missing order id" });
+          toast({
+            title: "Order not placed",
+            description:
+              isDev && orderResult.error
+                ? String(orderResult.error)
+                : orderResult.error
+                  ? getFriendlyErrorMessage(orderResult.error, UI_MESSAGES.generic.server)
+                  : UI_MESSAGES.generic.server,
+            variant: "warning",
+          });
+          return;
+        }
 
-      if (orderResult.error || !orderResult.orderId) {
+        clearCart();
+        setCouponCode(null);
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(STORAGE_KEYS.addressId);
+          window.localStorage.removeItem(STORAGE_KEYS.notes);
+          window.localStorage.removeItem(STORAGE_KEYS.couponInput);
+        }
+
+        const nextHref = `/orders/${orderResult.orderId}`;
+        navigationTargetRef.current = nextHref;
+        if (typeof window !== "undefined") {
+          window.sessionStorage.setItem("checkout.navigationTarget", nextHref);
+        }
+
+        if (isDev) {
+          console.log("ORDER_RESPONSE", {
+            component: "CheckoutShell",
+            method: "cod",
+            endpoint: "create_checkout_order",
+            response: orderResult,
+            ...rawCheckoutMetrics,
+          });
+          console.log("ORDER_SUCCESS", {
+            method: "cod",
+            orderId: orderResult.orderId,
+            orderNumber: orderResult.orderNumber,
+            ...rawCheckoutMetrics,
+          });
+          console.log("NAV_START", { to: nextHref, method: "cod", ...rawCheckoutMetrics });
+        }
+        devCheckoutLog("order submission success", { method: "cod", orderId: orderResult.orderId, orderNumber: orderResult.orderNumber });
+        toast({
+          title: "COD order placed",
+          description: UI_MESSAGES.checkout.orderCreated,
+          variant: "success",
+        });
+        router.replace(nextHref);
+      } catch (error) {
+        if (isDev) {
+          console.error("ORDER_FAILURE", error, { method: "cod", phase: "create_checkout_order", ...rawCheckoutMetrics });
+        }
+        devCheckoutLog("order submission failure", {
+          method: "cod",
+          error: error instanceof Error ? error.message : String(error),
+        });
         toast({
           title: "Order not placed",
-          description: orderResult.error ? getFriendlyErrorMessage(orderResult.error, UI_MESSAGES.generic.server) : UI_MESSAGES.generic.server,
+          description: isDev ? String(error instanceof Error ? error.message : error) : getFriendlyErrorMessage(error, UI_MESSAGES.generic.server),
           variant: "warning",
         });
-        return;
+      } finally {
+        setPlacingOrder(false);
       }
-
-      clearCart();
-      setCouponCode(null);
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem(STORAGE_KEYS.addressId);
-        window.localStorage.removeItem(STORAGE_KEYS.notes);
-        window.localStorage.removeItem(STORAGE_KEYS.couponInput);
-      }
-
-      toast({
-        title: "COD order placed",
-        description: UI_MESSAGES.checkout.orderCreated,
-        variant: "success",
-      });
-      router.push(`/orders/${orderResult.orderId}`);
       return;
     }
 
@@ -1141,8 +1285,26 @@ function CheckoutShell() {
 
     setPlacingOrder(true);
     setRazorpayLoading(true);
+    devCheckoutLog("order submission start", { method: "razorpay", itemCount: items.length });
+    if (isDev) {
+      console.log("ORDER_START", { method: "razorpay", phase: "create_razorpay_order", ...rawCheckoutMetrics });
+    }
 
     try {
+      if (isDev) {
+        console.log("ORDER_START", {
+          method: "razorpay",
+          phase: "create_razorpay_order",
+          ...rawCheckoutMetrics,
+        });
+        console.log("ORDER_REQUEST", {
+          component: "CheckoutShell",
+          method: "razorpay",
+          endpoint: "/api/razorpay/orders",
+          request: { couponCode },
+          ...rawCheckoutMetrics,
+        });
+      }
       const createResponse = await fetch("/api/razorpay/orders", {
         method: "POST",
         headers: {
@@ -1153,7 +1315,21 @@ function CheckoutShell() {
         }),
       });
 
-      const createData = (await createResponse.json().catch(() => null)) as
+      const createResponseText = await createResponse.text();
+      const createData = (createResponseText ? (() => {
+        try {
+          return JSON.parse(createResponseText) as {
+            error?: string;
+            razorpayOrderId?: string;
+            amount?: number;
+            currency?: string;
+            keyId?: string;
+            customer?: { name?: string; email?: string; contact?: string };
+          };
+        } catch {
+          return null;
+        }
+      })() : null) as
         | {
             error?: string;
             razorpayOrderId?: string;
@@ -1164,8 +1340,32 @@ function CheckoutShell() {
           }
         | null;
 
+      if (isDev) {
+        console.log("ORDER_RESPONSE", {
+          component: "CheckoutShell",
+          method: "razorpay",
+          endpoint: "/api/razorpay/orders",
+          status: createResponse.status,
+          ok: createResponse.ok,
+          responseText: createResponseText,
+          response: createData,
+          ...rawCheckoutMetrics,
+        });
+      }
+
       if (!createResponse.ok || !createData?.razorpayOrderId || !createData.amount || !createData.currency) {
-        throw new Error(getFriendlyErrorMessage(createData?.error ?? "", UI_MESSAGES.generic.server));
+        const requestError = new Error(createData?.error ?? UI_MESSAGES.generic.server);
+        if (isDev) {
+          console.error("ORDER_FAILURE", requestError, {
+            method: "razorpay",
+            phase: "create_razorpay_order",
+            status: createResponse.status,
+            response: createData,
+            request: { couponCode },
+            ...rawCheckoutMetrics,
+          });
+        }
+        throw requestError;
       }
 
       await loadRazorpayCheckoutScript();
@@ -1186,7 +1386,7 @@ function CheckoutShell() {
       const paymentResult = await new Promise<RazorpaySuccessResponse>((resolve, reject) => {
         const razorpay = new RazorpayConstructor({
           key: resolvedKey,
-          amount: createData.amount ?? Math.round((pricing?.totalAmount ?? 0) * 100),
+          amount: createData.amount ?? Math.round(pricing.totalAmount * 100),
           currency: createData.currency ?? "INR",
           order_id: paymentReference,
           name: "UniqueShopee",
@@ -1226,6 +1426,13 @@ function CheckoutShell() {
         razorpay.open();
       });
 
+      if (isDev) {
+        console.log("ORDER_START", {
+          method: "razorpay",
+          phase: "verify_razorpay_payment",
+          ...rawCheckoutMetrics,
+        });
+      }
       const verifyResponse = await fetch("/api/razorpay/verify", {
         method: "POST",
         headers: {
@@ -1247,7 +1454,18 @@ function CheckoutShell() {
         }),
       });
 
-      const verifyData = (await verifyResponse.json().catch(() => null)) as
+      const verifyResponseText = await verifyResponse.text();
+      const verifyData = (verifyResponseText ? (() => {
+        try {
+          return JSON.parse(verifyResponseText) as {
+            error?: string;
+            orderId?: string;
+            orderNumber?: string;
+          };
+        } catch {
+          return null;
+        }
+      })() : null) as
         | {
             error?: string;
             orderId?: string;
@@ -1255,8 +1473,39 @@ function CheckoutShell() {
           }
         | null;
 
+      if (isDev) {
+        console.log("ORDER_RESPONSE", {
+          component: "CheckoutShell",
+          method: "razorpay",
+          endpoint: "/api/razorpay/verify",
+          status: verifyResponse.status,
+          ok: verifyResponse.ok,
+          responseText: verifyResponseText,
+          response: verifyData,
+          request: {
+            razorpayPaymentId: paymentResult.razorpay_payment_id,
+            razorpayOrderId: paymentResult.razorpay_order_id,
+          },
+          ...rawCheckoutMetrics,
+        });
+      }
+
       if (!verifyResponse.ok || !verifyData?.orderId) {
-        throw new Error(getFriendlyErrorMessage(verifyData?.error ?? "", UI_MESSAGES.generic.server));
+        const verifyError = new Error(verifyData?.error ?? UI_MESSAGES.generic.server);
+        if (isDev) {
+          console.error("ORDER_FAILURE", verifyError, {
+            method: "razorpay",
+            phase: "verify_razorpay_payment",
+            status: verifyResponse.status,
+            response: verifyData,
+            request: {
+              razorpayPaymentId: paymentResult.razorpay_payment_id,
+              razorpayOrderId: paymentResult.razorpay_order_id,
+            },
+            ...rawCheckoutMetrics,
+          });
+        }
+        throw verifyError;
       }
 
       clearCart();
@@ -1272,9 +1521,31 @@ function CheckoutShell() {
         description: UI_MESSAGES.checkout.paymentSuccess,
         variant: "success",
       });
-      router.push(`/orders/${verifyData.orderId}`);
+      const nextHref = `/orders/${verifyData.orderId}`;
+      navigationTargetRef.current = nextHref;
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem("checkout.navigationTarget", nextHref);
+      }
+      if (isDev) {
+        console.log("ORDER_SUCCESS", {
+          method: "razorpay",
+          orderId: verifyData.orderId,
+          orderNumber: verifyData.orderNumber,
+          ...rawCheckoutMetrics,
+        });
+        console.log("NAV_START", { to: nextHref, method: "razorpay", ...rawCheckoutMetrics });
+      }
+      devCheckoutLog("order submission success", { method: "razorpay", orderId: verifyData.orderId, orderNumber: verifyData.orderNumber });
+      router.replace(nextHref);
     } catch (error) {
-      const message = getFriendlyErrorMessage(error, UI_MESSAGES.checkout.paymentFailed);
+      if (isDev) {
+        console.error("ORDER_FAILURE", error, { method: "razorpay", phase: "verify_razorpay_payment", ...rawCheckoutMetrics });
+      }
+      devCheckoutLog("order submission failure", {
+        method: "razorpay",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const message = isDev ? String(error instanceof Error ? error.message : error) : getFriendlyErrorMessage(error, UI_MESSAGES.checkout.paymentFailed);
       toast({
         title: "Payment not completed",
         description: message,
@@ -1326,9 +1597,9 @@ function CheckoutShell() {
         <div className="absolute right-0 top-20 h-72 w-72 rounded-full bg-sky-300/6 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto max-w-7xl px-4 py-3 pb-28 sm:px-6 sm:py-4 sm:pb-32 lg:py-6">
+      <div className="relative mx-auto max-w-7xl px-4 py-2.5 pb-64 sm:px-6 sm:py-3 sm:pb-72 lg:py-6">
         <motion.header
-          className="mb-4 flex items-center justify-between gap-3 rounded-[1.35rem] border border-white/80 bg-white/92 px-4 py-3 shadow-[var(--shadow-lg)]"
+          className="mb-3 flex items-center justify-between gap-3 rounded-[1.35rem] border border-white/80 bg-white/92 px-3 py-2.5 shadow-[var(--shadow-lg)] sm:mb-4 sm:px-4 sm:py-3"
           variants={ITEM_VARIANTS}
         >
           <div className="min-w-0">
@@ -1344,20 +1615,8 @@ function CheckoutShell() {
 
         </motion.header>
 
-        {cartValidationError ? (
-          <div className="mb-4 rounded-[1.25rem] border border-danger/20 bg-danger/10 px-4 py-3 text-sm font-medium text-danger">
-            {cartValidationError}
-          </div>
-        ) : null}
-
-        {pricingError ? (
-          <div className="mb-4 rounded-[1.25rem] border border-warning/20 bg-warning/10 px-4 py-3 text-sm font-medium text-warning">
-            {pricingError}
-          </div>
-        ) : null}
-
         {empty ? (
-          <motion.div variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-6 shadow-[var(--shadow-lg)]">
+          <motion.div variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-lg)] sm:p-5">
             <h2 className="text-2xl font-bold text-text">Your checkout is empty</h2>
             <p className="mt-2 text-sm font-medium leading-7 text-muted">Add products to your cart to continue.</p>
             <div className="mt-5 flex flex-wrap gap-3">
@@ -1370,29 +1629,32 @@ function CheckoutShell() {
             </div>
           </motion.div>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_21rem]">
-            <div className="space-y-5">
-              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
+            <div className="space-y-3.5">
+              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
                 <SectionTitle eyebrow="Order Summary" title="Order Summary" />
 
-                <div className="mt-5 space-y-3 rounded-[1.25rem] border border-border/70 bg-white p-4">
-                  <SummaryRow label="Subtotal" value={formatPrice(pricing?.subtotal ?? 0)} />
-                  <SummaryRow label="Discount" value={`- ${formatPrice(pricing?.discountTotal ?? 0)}`} />
-                  <SummaryRow label="Coupon Discount" value={pricing?.couponDiscount && pricing.couponDiscount > 0 ? `- ${formatPrice(pricing.couponDiscount)}` : formatPrice(0)} />
-                  <SummaryRow label="GST" value={formatPrice(pricing?.taxTotal ?? 0)} />
-                  <SummaryRow label="Shipping" value={pricing?.shippingTotal === 0 ? "Free" : formatPrice(pricing?.shippingTotal ?? 0)} />
+                <div className="mt-3 space-y-2.5 rounded-[1.25rem] border border-border/70 bg-white p-3 sm:mt-4 sm:space-y-3 sm:p-4">
+                  <SummaryRow label="Subtotal" value={formatPrice(pricing.subtotal)} />
+                  <SummaryRow label="Discount" value={`- ${formatPrice(pricing.discountTotal)}`} />
+                  <SummaryRow
+                    label="Coupon Discount"
+                    value={pricing.couponDiscount > 0 ? `- ${formatPrice(pricing.couponDiscount)}` : formatPrice(0)}
+                  />
+                  <SummaryRow label="GST" value={formatPrice(pricing.taxTotal)} />
+                  <SummaryRow label="Shipping" value={pricing.shippingTotal === 0 ? "Free" : formatPrice(pricing.shippingTotal)} />
                   <div className="border-t border-border/70 pt-3">
-                    <SummaryRow label="Grand Total" value={formatPrice(pricing?.totalAmount ?? 0)} emphasize />
+                    <SummaryRow label="Grand Total" value={formatPrice(pricing.totalAmount)} emphasize />
                   </div>
-                  <div className="rounded-[1rem] border border-success/20 bg-success/10 px-3 py-2 text-sm font-medium text-success">
+                  <div className="rounded-[1rem] border border-success/20 bg-success/10 px-3 py-2 text-xs font-medium text-success sm:text-sm">
                     You Saved {formatPrice(summarySavings)}
                   </div>
                 </div>
               </motion.section>
 
-              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
+              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
                 <SectionTitle eyebrow="Coupon" title="Coupon" />
-                <div className="mt-4 flex items-center gap-2 rounded-[1.2rem] border border-border/70 bg-white p-2">
+                <div className="mt-3 flex items-center gap-2 rounded-[1.2rem] border border-border/70 bg-white p-2 sm:mt-4">
                   <Input
                     id="checkout-coupon"
                     value={couponInput}
@@ -1421,14 +1683,14 @@ function CheckoutShell() {
                 </div>
               </motion.section>
 
-              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
+              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
                 <SectionTitle
                   eyebrow="Deliver To"
                   title="Choose where to deliver"
                   description="Select an existing address or add a new one. Saved addresses stay in Supabase."
                 />
 
-                <div className="mt-5 rounded-[1.25rem] border border-border/70 bg-background-secondary/25 p-4">
+                <div className="mt-3 rounded-[1.25rem] border border-border/70 bg-background-secondary/25 p-3 sm:mt-4 sm:p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Deliver To</p>
@@ -1453,7 +1715,7 @@ function CheckoutShell() {
                   </div>
                 </div>
 
-                <div className="mt-4">
+                <div className="mt-3">
                   <Button type="button" variant="outline" size="md" className="rounded-full" onClick={onToggleAddressForm}>
                     <Plus className="h-4 w-4" aria-hidden="true" />
                     Add New Address
@@ -1462,7 +1724,7 @@ function CheckoutShell() {
 
                 <AnimatePresence>
                   {showAddressForm ? (
-                    <motion.div key="address-form" variants={ITEM_VARIANTS} initial="hidden" animate="visible" exit="hidden" className="mt-5">
+                    <motion.div key="address-form" variants={ITEM_VARIANTS} initial="hidden" animate="visible" exit="hidden" className="mt-3">
                       <AddressForm
                         value={draftAddress}
                         onChange={setDraftAddress}
@@ -1482,7 +1744,7 @@ function CheckoutShell() {
                 </AnimatePresence>
 
                 {addresses.length > 0 ? (
-                  <div className="mt-5 grid gap-4">
+                  <div className="mt-3 grid gap-3">
                     {addresses.map((address) => (
                       <AddressCard
                         key={address.id}
@@ -1500,14 +1762,14 @@ function CheckoutShell() {
                 ) : null}
               </motion.section>
 
-              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
+              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
                 <SectionTitle
                   eyebrow="Payment Method"
                   title="Choose payment"
                   description="Cash on Delivery or Razorpay. We remember your last choice."
                 />
 
-                <div className="mt-5 grid gap-3">
+                <div className="mt-3 grid gap-2.5 sm:mt-4 sm:gap-3">
                   <button
                     type="button"
                     onClick={() => setPaymentMethod("cod")}
@@ -1553,7 +1815,7 @@ function CheckoutShell() {
                   </button>
                 </div>
 
-                <div className="mt-4 rounded-[1.15rem] border border-border/70 bg-background-secondary/25 p-4">
+                <div className="mt-3 rounded-[1.15rem] border border-border/70 bg-background-secondary/25 p-3 sm:mt-4 sm:p-4">
                   <Label htmlFor="checkout-notes">Notes</Label>
                   <textarea
                     id="checkout-notes"
@@ -1566,21 +1828,20 @@ function CheckoutShell() {
 
               </motion.section>
 
-              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
+              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
                 <SectionTitle
                   eyebrow="Order Items"
                   title="Review what you are buying"
                   description="Adjust quantities, remove items, or open a product page without leaving checkout."
                 />
 
-                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="mt-3 grid grid-cols-1 gap-2.5 sm:mt-4 sm:grid-cols-2 sm:gap-3">
                   {items.map((item, index) => {
                     const product = cartProducts[index];
                     if (!product) {
                       return null;
                     }
 
-                    const meta = metaByProductId[item.productId];
                     const quantity = item.quantity;
                     const maxQuantity = item.stockCount ?? quantity + 10;
 
@@ -1589,8 +1850,8 @@ function CheckoutShell() {
                         <CheckoutItem
                           product={product}
                           quantity={quantity}
-                          brand={meta?.brand ?? "Brand"}
-                          variant={meta?.variant ?? "Standard"}
+                          brand={item.brand ?? metaByProductId[item.productId]?.brand ?? "Brand"}
+                          variant={item.variant ?? metaByProductId[item.productId]?.variant ?? "Standard"}
                           onIncrease={() => updateQuantity(item.productId, Math.min(maxQuantity, quantity + 1))}
                           onDecrease={() => updateQuantity(item.productId, Math.max(1, quantity - 1))}
                           onRemove={() => removeItem(item.productId)}
@@ -1602,18 +1863,18 @@ function CheckoutShell() {
               </motion.section>
             </div>
 
-            <div className="space-y-5">
+            <div className="space-y-3.5">
               <div className="lg:sticky lg:top-4">
-                <Card className="rounded-[1.65rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
+                <Card className="rounded-[1.65rem] border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="h-4 w-4 text-accent" aria-hidden="true" />
                     <h3 className="text-base font-bold text-text">Order Summary</h3>
                   </div>
 
-                  <div className="mt-4 space-y-4">
-                    <div className="rounded-[1.15rem] border border-border/70 bg-white p-4">
+                  <div className="mt-3 space-y-3 sm:mt-4 sm:space-y-4">
+                    <div className="rounded-[1.15rem] border border-border/70 bg-white p-3 sm:p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Items</p>
-                      <div className="mt-3 space-y-3">
+                      <div className="mt-2.5 space-y-2.5 sm:mt-3 sm:space-y-3">
                         {items.map((item, index) => {
                           const product = cartProducts[index];
                           if (!product) {
@@ -1632,7 +1893,7 @@ function CheckoutShell() {
                       </div>
                     </div>
 
-                    <div className="rounded-[1.15rem] border border-border/70 bg-background-secondary/25 p-4">
+                    <div className="rounded-[1.15rem] border border-border/70 bg-background-secondary/25 p-3 sm:p-4">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Deliver To</p>
                       <p className="mt-2 text-sm font-bold text-text">{selectedAddress ? selectedAddress.name : "No address selected"}</p>
                       <p className="mt-1 text-sm font-medium text-muted">{selectedAddressLine}</p>
@@ -1642,14 +1903,17 @@ function CheckoutShell() {
                       </p>
                     </div>
 
-                    <div className="rounded-[1.15rem] border border-border/70 bg-white p-4">
-                      <SummaryRow label="Subtotal" value={formatPrice(pricing?.subtotal ?? 0)} />
-                      <SummaryRow label="Discount" value={`- ${formatPrice(pricing?.discountTotal ?? 0)}`} />
-                      <SummaryRow label="Coupon Discount" value={pricing?.couponDiscount && pricing.couponDiscount > 0 ? `- ${formatPrice(pricing.couponDiscount)}` : formatPrice(0)} />
-                      <SummaryRow label="GST" value={formatPrice(pricing?.taxTotal ?? 0)} />
-                      <SummaryRow label="Shipping" value={pricing?.shippingTotal === 0 ? "Free" : formatPrice(pricing?.shippingTotal ?? 0)} />
+                    <div className="rounded-[1.15rem] border border-border/70 bg-white p-3 sm:p-4">
+                      <SummaryRow label="Subtotal" value={formatPrice(pricing.subtotal)} />
+                      <SummaryRow label="Discount" value={`- ${formatPrice(pricing.discountTotal)}`} />
+                      <SummaryRow
+                        label="Coupon Discount"
+                        value={pricing.couponDiscount > 0 ? `- ${formatPrice(pricing.couponDiscount)}` : formatPrice(0)}
+                      />
+                      <SummaryRow label="GST" value={formatPrice(pricing.taxTotal)} />
+                      <SummaryRow label="Shipping" value={pricing.shippingTotal === 0 ? "Free" : formatPrice(pricing.shippingTotal)} />
                       <div className="border-t border-border/70 pt-3">
-                        <SummaryRow label="Grand Total" value={formatPrice(pricing?.totalAmount ?? 0)} emphasize />
+                        <SummaryRow label="Grand Total" value={formatPrice(pricing.totalAmount)} emphasize />
                       </div>
                       <div className="mt-3 rounded-[1rem] border border-success/20 bg-success/10 px-3 py-2 text-sm font-medium text-success">
                         You Saved {formatPrice(summarySavings)}
@@ -1659,9 +1923,10 @@ function CheckoutShell() {
                         type="button"
                         variant="primary"
                         size="lg"
-                        className="mt-4 hidden h-12 w-full rounded-full px-4 text-sm shadow-[0_16px_30px_-16px_rgba(16,33,58,0.6)] lg:inline-flex"
+                        className="mt-3 hidden h-11 w-full rounded-full px-4 text-sm shadow-[0_16px_30px_-16px_rgba(16,33,58,0.6)] lg:inline-flex"
                         onClick={handlePlaceOrder}
-                        loading={placingOrder || razorpayLoading || addressBusy || pricingLoading}
+                        loading={placingOrder || razorpayLoading || addressBusy}
+                        disabled={placingOrder || razorpayLoading || addressBusy || hasOutOfStockItems}
                       >
                         Place Order
                         <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -1676,21 +1941,21 @@ function CheckoutShell() {
       </div>
 
       {!empty ? (
-        <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-40 px-3 lg:hidden">
-          <div className="mx-auto max-w-md rounded-[1.4rem] border border-border/70 bg-white/96 px-3 py-2.5 shadow-[0_-10px_30px_-18px_rgba(16,33,58,0.45)] backdrop-blur-xl">
-            <div className="grid grid-cols-[minmax(0,0.34fr)_minmax(0,0.66fr)] items-center gap-2.5">
+        <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] z-40 px-3 lg:hidden">
+          <div className="mx-auto max-w-md rounded-[1.3rem] border border-border/70 bg-white/96 px-3 py-2 shadow-[0_-10px_30px_-18px_rgba(16,33,58,0.45)] backdrop-blur-xl">
+            <div className="grid grid-cols-[minmax(0,0.36fr)_minmax(0,0.64fr)] items-center gap-2">
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">Total</p>
-                <p className="truncate text-[15px] font-bold leading-none text-text">{formatPrice(pricing?.totalAmount ?? 0)}</p>
-                {pricingLoading ? <p className="mt-1 text-[10px] font-medium text-muted">Calculating live totals...</p> : null}
+                <p className="truncate text-[15px] font-bold leading-none text-text">{formatPrice(pricing.totalAmount)}</p>
               </div>
               <Button
                 type="button"
                 variant="primary"
                 size="lg"
-                className="h-12 w-full rounded-full px-4 text-sm shadow-[0_16px_30px_-16px_rgba(16,33,58,0.6)]"
+                className="h-11 w-full rounded-full px-4 text-sm shadow-[0_16px_30px_-16px_rgba(16,33,58,0.6)]"
                 onClick={handlePlaceOrder}
                 loading={placingOrder || razorpayLoading || addressBusy}
+                disabled={placingOrder || razorpayLoading || addressBusy || hasOutOfStockItems}
               >
                 Place Order
                 <ArrowRight className="h-4 w-4" aria-hidden="true" />

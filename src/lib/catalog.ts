@@ -666,6 +666,267 @@ function makeBrandTagline(brand: Pick<CatalogBrand, "name" | "description">) {
   return brand.description || `${brand.name} products for modern projects.`;
 }
 
+type CategoryFallbackConfig = {
+  slug: string;
+  title: string;
+  departmentSlug: "paints" | "plumbing";
+  description: string;
+  subtitle: string;
+  scene: RelatedCategory["scene"];
+  related: Array<{ slug: string; name: string; scene: RelatedCategory["scene"] }>;
+};
+
+const CATEGORY_FALLBACKS: Record<string, CategoryFallbackConfig> = {
+  paints: {
+    slug: "paints",
+    title: "Paints",
+    departmentSlug: "paints",
+    description: "Explore interior, exterior, primer, putty, and waterproofing essentials in one paint hub.",
+    subtitle: "Browse premium paint systems and preparation essentials for modern walls and surfaces.",
+    scene: "living-room",
+    related: [
+      { slug: "interior-paint", name: "Interior Paint", scene: "living-room" },
+      { slug: "exterior-paint", name: "Exterior Paint", scene: "house" },
+      { slug: "primer", name: "Primer", scene: "bucket" },
+      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
+      { slug: "waterproofing", name: "Waterproofing", scene: "roof" },
+      { slug: "paint-accessories", name: "Paint Accessories", scene: "tools" },
+    ],
+  },
+  "interior-paint": {
+    slug: "interior-paint",
+    title: "Interior Paint",
+    departmentSlug: "paints",
+    description: "Discover interior paint systems for smooth, premium wall finishes.",
+    subtitle: "Choose the right finish for living rooms, bedrooms, and everyday spaces.",
+    scene: "living-room",
+    related: [
+      { slug: "paints", name: "Paints", scene: "living-room" },
+      { slug: "exterior-paint", name: "Exterior Paint", scene: "house" },
+      { slug: "primer", name: "Primer", scene: "bucket" },
+      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
+    ],
+  },
+  "exterior-paint": {
+    slug: "exterior-paint",
+    title: "Exterior Paint",
+    departmentSlug: "paints",
+    description: "Weather-safe exterior paint solutions for homes and commercial spaces.",
+    subtitle: "Protect exterior walls with durable colour and coating systems.",
+    scene: "house",
+    related: [
+      { slug: "paints", name: "Paints", scene: "living-room" },
+      { slug: "waterproofing", name: "Waterproofing", scene: "roof" },
+      { slug: "primer", name: "Primer", scene: "bucket" },
+      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
+    ],
+  },
+  primer: {
+    slug: "primer",
+    title: "Primer",
+    departmentSlug: "paints",
+    description: "Base coat primers that improve adhesion and finish quality.",
+    subtitle: "Prepare walls properly before the final paint coat.",
+    scene: "bucket",
+    related: [
+      { slug: "paints", name: "Paints", scene: "living-room" },
+      { slug: "interior-paint", name: "Interior Paint", scene: "living-room" },
+      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
+      { slug: "waterproofing", name: "Waterproofing", scene: "roof" },
+    ],
+  },
+  "wall-putty": {
+    slug: "wall-putty",
+    title: "Wall Putty",
+    departmentSlug: "paints",
+    description: "Smooth and repair walls before painting with trusted wall putty options.",
+    subtitle: "Create a cleaner, more polished surface for premium paint finishes.",
+    scene: "wall",
+    related: [
+      { slug: "paints", name: "Paints", scene: "living-room" },
+      { slug: "primer", name: "Primer", scene: "bucket" },
+      { slug: "exterior-paint", name: "Exterior Paint", scene: "house" },
+      { slug: "waterproofing", name: "Waterproofing", scene: "roof" },
+    ],
+  },
+  waterproofing: {
+    slug: "waterproofing",
+    title: "Waterproofing",
+    departmentSlug: "paints",
+    description: "Protect roofs and walls from moisture with reliable waterproofing products.",
+    subtitle: "Choose the right coating and protection system for damp-prone areas.",
+    scene: "roof",
+    related: [
+      { slug: "paints", name: "Paints", scene: "living-room" },
+      { slug: "primer", name: "Primer", scene: "bucket" },
+      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
+      { slug: "exterior-paint", name: "Exterior Paint", scene: "house" },
+    ],
+  },
+  "paint-accessories": {
+    slug: "paint-accessories",
+    title: "Paint Accessories",
+    departmentSlug: "paints",
+    description: "Brushes, rollers, and tools to make every paint job cleaner and faster.",
+    subtitle: "Finish the job with the right tools and accessories.",
+    scene: "tools",
+    related: [
+      { slug: "paints", name: "Paints", scene: "living-room" },
+      { slug: "primer", name: "Primer", scene: "bucket" },
+      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
+      { slug: "waterproofing", name: "Waterproofing", scene: "roof" },
+    ],
+  },
+  plumbing: {
+    slug: "plumbing",
+    title: "Plumbing",
+    departmentSlug: "plumbing",
+    description: "Browse plumbing, fittings, faucets, valves, and water storage essentials in one place.",
+    subtitle: "Reliable plumbing essentials for modern homes and installations.",
+    scene: "pipes",
+    related: [
+      { slug: "pvc-pipes", name: "PVC Pipes", scene: "pipes" },
+      { slug: "cpvc-pipes", name: "CPVC Pipes", scene: "pipes-cold" },
+      { slug: "fittings", name: "Fittings", scene: "fittings" },
+      { slug: "faucets", name: "Faucets", scene: "faucet" },
+      { slug: "valves", name: "Valves", scene: "valve" },
+      { slug: "water-tanks", name: "Water Tanks", scene: "tank" },
+    ],
+  },
+  "pvc-pipes": {
+    slug: "pvc-pipes",
+    title: "PVC Pipes",
+    departmentSlug: "plumbing",
+    description: "Reliable PVC pipe essentials for everyday water supply and drainage.",
+    subtitle: "Choose dependable pipe systems for clean installations.",
+    scene: "pipes",
+    related: [
+      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
+      { slug: "cpvc-pipes", name: "CPVC Pipes", scene: "pipes-cold" },
+      { slug: "fittings", name: "Fittings", scene: "fittings" },
+      { slug: "faucets", name: "Faucets", scene: "faucet" },
+    ],
+  },
+  "cpvc-pipes": {
+    slug: "cpvc-pipes",
+    title: "CPVC Pipes",
+    departmentSlug: "plumbing",
+    description: "Heat-ready CPVC pipe options for pressure-aware plumbing work.",
+    subtitle: "Useful for installations that need extra temperature resilience.",
+    scene: "pipes-cold",
+    related: [
+      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
+      { slug: "pvc-pipes", name: "PVC Pipes", scene: "pipes" },
+      { slug: "fittings", name: "Fittings", scene: "fittings" },
+      { slug: "valves", name: "Valves", scene: "valve" },
+    ],
+  },
+  fittings: {
+    slug: "fittings",
+    title: "Fittings",
+    departmentSlug: "plumbing",
+    description: "Secure joints and clean connectors for plumbing installations.",
+    subtitle: "Complete the system with matching connectors and joins.",
+    scene: "fittings",
+    related: [
+      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
+      { slug: "pvc-pipes", name: "PVC Pipes", scene: "pipes" },
+      { slug: "faucets", name: "Faucets", scene: "faucet" },
+      { slug: "valves", name: "Valves", scene: "valve" },
+    ],
+  },
+  faucets: {
+    slug: "faucets",
+    title: "Faucets",
+    departmentSlug: "plumbing",
+    description: "Premium faucets and fixtures for daily touchpoints.",
+    subtitle: "Add function and finish to bathrooms and kitchens.",
+    scene: "faucet",
+    related: [
+      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
+      { slug: "fittings", name: "Fittings", scene: "fittings" },
+      { slug: "valves", name: "Valves", scene: "valve" },
+      { slug: "water-tanks", name: "Water Tanks", scene: "tank" },
+    ],
+  },
+  valves: {
+    slug: "valves",
+    title: "Valves",
+    departmentSlug: "plumbing",
+    description: "Flow control essentials for plumbing and maintenance work.",
+    subtitle: "Control water flow with dependable valve hardware.",
+    scene: "valve",
+    related: [
+      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
+      { slug: "fittings", name: "Fittings", scene: "fittings" },
+      { slug: "faucets", name: "Faucets", scene: "faucet" },
+      { slug: "water-tanks", name: "Water Tanks", scene: "tank" },
+    ],
+  },
+  "water-tanks": {
+    slug: "water-tanks",
+    title: "Water Tanks",
+    departmentSlug: "plumbing",
+    description: "Storage solutions for steady water supply and everyday use.",
+    subtitle: "Keep storage dependable with the right tank options.",
+    scene: "tank",
+    related: [
+      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
+      { slug: "fittings", name: "Fittings", scene: "fittings" },
+      { slug: "faucets", name: "Faucets", scene: "faucet" },
+      { slug: "valves", name: "Valves", scene: "valve" },
+    ],
+  },
+};
+
+function buildFallbackCategoryContent(slug: string): CategoryContent | null {
+  const config = CATEGORY_FALLBACKS[slug];
+
+  if (!config) {
+    return null;
+  }
+
+  const categoryBrands =
+    config.departmentSlug === "plumbing"
+      ? [
+          { name: "Astral", category: "Plumbing" as const, description: "Durable water systems built for installations.", href: "/brand/astral" },
+          { name: "Supreme", category: "Plumbing" as const, description: "Strong pipe and fitting essentials.", href: "/brand/supreme" },
+          { name: "Finolex", category: "Plumbing" as const, description: "Utility-focused plumbing solutions.", href: "/brand/finolex" },
+          { name: "Jaquar", category: "Plumbing" as const, description: "Premium fixtures with refined styling.", href: "/brand/jaquar" },
+        ]
+      : [
+          { name: "Asian Paints", category: "Paint" as const, description: "Reliable coatings for interiors and exteriors.", href: "/brand/asian-paints" },
+          { name: "Berger", category: "Paint" as const, description: "Finish-first systems for modern spaces.", href: "/brand/berger" },
+          { name: "Nerolac", category: "Paint" as const, description: "Everyday colour with trusted performance.", href: "/brand/nerolac" },
+          { name: "Dr. Fixit", category: "Paint" as const, description: "Waterproofing and repair solutions.", href: "/brand/dr-fixit" },
+        ];
+
+  return {
+    slug: config.slug,
+    title: config.title,
+    eyebrow: config.departmentSlug === "plumbing" ? "Flow systems" : "Surface solutions",
+    description: config.description,
+    subtitle: config.subtitle,
+    scene: config.scene,
+    tone: departmentTone(config.departmentSlug),
+    productIds: [],
+    catalog: [],
+    brands: categoryBrands,
+    relatedCategories: config.related.map((item) => ({
+      name: item.name,
+      slug: item.slug,
+      href: `/category/${item.slug}`,
+      scene: item.scene,
+    })),
+    buyingGuide: makeBuyingGuide(config.departmentSlug, config.title),
+    faq: makeFaq(config.departmentSlug, config.title),
+    promotionalBanner:
+      config.departmentSlug === "plumbing"
+        ? "Build reliable water systems with premium pipes, fittings, and bathroom hardware from top brands."
+        : "Refresh your spaces with premium paint systems, curated tools, and trusted brand collections.",
+  } satisfies CategoryContent;
+}
+
 function makeDepartmentDescription(slug: string) {
   return slug === "plumbing"
     ? "Premium plumbing essentials, fittings, and water management products for modern homes."
@@ -1060,7 +1321,7 @@ export async function getLiveHomeData() {
 
 export async function getLiveProductBySlug(slug: string) {
   const snapshot = await getCatalogSnapshot();
-  const product = snapshot.byProductSlug.get(slug);
+  const product = snapshot.byProductSlug.get(slug) ?? snapshot.products.find((item) => item.id === slug);
 
   if (!product) {
     return null;
@@ -1143,7 +1404,7 @@ export async function getLiveCategoryBySlug(slug: string) {
   const category = snapshot.byCategorySlug.get(slug);
 
   if (!category) {
-    return null;
+    return buildFallbackCategoryContent(slug);
   }
 
   const departmentToneValue = departmentTone(category.departmentSlug);

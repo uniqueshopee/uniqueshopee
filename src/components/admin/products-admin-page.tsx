@@ -1099,9 +1099,17 @@ function ProductsAdminPage() {
 
   const addImageFiles = async (files: FileList | null) => {
     if (!files?.length) return;
+    if (form.images.length >= 4) {
+      toast({ title: "Maximum 4 images allowed", variant: "warning" });
+      return;
+    }
     setUploading(true);
     const nextImages = [...form.images];
     for (const file of Array.from(files)) {
+      if (nextImages.length >= 4) {
+        toast({ title: "Maximum 4 images allowed", variant: "warning" });
+        break;
+      }
       const result = await uploadCloudinaryImage(file);
       if (result.error) {
         toast({ title: "Image upload failed", description: result.error, variant: "danger" });
@@ -1176,6 +1184,7 @@ function ProductsAdminPage() {
     if (!form.status.trim()) errors.status = "Product status is required";
     if (form.mrp.trim() && mrp < selling) errors.mrp = "MRP must be greater than or equal to selling price";
     if (form.images.length === 0) errors.images = "At least one product image is required";
+    if (form.images.length > 4) errors.images = "Maximum 4 images allowed";
     if (stock < 0 || reserved < 0 || threshold < 0) errors.stockQuantity = "Stock values must be zero or higher";
     if (form.canonicalUrl.trim()) {
       try {
@@ -1826,13 +1835,21 @@ function ProductsAdminPage() {
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => void handleImageDrop(event)}
             >
-              <input type="file" accept="image/*" multiple className="sr-only" onChange={(event) => void addImageFiles(event.target.files)} aria-label="Upload product images" />
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                onChange={(event) => void addImageFiles(event.target.files)}
+                aria-label="Upload product images"
+                disabled={form.images.length >= 4}
+              />
               <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-accent/10 text-accent">
                   <Plus className="h-7 w-7" aria-hidden="true" />
                 </div>
                 <div>
-                  <p className="text-base font-bold text-text">{uploading ? "Uploading images..." : "Drop images here or click to upload"}</p>
+                  <p className="text-base font-bold text-text">{uploading ? "Uploading images..." : form.images.length >= 4 ? "Maximum 4 images reached" : "Drop images here or click to upload"}</p>
                   <p className="mt-1 text-sm font-medium text-muted">Multiple images, thumbnail preview, primary image, reorder, and delete.</p>
                 </div>
                 <Badge variant="neutral">{form.images.length > 0 ? `${form.images.length} image${form.images.length === 1 ? "" : "s"} selected` : "At least one image required"}</Badge>
@@ -1841,7 +1858,7 @@ function ProductsAdminPage() {
             {formErrors.images ? <p className="text-xs font-medium text-danger">{formErrors.images}</p> : null}
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {form.images.map((image, index) => (
+              {form.images.slice(0, 4).map((image, index) => (
                 <div key={image.id} draggable onDragStart={() => imageDragStart(image.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => imageDrop(image.id)} className={cn("rounded-[1.2rem] border border-border/70 bg-white/85 p-3 shadow-[var(--shadow-sm)]", image.primary && "ring-2 ring-accent")}>
                   <div className="aspect-[4/3] overflow-hidden rounded-[1rem]">
                     <ProductImagePreview url={image.url} alt={image.alt || form.name} label={form.name} />
@@ -2214,5 +2231,4 @@ function ProductsAdminPage() {
 }
 
 export { ProductsAdminPage };
-
 

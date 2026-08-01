@@ -12,8 +12,13 @@ import { addValidatedCartItem } from "@/lib/cart-service";
 function ProductCard({ product }: { product: Product }) {
   const isWishlisted = useWishlistStore((s) => s.has(product.id));
   const toggleWishlist = useWishlistStore((s) => s.toggle);
+  const isOutOfStock = !product.inStock || (product.stockCount ?? 0) <= 0;
 
   async function handleAddToCart() {
+    if (isOutOfStock) {
+      return;
+    }
+
     await addValidatedCartItem(
       {
         productId: product.id,
@@ -56,10 +61,10 @@ function ProductCard({ product }: { product: Product }) {
               sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
               className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             />
-            {!product.inStock && (
+            {isOutOfStock && (
               <div className="absolute inset-0 flex items-center justify-center bg-background/65 backdrop-blur-[1px]">
                 <span className="rounded-full border border-border/70 bg-white/90 px-3 py-1 text-[11px] font-semibold text-text shadow-[var(--shadow-sm)]">
-                  Out of stock
+                  Out of Stock
                 </span>
               </div>
             )}
@@ -108,7 +113,7 @@ function ProductCard({ product }: { product: Product }) {
           <button
             type="button"
             onClick={() => void handleAddToCart()}
-            disabled={!product.inStock}
+            disabled={isOutOfStock}
             aria-label={`Add ${product.name} to cart`}
             className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_14px_24px_-18px_rgba(16,33,58,0.6)] transition-all hover:-translate-y-0.5 hover:opacity-95 disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-white"
           >

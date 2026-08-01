@@ -136,6 +136,10 @@ export function isOrderActive(status: OrderStatus) {
   return ["Pending", "Ordered", "Confirmed", "Packed", "Shipped", "Out for Delivery"].includes(status);
 }
 
+export function canCancelOrder(status: OrderStatus) {
+  return ["Pending", "Confirmed", "Packed"].includes(status);
+}
+
 export function getOrderTab(status: OrderStatus): Exclude<OrderTab, "all"> {
   if (isOrderActive(status)) {
     return "active";

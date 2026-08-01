@@ -18,7 +18,7 @@ const BRAND_GROUPS: Array<{ title: string; key: string; brands: Brand[]; href: s
   {
     title: "Paint Brands",
     key: "paint-brands",
-    href: "/category/paints",
+    href: "/products?department=paints",
     brands: [
       { name: "Asian Paints", category: "Paint" },
       { name: "Berger", category: "Paint" },
@@ -31,7 +31,7 @@ const BRAND_GROUPS: Array<{ title: string; key: string; brands: Brand[]; href: s
   {
     title: "Plumbing Brands",
     key: "plumbing-brands",
-    href: "/category/plumbing",
+    href: "/products?department=plumbing",
     brands: [
       { name: "Astral", category: "Plumbing" },
       { name: "Supreme", category: "Plumbing" },

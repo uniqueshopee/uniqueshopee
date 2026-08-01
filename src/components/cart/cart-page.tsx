@@ -29,8 +29,6 @@ import { Input } from "@/components/ui/input";
 import { cn, formatPrice } from "@/lib/utils";
 import { calculateCartPricing, defaultShippingResolver, resolveCouponCode, type CouponCode } from "@/lib/checkout-pricing";
 import { useCartSync } from "@/components/cart/cart-sync-provider";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { loadCheckoutPricing, type CheckoutPricingSummary } from "@/lib/order-service";
 import { useCartStore } from "@/store/cart-store";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { toast } from "@/hooks/use-toast";
@@ -41,15 +39,6 @@ type DeliveryResult = {
 };
 
 type VariantMap = Record<string, string>;
-
-type PricingView = {
-  subtotal: number;
-  discount: number;
-  gst: number;
-  shipping: number;
-  couponDiscount: number;
-  grandTotal: number;
-};
 
 const SECTION_VARIANTS = {
   hidden: { opacity: 0, y: 10 },
@@ -464,7 +453,6 @@ function CartPageShell() {
     cod: true,
   });
   const [selectedVariants, setSelectedVariants] = useState<VariantMap>({});
-  const [serverPricing, setServerPricing] = useState<CheckoutPricingSummary | null>(null);
 
   const cartLineItems = useMemo(
     () =>
@@ -496,53 +484,10 @@ function CartPageShell() {
     [items],
   );
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const refreshPricing = async () => {
-      if (!loaded) {
-        return;
-      }
-
-      if (mode !== "authenticated") {
-        setServerPricing(null);
-        return;
-      }
-
-      const client = getSupabaseBrowserClient();
-      if (!client) {
-        setServerPricing(null);
-        return;
-      }
-
-      const result = await loadCheckoutPricing(client, { couponCode });
-      if (!cancelled) {
-        setServerPricing(result.pricing ?? null);
-      }
-    };
-
-    void refreshPricing();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [couponCode, loaded, mode, items]);
-
   const pricing = useMemo(
     () => calculateCartPricing(items, couponCode, defaultShippingResolver, (item) => item.compareAtPrice ?? item.price),
     [couponCode, items],
   );
-  const displayedPricing: PricingView =
-    mode === "authenticated" && serverPricing
-      ? {
-          subtotal: serverPricing.subtotal,
-          discount: serverPricing.discountTotal,
-          gst: serverPricing.taxTotal,
-          shipping: serverPricing.shippingTotal,
-          couponDiscount: serverPricing.couponDiscount,
-          grandTotal: serverPricing.totalAmount,
-        }
-      : pricing;
 
   const handleApplyCoupon = () => {
     const code = resolveCouponCode(couponInput);
@@ -831,12 +776,12 @@ function CartPageShell() {
             <div className="space-y-4">
               <div className="hidden lg:block lg:sticky lg:top-24">
                 <OrderSummaryCard
-                  subtotal={displayedPricing.subtotal}
-                  discount={displayedPricing.discount}
-                  gst={displayedPricing.gst}
-                  shipping={displayedPricing.shipping}
-                  couponDiscount={displayedPricing.couponDiscount}
-                  total={displayedPricing.grandTotal}
+                  subtotal={pricing.subtotal}
+                  discount={pricing.discount}
+                  gst={pricing.gst}
+                  shipping={pricing.shipping}
+                  couponDiscount={pricing.couponDiscount}
+                  total={pricing.grandTotal}
                   appliedCoupon={couponCode}
                   onProceed={handleProceedToCheckout}
                 />
@@ -852,12 +797,12 @@ function CartPageShell() {
                 </summary>
                 <div className="mt-4">
                   <OrderSummaryCard
-                    subtotal={displayedPricing.subtotal}
-                    discount={displayedPricing.discount}
-                    gst={displayedPricing.gst}
-                    shipping={displayedPricing.shipping}
-                    couponDiscount={displayedPricing.couponDiscount}
-                    total={displayedPricing.grandTotal}
+                    subtotal={pricing.subtotal}
+                    discount={pricing.discount}
+                    gst={pricing.gst}
+                    shipping={pricing.shipping}
+                    couponDiscount={pricing.couponDiscount}
+                    total={pricing.grandTotal}
                     appliedCoupon={couponCode}
                     onProceed={handleProceedToCheckout}
                   />
@@ -870,18 +815,18 @@ function CartPageShell() {
 
       {!empty && (
         <motion.div
-          className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5rem)] z-30 px-4 lg:hidden"
+          className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-30 px-3 lg:hidden"
           initial={shouldReduceMotion ? false : { opacity: 0, y: 18 }}
           animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
         >
-          <div className="mx-auto max-w-2xl rounded-[1.35rem] border border-border/70 bg-white/98 px-4 py-3 shadow-[var(--shadow-lg)] backdrop-blur-xl">
-            <div className="flex items-center justify-between gap-3">
+          <div className="mx-auto max-w-2xl rounded-[1.3rem] border border-border/70 bg-white/98 px-3 py-2 shadow-[var(--shadow-lg)] backdrop-blur-xl">
+            <div className="flex items-center justify-between gap-2.5">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">Grand Total</p>
-                <p className="text-lg font-bold text-text">{formatPrice(displayedPricing.grandTotal)}</p>
+                <p className="text-[1.05rem] font-bold text-text">{formatPrice(pricing.grandTotal)}</p>
               </div>
-              <Button variant="primary" size="md" onClick={handleProceedToCheckout} className="px-4">
+              <Button variant="primary" size="md" onClick={handleProceedToCheckout} className="h-11 px-4">
                 Proceed to Checkout
               </Button>
             </div>

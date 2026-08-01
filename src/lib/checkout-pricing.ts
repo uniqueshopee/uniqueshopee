@@ -1,6 +1,10 @@
-import type { CartItem } from "@/types";
-
 export type CouponCode = string;
+
+export type CheckoutPricingItem = {
+  price: number;
+  quantity: number;
+  compareAtPrice?: number | null;
+};
 
 export const COUPONS: Record<CouponCode, { label: string; percent: number; maxDiscount: number }> =
   {
@@ -10,8 +14,8 @@ export const COUPONS: Record<CouponCode, { label: string; percent: number; maxDi
 
 export type ShippingResolver = (taxableAmount: number) => number;
 
-export const defaultShippingResolver: ShippingResolver = (taxableAmount) =>
-  taxableAmount >= 5000 ? 0 : 99;
+export const defaultShippingResolver: ShippingResolver = (_taxableAmount) =>
+  99;
 
 export interface CartPricing {
   subtotal: number;
@@ -30,10 +34,10 @@ export function resolveCouponCode(value: string): CouponCode | null {
 }
 
 export function calculateCartPricing(
-  items: CartItem[],
+  items: CheckoutPricingItem[],
   coupon: CouponCode | null,
   shippingResolver: ShippingResolver = defaultShippingResolver,
-  comparePriceResolver: (item: CartItem) => number = (item) => item.price,
+  comparePriceResolver: (item: CheckoutPricingItem) => number = (item) => item.price,
 ): CartPricing {
   const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -47,7 +51,7 @@ export function calculateCartPricing(
   const couponDiscount = couponConfig
     ? Math.min(Math.round((subtotal * couponConfig.percent) / 100), couponConfig.maxDiscount)
     : 0;
-  const taxableAmount = Math.max(0, subtotal - couponDiscount - discount);
+  const taxableAmount = Math.max(0, subtotal - couponDiscount);
   const gst = Math.round((taxableAmount * 18) / 100);
   const shipping = shippingResolver(taxableAmount);
   const grandTotal = Math.max(0, taxableAmount + gst + shipping);

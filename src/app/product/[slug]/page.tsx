@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ProductDetailPage } from "@/components/product/product-detail-page";
 import { JsonLdScript } from "@/components/seo/json-ld";
 import { getCatalogSnapshot, getLiveProductBySlug } from "@/lib/catalog";
@@ -38,6 +38,10 @@ export default async function ProductPage({ params }: ProductPageProps) {
 
   if (!data) {
     notFound();
+  }
+
+  if (slug !== data.product.slug) {
+    redirect(`/product/${data.product.slug}`);
   }
 
   const snapshot = await getCatalogSnapshot();

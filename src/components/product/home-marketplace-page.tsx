@@ -65,13 +65,15 @@ const FALLBACK_HOME_IMAGE =
     </svg>`,
   );
 
+const SEO_NOISE_RE = /(test|demo|placeholder|sample|dummy|qa)/i;
+
 const SHOP_CATEGORIES = [
-  { label: "Paints", href: "/category/paints", icon: Paintbrush, tone: "bg-amber-500/12 text-amber-600" },
-  { label: "Wall Putty", href: "/category/paints", icon: Sparkles, tone: "bg-orange-500/12 text-orange-600" },
-  { label: "Waterproofing", href: "/category/paints", icon: ShieldCheck, tone: "bg-emerald-500/12 text-emerald-600" },
-  { label: "Primer", href: "/category/paints", icon: Wrench, tone: "bg-slate-500/12 text-slate-600" },
-  { label: "Plumbing", href: "/category/plumbing", icon: Droplets, tone: "bg-sky-500/12 text-sky-600" },
-  { label: "Fittings", href: "/category/plumbing", icon: Wrench, tone: "bg-cyan-500/12 text-cyan-700" },
+  { label: "Paints", href: "/products?department=paints", icon: Paintbrush, tone: "bg-amber-500/12 text-amber-600" },
+  { label: "Wall Putty", href: "/products?department=paints&category=Wall%20Putty", icon: Sparkles, tone: "bg-orange-500/12 text-orange-600" },
+  { label: "Waterproofing", href: "/products?department=paints&category=Waterproofing", icon: ShieldCheck, tone: "bg-emerald-500/12 text-emerald-600" },
+  { label: "Primer", href: "/products?department=paints&category=Primer", icon: Wrench, tone: "bg-slate-500/12 text-slate-600" },
+  { label: "Plumbing", href: "/products?department=plumbing", icon: Droplets, tone: "bg-sky-500/12 text-sky-600" },
+  { label: "Fittings", href: "/products?department=plumbing&category=Fittings", icon: Wrench, tone: "bg-cyan-500/12 text-cyan-700" },
 ];
 
 const HERO_COPY = {
@@ -102,9 +104,14 @@ function toHomeProduct(product: CatalogProduct, badge: HomeProduct["badge"] = pr
   } satisfies HomeProduct;
 }
 
+function isNoiseProduct(product: CatalogProduct) {
+  return SEO_NOISE_RE.test(product.name) || SEO_NOISE_RE.test(product.slug) || SEO_NOISE_RE.test(product.brandName);
+}
+
 function buildHomeProducts(products: CatalogProduct[]): HomeProduct[] {
-  const paints = products.filter((product) => product.departmentSlug === "paints").slice(0, 2);
-  const plumbing = products.filter((product) => product.departmentSlug === "plumbing").slice(0, 2);
+  const visibleProducts = products.filter((product) => !isNoiseProduct(product));
+  const paints = visibleProducts.filter((product) => product.departmentSlug === "paints").slice(0, 2);
+  const plumbing = visibleProducts.filter((product) => product.departmentSlug === "plumbing").slice(0, 2);
   const ordered = [paints[0], plumbing[0], paints[1], plumbing[1]].filter(Boolean) as CatalogProduct[];
 
   if (ordered.length > 0) {
@@ -117,12 +124,17 @@ function buildHomeProducts(products: CatalogProduct[]): HomeProduct[] {
 function CompactProductCard({ product }: { product: HomeProduct }) {
   const isWishlisted = useWishlistStore((state) => state.has(product.id));
   const toggleWishlist = useWishlistStore((state) => state.toggle);
+  const isOutOfStock = !product.inStock || (product.stockCount ?? 0) <= 0;
   const savePercent =
     product.compareAtPrice && product.compareAtPrice > product.price
       ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
       : null;
 
   const handleAdd = async () => {
+    if (isOutOfStock) {
+      return;
+    }
+
     await addValidatedCartItem(
       {
         productId: product.id,
@@ -170,9 +182,9 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
                   </Badge>
                 )}
               </div>
-              {!product.inStock && (
+              {isOutOfStock && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/65 backdrop-blur-[1px]">
-                  <Badge variant="neutral">Out of stock</Badge>
+                  <Badge variant="neutral">Out of Stock</Badge>
                 </div>
               )}
             </div>
@@ -215,6 +227,7 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
             className="h-10 w-10 shrink-0 rounded-full"
             onClick={() => void handleAdd()}
             aria-label={`Add ${product.title} to cart`}
+            disabled={isOutOfStock}
           >
             <ShoppingCart className="h-4 w-4" />
           </Button>
@@ -267,7 +280,10 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
   const router = useRouter();
   const homeProducts = useMemo(() => buildHomeProducts(products), [products]);
   const featuredRailProducts = useMemo(
-    () => (featuredProducts.length > 0 ? featuredProducts : products.slice(0, 4)).map((product, index) => toHomeProduct(product, index === 0 ? "bestseller" : product.badge)),
+    () =>
+      (featuredProducts.length > 0 ? featuredProducts : products.slice(0, 4))
+        .filter((product) => !isNoiseProduct(product))
+        .map((product, index) => toHomeProduct(product, index === 0 ? "bestseller" : product.badge)),
     [featuredProducts, products],
   );
   const featuredHeroImage = featuredProducts[0]?.primaryImageUrl ?? featuredProducts[0]?.image ?? homeProducts[0]?.image ?? FALLBACK_HOME_IMAGE;
@@ -352,9 +368,9 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
                     variant="outline"
                     size="md"
                     asChild
-                    className="border-white/10 bg-white text-text hover:bg-white/95"
-                  >
-                    <Link href="/category/paints">
+                  className="border-white/10 bg-white text-text hover:bg-white/95"
+                >
+                    <Link href="/products?department=paints">
                       Shop paints
                       <ArrowRight className="h-4 w-4" />
                     </Link>
@@ -371,7 +387,7 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
               </div>
 
               <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <Link href="/category/paints" className="group relative min-w-full snap-start overflow-hidden rounded-[1.6rem]">
+                <Link href="/products?department=paints" className="group relative min-w-full snap-start overflow-hidden rounded-[1.6rem]">
                   <div className="relative aspect-[1.15]">
                     <Image src={featuredHeroImage} alt="Featured paint collection" fill className="object-cover transition-transform duration-500 group-hover:scale-105" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/12 to-transparent" />
@@ -384,7 +400,7 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
                     <span className="rounded-full bg-white/15 px-3 py-2 text-xs font-semibold text-white">Paints</span>
                   </div>
                 </Link>
-                <Link href="/category/plumbing" className="group relative min-w-full snap-start overflow-hidden rounded-[1.6rem]">
+                <Link href="/products?department=plumbing" className="group relative min-w-full snap-start overflow-hidden rounded-[1.6rem]">
                   <div className="relative aspect-[1.15]">
                     <Image src={plumbingHeroImage} alt="Featured plumbing collection" fill className="object-cover transition-transform duration-500 group-hover:scale-105" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/12 to-transparent" />

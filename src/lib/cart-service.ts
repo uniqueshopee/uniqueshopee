@@ -22,6 +22,12 @@ type ProductRow = {
   og_image_url: string | null;
 };
 
+type BrandRow = {
+  id: string;
+  name: string;
+  deleted_at: string | null;
+};
+
 type ProductImageRow = {
   product_id: string;
   image_url: string;
@@ -34,6 +40,9 @@ type ProductVariantRow = {
   id: string;
   product_id: string;
   sku: string;
+  variant_name: string | null;
+  option_label: string | null;
+  option_value: string | null;
   mrp_override: number | string | null;
   selling_price_override: number | string | null;
   is_default: boolean;
@@ -116,7 +125,21 @@ async function getClient(client?: SupabaseClient | null) {
   return client ?? getSupabaseBrowserClient();
 }
 
-export async function loadRemoteCartItems(userId: string, client?: SupabaseClient | null) {
+function formatVariantLabel(row?: ProductVariantRow | null) {
+  if (!row) {
+    return "Standard";
+  }
+
+  const extra = row.option_label && row.option_value ? `${row.option_label}: ${row.option_value}` : "";
+  const label = [row.variant_name, extra].filter(Boolean).join(" - ");
+  return label || "Standard";
+}
+
+export async function loadRemoteCartItems(
+  userId: string,
+  client?: SupabaseClient | null,
+  options?: { profileId?: string | null },
+) {
   if (isQaBypassEnabled()) {
     return getQaCartItems();
   }
@@ -127,27 +150,32 @@ export async function loadRemoteCartItems(userId: string, client?: SupabaseClien
     return [] as CartItem[];
   }
 
-  const profile = await ensureCurrentUserProfile(resolvedClient);
-  if (!profile || profile.id !== userId) {
-    return [] as CartItem[];
+  const profileId = options?.profileId ?? null;
+  if (profileId !== userId) {
+    const profile = await ensureCurrentUserProfile(resolvedClient);
+    if (!profile || profile.id !== userId) {
+      return [] as CartItem[];
+    }
   }
 
-  const [cartResult, productsResult, imagesResult, variantsResult, inventoryResult, categoriesResult, departmentsResult] =
+  const [cartResult, productsResult, brandsResult, imagesResult, variantsResult, inventoryResult, categoriesResult, departmentsResult] =
     await Promise.all([
       resolvedClient.from("cart_items").select("id, product_id, product_variant_id, quantity, deleted_at").eq("user_id", userId).is("deleted_at", null),
       resolvedClient.from("products").select("id, name, slug, selling_price, mrp, status, deleted_at, category_id, brand_id, department_id, og_image_url").is("deleted_at", null),
+      resolvedClient.from("brands").select("id, name, deleted_at").is("deleted_at", null),
       resolvedClient.from("product_images").select("product_id, image_url, is_primary, sort_order, deleted_at").is("deleted_at", null).order("sort_order", { ascending: true }),
-      resolvedClient.from("product_variants").select("id, product_id, sku, mrp_override, selling_price_override, is_default, deleted_at").is("deleted_at", null),
+      resolvedClient.from("product_variants").select("id, product_id, sku, variant_name, option_label, option_value, mrp_override, selling_price_override, is_default, deleted_at").is("deleted_at", null),
       resolvedClient.from("inventory").select("product_variant_id, current_quantity, reserved_quantity, low_stock_threshold, stock_status, deleted_at").is("deleted_at", null),
       resolvedClient.from("categories").select("id, name").is("deleted_at", null),
       resolvedClient.from("departments").select("id, name").is("deleted_at", null),
     ]);
 
-  if (cartResult.error || productsResult.error || imagesResult.error || variantsResult.error || inventoryResult.error) {
+  if (cartResult.error || productsResult.error || brandsResult.error || imagesResult.error || variantsResult.error || inventoryResult.error) {
     return [] as CartItem[];
   }
 
   const products = (productsResult.data ?? []) as ProductRow[];
+  const brands = new Map(((brandsResult.data ?? []) as BrandRow[]).map((row) => [row.id, row.name]));
   const images = (imagesResult.data ?? []) as ProductImageRow[];
   const variants = (variantsResult.data ?? []) as ProductVariantRow[];
   const inventories = (inventoryResult.data ?? []) as InventoryRow[];
@@ -198,6 +226,8 @@ export async function loadRemoteCartItems(userId: string, client?: SupabaseClien
         quantity,
         slug: product.slug,
         category: categoryName,
+        brand: brands.get(product.brand_id) ?? "Brand",
+        variant: formatVariantLabel(chosenVariant),
         compareAtPrice,
         inStock: stock.inStock,
         stockCount: stock.stockCount,
@@ -259,7 +289,7 @@ export async function replaceRemoteCartItems(
     productIds.length > 0
       ? resolvedClient
           .from("product_variants")
-          .select("id, product_id, sku, mrp_override, selling_price_override, is_default, deleted_at")
+          .select("id, product_id, sku, variant_name, option_label, option_value, mrp_override, selling_price_override, is_default, deleted_at")
           .in("product_id", productIds)
           .is("deleted_at", null)
       : Promise.resolve({ data: [] as ProductVariantRow[] }),
@@ -433,6 +463,17 @@ export async function addValidatedCartItem(
   options?: { silent?: boolean },
 ) {
   const silent = options?.silent ?? false;
+
+  if (typeof item.stockCount === "number" && item.stockCount <= 0) {
+    if (!silent) {
+      toast({
+        title: "Unable to add to cart",
+        description: "This item is out of stock.",
+        variant: "danger",
+      });
+    }
+    return { success: false, error: "This item is out of stock." };
+  }
 
   if (isQaBypassEnabled()) {
     const product = { ...item, quantity: Math.max(1, quantity) } as CartItem;

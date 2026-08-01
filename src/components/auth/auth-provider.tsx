@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import type { Session, User } from "@supabase/supabase-js";
 import { getQaAuthState, isQaBypassEnabled } from "@/lib/qa-mode";
@@ -68,22 +68,32 @@ async function loadAuthState() {
 
 function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AuthProfile | null>(null);
   const [role, setRole] = useState<AuthRoleKey | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!isQaBypassEnabled()) {
+      return;
+    }
+
+    const qaState = getQaAuthState(pathname);
+    setSession(qaState.session);
+    setUser(qaState.user);
+    setProfile(qaState.profile);
+    setRole(qaState.role);
+    setLoading(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (isQaBypassEnabled()) {
-      // DEV ONLY
-      // REMOVE OR DISABLE BEFORE PRODUCTION
-      const qaState = getQaAuthState(pathname);
-      setSession(qaState.session);
-      setUser(qaState.user);
-      setProfile(qaState.profile);
-      setRole(qaState.role);
-      setLoading(false);
       return;
     }
 
@@ -162,7 +172,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       refresh: async () => {
         if (isQaBypassEnabled()) {
-          const qaState = getQaAuthState(pathname);
+          const qaState = getQaAuthState(pathnameRef.current);
           setSession(qaState.session);
           setUser(qaState.user);
           setProfile(qaState.profile);
@@ -191,7 +201,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
         return result;
       },
     }),
-    [loading, pathname, profile, role, session, user],
+    [loading, profile, role, session, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

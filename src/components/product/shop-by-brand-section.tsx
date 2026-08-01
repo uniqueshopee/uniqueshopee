@@ -17,14 +17,14 @@ type BrandItem = {
 };
 
 const BRAND_ITEMS: BrandItem[] = [
-  { name: "Asian Paints", category: "Paint", description: "Reliable coatings for interiors and exteriors.", href: "/category/paints" },
-  { name: "Berger", category: "Paint", description: "Finish-first systems for modern spaces.", href: "/category/paints" },
-  { name: "Nerolac", category: "Paint", description: "Everyday colour with trusted performance.", href: "/category/paints" },
-  { name: "Indigo Paints", category: "Paint", description: "Fresh color-led home improvement picks.", href: "/category/paints" },
-  { name: "Astral", category: "Plumbing", description: "Durable water systems built for installations.", href: "/category/plumbing" },
-  { name: "Supreme", category: "Plumbing", description: "Strong pipe and fitting essentials.", href: "/category/plumbing" },
-  { name: "Finolex", category: "Plumbing", description: "Utility-focused plumbing solutions.", href: "/category/plumbing" },
-  { name: "Jaquar", category: "Plumbing", description: "Premium fixtures with refined styling.", href: "/category/plumbing" },
+  { name: "Asian Paints", category: "Paint", description: "Reliable coatings for interiors and exteriors.", href: "/products?department=paints" },
+  { name: "Berger", category: "Paint", description: "Finish-first systems for modern spaces.", href: "/products?department=paints" },
+  { name: "Nerolac", category: "Paint", description: "Everyday colour with trusted performance.", href: "/products?department=paints" },
+  { name: "Indigo Paints", category: "Paint", description: "Fresh color-led home improvement picks.", href: "/products?department=paints" },
+  { name: "Astral", category: "Plumbing", description: "Durable water systems built for installations.", href: "/products?department=plumbing" },
+  { name: "Supreme", category: "Plumbing", description: "Strong pipe and fitting essentials.", href: "/products?department=plumbing" },
+  { name: "Finolex", category: "Plumbing", description: "Utility-focused plumbing solutions.", href: "/products?department=plumbing" },
+  { name: "Jaquar", category: "Plumbing", description: "Premium fixtures with refined styling.", href: "/products?department=plumbing" },
 ];
 
 const containerVariants = {

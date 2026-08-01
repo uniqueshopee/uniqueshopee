@@ -9,12 +9,27 @@ export const metadata: Metadata = createPageMetadata({
   pathname: "/products",
 });
 
-export default async function ProductsPage() {
+type ProductsPageProps = {
+  searchParams: Promise<{
+    department?: string;
+    category?: string;
+    q?: string;
+  }>;
+};
+
+export default async function ProductsPage({ searchParams }: ProductsPageProps) {
+  const { department, category, q } = await searchParams;
   const products = await getLiveProducts();
+  const initialDepartment = department === "plumbing" ? "plumbing" : "paints";
 
   return (
     <main>
-      <ProductListingPage products={products} />
+      <ProductListingPage
+        products={products}
+        initialDepartment={initialDepartment}
+        initialCategory={typeof category === "string" ? category : ""}
+        initialQuery={typeof q === "string" ? q : ""}
+      />
     </main>
   );
 }
