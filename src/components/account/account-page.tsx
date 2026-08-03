@@ -58,7 +58,7 @@ const PROFILE_ACTIONS = [
   { label: "Orders", href: "/orders", icon: Package, tone: "bg-emerald-500/12 text-emerald-700" },
   { label: "Wishlist", href: "/wishlist", icon: Heart, tone: "bg-rose-500/12 text-rose-700" },
   { label: "Saved Cart", href: "/cart", icon: ShoppingCart, tone: "bg-sky-500/12 text-sky-700" },
-  { label: "Offers", href: "/coupons", icon: Ticket, tone: "bg-amber-500/12 text-amber-700" },
+  { label: "Help", href: "/contact", icon: HelpCircle, tone: "bg-amber-500/12 text-amber-700" },
 ];
 
 function PaletteIcon(props: SVGProps<SVGSVGElement>) {

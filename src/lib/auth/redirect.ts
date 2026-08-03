@@ -33,6 +33,15 @@ export function buildAuthRedirectUrl(pathname: string, searchParams?: Record<str
   return url.toString();
 }
 
+export function buildLoginRedirectPath(redirectTo: string | null | undefined, fallback = "/login") {
+  const safeRedirect = sanitizeRedirectPath(redirectTo ?? null, "");
+  if (!safeRedirect) {
+    return fallback;
+  }
+
+  return `/login?redirectTo=${encodeURIComponent(safeRedirect)}`;
+}
+
 export function resolvePostAuthPath(role: AuthRoleKey | null, redirectTo?: string | null) {
   if (role && ADMIN_ROLES.includes(role)) {
     return "/admin";

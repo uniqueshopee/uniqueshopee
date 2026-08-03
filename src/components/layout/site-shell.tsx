@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { Navbar } from "@/components/layout/navbar/navbar";
 import { BottomNav } from "@/components/layout/navbar/bottom-nav";
 import { Footer } from "@/components/layout/footer/footer";
 
@@ -22,7 +21,6 @@ function SiteShell({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <Navbar />
       <main id="main-content" className="flex-1 pb-[calc(12rem+env(safe-area-inset-bottom))] lg:pb-0">
         {children}
       </main>

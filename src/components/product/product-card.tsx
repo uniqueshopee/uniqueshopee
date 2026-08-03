@@ -2,20 +2,33 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { Heart, ShoppingCart, Star } from "lucide-react";
 import { motion } from "framer-motion";
 import type { Product } from "@/types";
+import { useAuth } from "@/components/auth/auth-provider";
 import { cn, formatPrice } from "@/lib/utils";
+import { buildLoginRedirectPath } from "@/lib/auth";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { addValidatedCartItem } from "@/lib/cart-service";
 
 function ProductCard({ product }: { product: Product }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { isAuthenticated } = useAuth();
   const isWishlisted = useWishlistStore((s) => s.has(product.id));
   const toggleWishlist = useWishlistStore((s) => s.toggle);
   const isOutOfStock = !product.inStock || (product.stockCount ?? 0) <= 0;
+  const loginRedirect = buildLoginRedirectPath(pathname);
+  const exclusivePercent = product.exclusiveOfferPercent ?? (product.badge === "exclusive" ? Math.round(Math.max(((product.compareAtPrice ?? product.price) - product.price) / Math.max(product.compareAtPrice ?? product.price, 1) * 100, 0)) : 0);
 
   async function handleAddToCart() {
     if (isOutOfStock) {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      router.push(loginRedirect);
       return;
     }
 
@@ -38,6 +51,11 @@ function ProductCard({ product }: { product: Product }) {
   }
 
   function handleToggleWishlist() {
+    if (!isAuthenticated) {
+      router.push(loginRedirect);
+      return;
+    }
+
     toggleWishlist(product.id);
   }
 
@@ -61,6 +79,15 @@ function ProductCard({ product }: { product: Product }) {
               sizes="(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw"
               className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             />
+            {product.exclusiveOffer ? (
+              <span className="absolute left-2 top-2 rounded-full bg-rose-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-sm)]">
+                {exclusivePercent > 0 ? `${exclusivePercent}% Exclusive` : "Exclusive"}
+              </span>
+            ) : product.badge === "sale" && product.compareAtPrice ? (
+              <span className="absolute left-2 top-2 rounded-full bg-amber-500 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white shadow-[var(--shadow-sm)]">
+                Sale
+              </span>
+            ) : null}
             {isOutOfStock && (
               <div className="absolute inset-0 flex items-center justify-center bg-background/65 backdrop-blur-[1px]">
                 <span className="rounded-full border border-border/70 bg-white/90 px-3 py-1 text-[11px] font-semibold text-text shadow-[var(--shadow-sm)]">

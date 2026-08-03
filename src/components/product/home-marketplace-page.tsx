@@ -2,15 +2,16 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useMemo, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
-import { motion, useReducedMotion } from "framer-motion";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
+  Bell,
   Droplets,
   Heart,
+  MapPin,
   Paintbrush,
-  Search,
   ShieldCheck,
   Sparkles,
   Star,
@@ -22,6 +23,10 @@ import type { CatalogProduct } from "@/lib/catalog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { useAuth } from "@/components/auth/auth-provider";
+import { SearchBar } from "@/components/layout/navbar/search-bar";
+import { buildLoginRedirectPath } from "@/lib/auth";
+import { loadUserAddresses, type CheckoutAddress } from "@/lib/address-service";
 import { cn, formatPrice } from "@/lib/utils";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { addValidatedCartItem } from "@/lib/cart-service";
@@ -30,6 +35,7 @@ type HomeProduct = {
   id: string;
   title: string;
   subtitle: string;
+  categoryLabel: string;
   image: string;
   href: string;
   price: number;
@@ -40,7 +46,9 @@ type HomeProduct = {
   stockCount?: number;
   reservedCount?: number;
   lowStockThreshold?: number;
-  badge?: "new" | "bestseller" | "sale";
+  badge?: "new" | "bestseller" | "sale" | "exclusive";
+  exclusiveOffer?: boolean;
+  exclusiveOfferPercent?: number;
 };
 
 type HomeMarketplacePageProps = {
@@ -76,10 +84,6 @@ const SHOP_CATEGORIES = [
   { label: "Fittings", href: "/products?department=plumbing&category=Fittings", icon: Wrench, tone: "bg-cyan-500/12 text-cyan-700" },
 ];
 
-const HERO_COPY = {
-  subtitle: "Premium paint and plumbing essentials, now powered by the live UniqueShopee catalog.",
-};
-
 const ITEM_VARIANTS = {
   hidden: { opacity: 0, y: 10 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] } },
@@ -90,6 +94,7 @@ function toHomeProduct(product: CatalogProduct, badge: HomeProduct["badge"] = pr
     id: product.id,
     title: product.name,
     subtitle: product.brandName,
+    categoryLabel: product.departmentSlug === "plumbing" ? "Plumbing" : "Paints",
     image: product.primaryImageUrl || product.image,
     href: `/product/${product.slug}`,
     price: product.price,
@@ -101,6 +106,8 @@ function toHomeProduct(product: CatalogProduct, badge: HomeProduct["badge"] = pr
     reservedCount: product.reservedCount,
     lowStockThreshold: product.lowStockThreshold,
     badge,
+    exclusiveOffer: product.exclusiveOffer ?? badge === "exclusive",
+    exclusiveOfferPercent: product.exclusiveOfferPercent,
   } satisfies HomeProduct;
 }
 
@@ -118,13 +125,17 @@ function buildHomeProducts(products: CatalogProduct[]): HomeProduct[] {
     return ordered.map((product) => toHomeProduct(product, product.badge));
   }
 
-  return products.slice(0, 4).map((product) => toHomeProduct(product, product.badge));
+  return visibleProducts.slice(0, 4).map((product) => toHomeProduct(product, product.badge));
 }
 
 function CompactProductCard({ product }: { product: HomeProduct }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { isAuthenticated } = useAuth();
   const isWishlisted = useWishlistStore((state) => state.has(product.id));
   const toggleWishlist = useWishlistStore((state) => state.toggle);
   const isOutOfStock = !product.inStock || (product.stockCount ?? 0) <= 0;
+  const loginRedirect = buildLoginRedirectPath(pathname);
   const savePercent =
     product.compareAtPrice && product.compareAtPrice > product.price
       ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
@@ -132,6 +143,11 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
 
   const handleAdd = async () => {
     if (isOutOfStock) {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      router.push(loginRedirect);
       return;
     }
 
@@ -155,14 +171,14 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
 
   return (
     <motion.article variants={ITEM_VARIANTS} className="group h-full">
-      <Card className="h-full overflow-hidden rounded-[1.3rem] border-white/80 bg-white/92 p-0 shadow-[var(--shadow-sm)]">
+      <Card className="h-full overflow-hidden rounded-[1.75rem] border-white/80 bg-white/95 p-3 shadow-[var(--shadow-sm)]">
         <div className="relative">
           <Link
             href={product.href}
             aria-label={`View ${product.title}`}
             className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-white"
           >
-            <div className="relative aspect-[1.1] overflow-hidden bg-background-secondary">
+            <div className="relative aspect-[1.05] overflow-hidden rounded-[1.35rem] bg-[#f4efe8]">
               <Image
                 src={product.image || FALLBACK_HOME_IMAGE}
                 alt={product.title}
@@ -170,66 +186,71 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
                 sizes="(max-width: 640px) 50vw, 25vw"
                 className="object-cover transition-transform duration-300 group-hover:scale-105"
               />
-              <div className="absolute inset-x-3 top-3 flex items-start justify-start gap-2">
-                {product.badge && (
-                  <Badge
-                    variant={
-                      product.badge === "sale" ? "danger" : product.badge === "bestseller" ? "success" : "accent"
-                    }
-                    className="rounded-full px-2.5 py-1 text-[10px]"
-                  >
-                    {product.badge === "sale" ? "Sale" : product.badge === "bestseller" ? "Bestseller" : "New"}
-                  </Badge>
-                )}
-              </div>
-              {isOutOfStock && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/65 backdrop-blur-[1px]">
+              {savePercent ? (
+                <span className="absolute left-3 bottom-3 rounded-full bg-[#d8b434] px-3 py-1.5 text-[11px] font-bold text-white shadow-[var(--shadow-sm)]">
+                  {savePercent}% OFF
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (!isAuthenticated) {
+                    router.push(loginRedirect);
+                    return;
+                  }
+                  toggleWishlist(product.id);
+                }}
+                aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
+                aria-pressed={isWishlisted}
+                className="absolute right-3 top-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/70 text-white backdrop-blur-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+              >
+                <Heart className={cn("h-4 w-4", isWishlisted && "fill-danger text-danger")} />
+              </button>
+              {isOutOfStock ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                   <Badge variant="neutral">Out of Stock</Badge>
                 </div>
-              )}
+              ) : null}
             </div>
 
-            <div className="space-y-2 p-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
-                {product.subtitle}
-              </p>
-              <h3 className="line-clamp-2 text-sm font-bold leading-5 text-text">{product.title}</h3>
-              <div className="flex items-center gap-1.5 text-xs font-medium text-muted">
-                <Star className="h-3.5 w-3.5 fill-warning text-warning" />
-                <span className="font-semibold text-text">{product.rating?.toFixed(1) ?? "4.6"}</span>
-                <span>({product.reviewCount ?? 0})</span>
-              </div>
-              <div className="space-y-0.5">
-                <p className="text-base font-bold text-text">{formatPrice(product.price)}</p>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">
-                  {savePercent ? `Save ${savePercent}%` : "Free shipping"}
+            <div className="px-1 py-4">
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <p className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[0.22em] text-muted">
+                  {product.subtitle}
                 </p>
+                <div className="flex shrink-0 items-center gap-1 text-sm font-bold text-emerald-600">
+                  <Star className="h-4 w-4 fill-emerald-600 text-emerald-600" />
+                  <span>{product.rating?.toFixed(1) ?? "4.6"}</span>
+                </div>
+              </div>
+              <h3 className="line-clamp-2 text-[1.05rem] font-black leading-[1.05] text-text">{product.title}</h3>
+
+              <div className="mt-4 flex items-end gap-2">
+                {product.compareAtPrice && product.compareAtPrice > product.price ? (
+                  <span className="text-[0.95rem] font-semibold text-muted line-through">
+                    {formatPrice(product.compareAtPrice)}
+                  </span>
+                ) : null}
+                <span className="text-[1.05rem] font-black text-text">{formatPrice(product.price)}</span>
               </div>
             </div>
           </Link>
-
-          <button
-            type="button"
-            onClick={() => toggleWishlist(product.id)}
-            aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"}
-            aria-pressed={isWishlisted}
-            className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/95 text-text shadow-[var(--shadow-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-          >
-            <Heart className={cn("h-4 w-4", isWishlisted && "fill-danger text-danger")} />
-          </button>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border/70 p-3 pt-0">
+        <div className="px-1 pb-1">
           <Button
             type="button"
-            size="icon"
-            variant="primary"
-            className="h-10 w-10 shrink-0 rounded-full"
+            variant="outline"
+            size="md"
+            className="h-12 w-full justify-center rounded-full border-border/80 bg-white text-text shadow-[var(--shadow-sm)] hover:bg-white"
             onClick={() => void handleAdd()}
             aria-label={`Add ${product.title} to cart`}
             disabled={isOutOfStock}
           >
             <ShoppingCart className="h-4 w-4" />
+            ADD
           </Button>
         </div>
       </Card>
@@ -237,48 +258,22 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
   );
 }
 
-function ProductRail({
-  title,
-  subtitle,
-  products,
-  viewAllHref,
-  viewAllLabel = "See all",
-}: {
-  title: string;
-  subtitle: string;
-  products: HomeProduct[];
-  viewAllHref: string;
-  viewAllLabel?: string;
-}) {
-  return (
-    <section className="mt-6">
-      <div className="mb-3 flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg font-bold text-text">{title}</h2>
-          <p className="mt-1 text-sm font-medium text-muted">{subtitle}</p>
-        </div>
-        <Link
-          href={viewAllHref}
-          className="shrink-0 text-sm font-semibold text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          {viewAllLabel}
-        </Link>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        {products.map((product) => (
-          <div key={product.id}>
-            <CompactProductCard product={product} />
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePageProps) {
   const shouldReduceMotion = useReducedMotion();
-  const router = useRouter();
+  const { user, loading: authLoading, isAuthenticated } = useAuth();
+  const [deliveryAddress, setDeliveryAddress] = useState<CheckoutAddress | null>(null);
+  const [deliveryAddressLoading, setDeliveryAddressLoading] = useState(true);
+  const [heroIndex, setHeroIndex] = useState(0);
   const homeProducts = useMemo(() => buildHomeProducts(products), [products]);
+  const exclusiveOfferProducts = useMemo(
+    () =>
+      products
+        .filter((product) => !isNoiseProduct(product) && product.exclusiveOffer)
+        .sort((left, right) => (right.exclusiveOfferPercent ?? 0) - (left.exclusiveOfferPercent ?? 0))
+        .slice(0, 4)
+        .map((product) => toHomeProduct(product, "exclusive")),
+    [products],
+  );
   const featuredRailProducts = useMemo(
     () =>
       (featuredProducts.length > 0 ? featuredProducts : products.slice(0, 4))
@@ -286,21 +281,76 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
         .map((product, index) => toHomeProduct(product, index === 0 ? "bestseller" : product.badge)),
     [featuredProducts, products],
   );
-  const featuredHeroImage = featuredProducts[0]?.primaryImageUrl ?? featuredProducts[0]?.image ?? homeProducts[0]?.image ?? FALLBACK_HOME_IMAGE;
-  const plumbingHeroImage = homeProducts[1]?.image ?? FALLBACK_HOME_IMAGE;
+  const heroProducts = useMemo(
+    () =>
+      (featuredProducts.length > 0 ? featuredProducts : products)
+        .filter((product) => !isNoiseProduct(product))
+        .slice(0, 4)
+        .map((product, index) => toHomeProduct(product, index === 0 ? "bestseller" : product.badge)),
+    [featuredProducts, products],
+  );
+  const displayHeroProducts = heroProducts.length > 0 ? heroProducts : homeProducts;
+  const deliveryAddressLabel = deliveryAddress
+    ? [deliveryAddress.line1, deliveryAddress.line2, deliveryAddress.city].filter(Boolean).join(", ") || `${deliveryAddress.city}, ${deliveryAddress.state}`
+    : "Not available";
+  const deliveryAddressSubtitle = deliveryAddress
+    ? [deliveryAddress.city, deliveryAddress.state, deliveryAddress.pin].filter(Boolean).join(" • ")
+    : "Save an address to see delivery details";
+  const activeHeroProduct = displayHeroProducts[heroIndex] ?? displayHeroProducts[0] ?? homeProducts[0];
 
-  const onSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const query = new FormData(event.currentTarget).get("q");
-    if (typeof query === "string") {
-      const trimmed = query.trim();
-      router.push(trimmed ? `/search?q=${encodeURIComponent(trimmed)}` : "/search");
+  useEffect(() => {
+    let active = true;
+
+    if (!user?.id) {
+      setDeliveryAddress(null);
+      setDeliveryAddressLoading(false);
+      return () => {
+        active = false;
+      };
     }
-  };
+
+    setDeliveryAddressLoading(true);
+
+    void loadUserAddresses(user.id)
+      .then((addresses) => {
+        if (!active) {
+          return;
+        }
+        setDeliveryAddress(addresses[0] ?? null);
+      })
+      .finally(() => {
+        if (active) {
+          setDeliveryAddressLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (displayHeroProducts.length <= 1) {
+      setHeroIndex(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setHeroIndex((current) => (current + 1) % displayHeroProducts.length);
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [displayHeroProducts.length]);
+
+  useEffect(() => {
+    if (heroIndex >= displayHeroProducts.length) {
+      setHeroIndex(0);
+    }
+  }, [displayHeroProducts.length, heroIndex]);
 
   return (
     <motion.main
-      className="relative isolate overflow-hidden border-b border-border surface-texture"
+      className="relative isolate overflow-x-hidden border-b border-border pt-20 surface-texture sm:pt-24 lg:pt-28"
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
       animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
@@ -310,20 +360,52 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
         <div className="absolute right-0 top-24 h-72 w-72 rounded-full bg-sky-300/10 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-        <header className="space-y-4">
-          <div className="flex items-center justify-end gap-2">
+      <div className="fixed inset-x-0 top-0 z-50 border-b border-border/70 bg-[color:var(--color-background)]/96 backdrop-blur-xl">
+        <div className="mx-auto max-w-7xl px-4 py-2 sm:px-6 lg:px-8">
+          <SearchBar variant="home" placeholder="Search paints, putty, primer, waterproofing..." className="w-full" />
+        </div>
+      </div>
+
+      <div className="relative mx-auto max-w-7xl px-4 pb-4 sm:px-6 lg:px-8">
+        <header className="space-y-4 pt-1">
+          <div className="flex items-start justify-between gap-3">
+            <Link
+              href={user ? "/account/addresses" : "/login"}
+              className="group flex min-w-0 flex-1 items-start gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              aria-label={deliveryAddress ? "View saved delivery address" : "Save address"}
+            >
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/85 text-muted shadow-[var(--shadow-sm)]">
+                <MapPin className="h-4 w-4" aria-hidden="true" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[11px] font-bold uppercase tracking-[0.2em] text-muted">Deliver to</span>
+                <span className="mt-0.5 block truncate text-sm font-semibold text-text">
+                  {deliveryAddressLoading || authLoading ? "Loading..." : deliveryAddressLabel}
+                </span>
+                <span className="block truncate text-[11px] font-medium text-muted">
+                  {deliveryAddressLoading || authLoading ? "Checking your saved address" : deliveryAddressSubtitle}
+                </span>
+              </span>
+            </Link>
+
             <div className="flex items-center gap-2">
               <Link
-                href="/wishlist"
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-white/90 text-text"
+                href="/notifications"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-white/90 text-text shadow-[var(--shadow-sm)]"
+                aria-label="Notifications"
+              >
+                <Bell className="h-5 w-5" aria-hidden="true" />
+              </Link>
+              <Link
+                href={isAuthenticated ? "/wishlist" : buildLoginRedirectPath("/wishlist")}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-white/90 text-text shadow-[var(--shadow-sm)]"
                 aria-label="Wishlist"
               >
                 <Heart className="h-5 w-5" aria-hidden="true" />
               </Link>
               <Link
-                href="/account"
-                className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-background-secondary text-sm font-bold text-text"
+                href={isAuthenticated ? "/account" : buildLoginRedirectPath("/account")}
+                className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-background-secondary text-sm font-bold text-text shadow-[var(--shadow-sm)]"
                 aria-label="Account"
               >
                 <UserCircle2 className="h-5 w-5" aria-hidden="true" />
@@ -334,127 +416,48 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
           <div className="text-center">
             <p className="text-[0.95rem] font-black tracking-[0.5em] text-text sm:text-[1.05rem]">UNIQUE SHOPEE</p>
           </div>
-
-          <form
-            role="search"
-            onSubmit={onSearchSubmit}
-            className="flex items-center gap-2 rounded-[1.3rem] border border-border/70 bg-white/92 px-3 py-3 shadow-[var(--shadow-sm)]"
-          >
-            <Search className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
-            <input
-              name="q"
-              type="search"
-              placeholder="Search paints, putty, primer, waterproofing..."
-              className="h-10 min-w-0 flex-1 border-0 bg-transparent text-sm font-medium text-text placeholder:text-muted focus:outline-none"
-            />
-          </form>
         </header>
 
         <section className="mt-4">
-          <Card className="overflow-hidden rounded-[2rem] border-white/80 bg-gradient-to-br from-[#332a24] via-[#6f5a4b] to-[#9e7a5f] p-4 text-white shadow-[var(--shadow-lg)] sm:p-5">
-            <div className="grid gap-5 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
-              <div className="space-y-5">
-                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/90">
-                  Exclusive offer
-                </div>
-                <div className="space-y-3">
-                  <h1 className="max-w-xl text-[2.15rem] font-black leading-[0.95] tracking-tight text-white sm:text-[2.65rem]">
-                    Paint, protect, and upgrade every corner
-                  </h1>
-                  <p className="max-w-lg text-sm font-medium leading-7 text-white/82 sm:text-base">{HERO_COPY.subtitle}</p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    variant="outline"
-                    size="md"
-                    asChild
-                  className="border-white/10 bg-white text-text hover:bg-white/95"
+          <Card className="overflow-hidden rounded-[2rem] border-white/80 bg-gradient-to-br from-[#201b1a] via-[#7b6356] to-[#d6ab88] p-4 text-white shadow-[var(--shadow-lg)] sm:p-5">
+            <div className="relative overflow-hidden rounded-[1.6rem] bg-white/10 p-3">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeHeroProduct?.id ?? "hero"}
+                  initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+                  animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
+                  exit={shouldReduceMotion ? undefined : { opacity: 0, y: -10 }}
+                  transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                  className="relative h-full overflow-hidden rounded-[1.6rem] bg-[#d7b197]/35"
                 >
-                    <Link href="/products?department=paints">
-                      Shop paints
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="md"
-                    asChild
-                    className="border border-white/10 bg-white/5 text-white hover:bg-white/10"
-                  >
-                    <Link href="/products">Browse catalog</Link>
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <Link href="/products?department=paints" className="group relative min-w-full snap-start overflow-hidden rounded-[1.6rem]">
-                  <div className="relative aspect-[1.15]">
-                    <Image src={featuredHeroImage} alt="Featured paint collection" fill className="object-cover transition-transform duration-500 group-hover:scale-105" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/12 to-transparent" />
-                  </div>
-                  <div className="absolute inset-x-4 bottom-4 flex items-end justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-200">Hero pick</p>
-                      <p className="text-lg font-bold text-white">Luxury Wall Makeover</p>
+                  <Link href={activeHeroProduct?.href ?? "/products"} className="group block h-full">
+                    <div className="relative aspect-[0.92] min-h-[20rem]">
+                      <Image
+                        src={activeHeroProduct?.image || FALLBACK_HOME_IMAGE}
+                        alt={activeHeroProduct?.title ?? "Featured product"}
+                        fill
+                        sizes="(max-width: 1024px) 100vw, 50vw"
+                        className="object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/12 to-transparent" />
                     </div>
-                    <span className="rounded-full bg-white/15 px-3 py-2 text-xs font-semibold text-white">Paints</span>
-                  </div>
-                </Link>
-                <Link href="/products?department=plumbing" className="group relative min-w-full snap-start overflow-hidden rounded-[1.6rem]">
-                  <div className="relative aspect-[1.15]">
-                    <Image src={plumbingHeroImage} alt="Featured plumbing collection" fill className="object-cover transition-transform duration-500 group-hover:scale-105" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/12 to-transparent" />
-                  </div>
-                  <div className="absolute inset-x-4 bottom-4 flex items-end justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-200">Hero pick</p>
-                      <p className="text-lg font-bold text-white">Bathroom Upgrade</p>
+                    <div className="absolute inset-x-4 top-4">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-200/90">Exclusive offer</p>
                     </div>
-                    <span className="rounded-full bg-white/15 px-3 py-2 text-xs font-semibold text-white">Plumbing</span>
-                  </div>
-                </Link>
-              </div>
-            </div>
-          </Card>
-        </section>
-
-        <section className="mt-6">
-          <Card className="rounded-[1.6rem] border-rose-100 bg-rose-50/80 p-4 shadow-[var(--shadow-sm)]">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold text-text">Exclusive Offer</h2>
-                  <Badge variant="danger" className="rounded-full px-2.5 py-1 text-[10px]">
-                    LIMITED
-                  </Badge>
-                </div>
-                <p className="text-sm font-medium text-muted">Flat 30% off on selected paints and plumbing essentials.</p>
-              </div>
-              <Button asChild variant="primary" size="sm" className="shrink-0">
-                <Link href="/products">
-                  Shop deal
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              {homeProducts.slice(0, 2).map((item) => (
-                <div key={item.id} className="rounded-[1.2rem] bg-white p-2 shadow-[var(--shadow-sm)]">
-                  <div className="relative aspect-square overflow-hidden rounded-[1rem] bg-background-secondary">
-                    <Image src={item.image || FALLBACK_HOME_IMAGE} alt={item.title} fill className="object-cover" />
-                    <span className="absolute left-2 top-2 rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">
-                      {item.badge === "sale" ? `Save ${Math.round(((item.compareAtPrice ?? item.price) - item.price) / Math.max(item.compareAtPrice ?? item.price, 1) * 100)}%` : "-40%"}
-                    </span>
-                  </div>
-                  <div className="p-2">
-                    <p className="text-sm font-semibold text-text">{item.title}</p>
-                    <Link href={item.href} className="mt-1 inline-flex text-xs font-bold text-accent">
-                      Shop now <ArrowRight className="ml-1 h-3.5 w-3.5" />
-                    </Link>
-                  </div>
-                </div>
-              ))}
+                    <div className="absolute inset-x-4 bottom-4 flex items-end justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-200">Hero pick</p>
+                        <p className="max-w-[14rem] text-[1.2rem] font-black leading-[1.05] text-white sm:text-[1.35rem]">
+                          {activeHeroProduct?.title}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white/15 px-3 py-2 text-xs font-semibold text-white">
+                        {activeHeroProduct?.categoryLabel}
+                      </span>
+                    </div>
+                  </Link>
+                </motion.div>
+              </AnimatePresence>
             </div>
           </Card>
         </section>
@@ -485,21 +488,74 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
           </div>
         </section>
 
-        <ProductRail
-          title="Trending Now"
-          subtitle="Freshly surfaced picks from the live catalog."
-          products={homeProducts}
-          viewAllHref="/products"
-        />
+        <section className="mt-6">
+          <Card className="rounded-[1.6rem] border-rose-100 bg-rose-50/80 p-4 shadow-[var(--shadow-sm)]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-text">Exclusive Offer</h2>
+                  <Badge variant="danger" className="rounded-full px-2.5 py-1 text-[10px]">
+                    LIVE
+                  </Badge>
+                </div>
+                <p className="text-sm font-medium text-muted">Live admin-curated offers appear here when products are marked exclusive.</p>
+              </div>
+              <Button asChild variant="primary" size="sm" className="shrink-0">
+                <Link href="/products">
+                  View all
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
 
-        <ProductRail
-          title="Editor's Picks"
-          subtitle="A denser rail of featured items from across the catalog."
-          products={featuredRailProducts}
-          viewAllHref="/products"
-          viewAllLabel="Browse all"
-        />
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {(exclusiveOfferProducts.length > 0 ? exclusiveOfferProducts : homeProducts).slice(0, 2).map((item) => (
+                <div key={item.id} className="rounded-[1.2rem] bg-white p-2 shadow-[var(--shadow-sm)]">
+                  <div className="relative aspect-square overflow-hidden rounded-[1rem] bg-background-secondary">
+                    <Image src={item.image || FALLBACK_HOME_IMAGE} alt={item.title} fill className="object-cover" />
+                    <span className="absolute left-2 top-2 rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                      {item.exclusiveOfferPercent ? `${item.exclusiveOfferPercent}% OFF` : item.badge === "sale" && item.compareAtPrice ? "SALE" : "LIVE PICK"}
+                    </span>
+                  </div>
+                  <div className="p-2">
+                    <p className="text-sm font-semibold text-text">{item.title}</p>
+                    <Link href={item.href} className="mt-1 inline-flex text-xs font-bold text-accent">
+                      Shop now <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </section>
 
+        <section className="mt-6">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-text">Trending Now</h2>
+            <Link href="/products" className="text-sm font-semibold text-accent">
+              View all
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            {homeProducts.slice(0, 4).map((product) => (
+              <CompactProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-6">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-bold text-text">Editor's Picks</h2>
+            <Link href="/products" className="text-sm font-semibold text-accent">
+              Browse all
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            {featuredRailProducts.slice(0, 4).map((product) => (
+              <CompactProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </section>
       </div>
     </motion.main>
   );

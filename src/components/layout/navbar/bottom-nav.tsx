@@ -2,25 +2,38 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, LayoutGrid, Heart, ShoppingCart, User } from "lucide-react";
+import { Home, LayoutGrid, ShoppingCart, User, Package } from "lucide-react";
 import { MOBILE_BOTTOM_NAV } from "@/lib/constants";
 import { useCartStore } from "@/store/cart-store";
-import { useWishlistStore } from "@/store/wishlist-store";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/components/auth/auth-provider";
+import { buildLoginRedirectPath } from "@/lib/auth";
 
 const ICONS = {
   home: Home,
   grid: LayoutGrid,
-  heart: Heart,
   cart: ShoppingCart,
+  order: Package,
   user: User,
 };
 
 /** Fixed to the viewport bottom on mobile only; hidden at lg. */
 function BottomNav() {
   const pathname = usePathname();
+  const { isAuthenticated } = useAuth();
   const cartCount = useCartStore((s) => s.totalItems());
-  const wishlistCount = useWishlistStore((s) => s.count());
+
+  const getNavHref = (href: string) => {
+    if (isAuthenticated) {
+      return href;
+    }
+
+    if (href === "/cart" || href === "/account" || href === "/orders" || href === "/wishlist") {
+      return buildLoginRedirectPath(href);
+    }
+
+    return href;
+  };
 
   return (
     <nav
@@ -33,13 +46,13 @@ function BottomNav() {
             {MOBILE_BOTTOM_NAV.map((item) => {
               const Icon = ICONS[item.icon];
               const active = pathname === item.href;
-              const count =
-                item.icon === "cart" ? cartCount : item.icon === "heart" ? wishlistCount : 0;
+              const count = item.icon === "cart" ? cartCount : 0;
+              const href = getNavHref(item.href);
 
               return (
                 <li key={item.href}>
                   <Link
-                    href={item.href}
+                    href={href}
                     aria-current={active ? "page" : undefined}
                     className={cn(
                       "relative flex min-h-11 flex-col items-center gap-0.5 py-2 text-[10px] font-semibold transition-colors",

@@ -3,52 +3,32 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
-import { usePathname, useRouter } from "next/navigation";
-import {
-  ArrowRight,
-  Ban,
-  CheckCircle2,
-  ChevronDown,
-  CircleDot,
-  Clock3,
-  Download,
-  LocateFixed,
-  MessageCircleQuestion,
-  Package,
-  RotateCcw,
-  Search,
-  ShieldCheck,
-  Truck,
-  ScrollText,
-  FileText,
-} from "lucide-react";
+import { usePathname } from "next/navigation";
+import { ArrowRight, CheckCircle2, CircleDot, Clock3, LocateFixed, Package, ScrollText, ShieldCheck, Truck } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
-import { EmptyState } from "@/components/feedback/empty-state";
+import { FormField } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ProductShowcase } from "@/components/product/product-showcase";
 import { cn, formatPrice } from "@/lib/utils";
+import { SharedProductCard } from "@/components/product/shared-product-card";
 import {
-  ORDER_MUTABLE_STATUS_OPTIONS,
   ORDER_STATUS_LABELS,
   ORDER_STATUS_TONE,
   canCancelOrder,
-  type OrderMutableStatus,
   type OrderItem,
   type OrderRecord,
-  type OrderSortMode,
   type OrderStatus,
   type OrderTab,
   getOrderTab,
 } from "@/lib/orders-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { cancelOrder, loadOrderById, updateOrderStatus, updateOrderTrackingNumber, type OrderAccessRole } from "@/lib/order-service";
-import type { Product } from "@/types";
+import { cancelOrder, loadOrderById, type OrderAccessRole } from "@/lib/order-service";
+import { createReturnRequest, getReturnEligibility, loadOrderReturnRequests, type OrderReturnRequest, type ReturnPickupOption } from "@/lib/return-service";
+import { calculateCartPricing, resolveCouponCode } from "@/lib/checkout-pricing";
 import type { ReactNode } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 
@@ -58,29 +38,6 @@ const ORDER_TABS: Array<{ label: string; value: OrderTab }> = [
   { label: "All", value: "all" },
   { label: "Active", value: "active" },
   { label: "Delivered", value: "delivered" },
-  { label: "Cancelled", value: "cancelled" },
-  { label: "Returned", value: "returned" },
-];
-
-const SORT_LABELS: Record<OrderSortMode, string> = {
-  latest: "Latest",
-  oldest: "Oldest",
-  "amount-high": "Amount: High to Low",
-  "amount-low": "Amount: Low to High",
-  status: "Status",
-};
-
-const STATUS_FILTERS: OrderStatus[] = [
-  "Pending",
-  "Ordered",
-  "Confirmed",
-  "Packed",
-  "Shipped",
-  "Out for Delivery",
-  "Delivered",
-  "Cancelled",
-  "Returned",
-  "Refunded",
 ];
 
 const TIMELINE_ICONS: Record<string, IconType> = {
@@ -122,6 +79,52 @@ function OrderStatusBadge({ status }: { status: OrderStatus }) {
   );
 }
 
+function OrderTimeline({ order }: { order: OrderRecord }) {
+  return (
+    <Card className="rounded-[1.6rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Track Shipment</p>
+          <h2 className="mt-2 text-xl font-bold text-text">Live timeline</h2>
+        </div>
+        <Badge variant={order.trackingNumber ? "success" : "neutral"}>
+          {order.trackingNumber ? "Tracking set" : "Awaiting dispatch"}
+        </Badge>
+      </div>
+
+      <ol className="space-y-4" aria-label="Order timeline">
+        {order.timeline.map((step, index) => {
+          const Icon = TIMELINE_ICONS[step.icon] ?? Clock3;
+          return (
+            <li key={step.status} className="flex gap-4">
+              <div className="flex flex-col items-center">
+                <span
+                  className={cn(
+                    "flex h-10 w-10 items-center justify-center rounded-full border",
+                    step.active
+                      ? "border-transparent bg-accent text-accent-foreground shadow-[var(--shadow-sm)]"
+                      : "border-border/70 bg-background-secondary text-muted",
+                  )}
+                >
+                  <Icon className="h-4 w-4" aria-hidden={true} />
+                </span>
+                {index < order.timeline.length - 1 ? <span className="mt-2 h-full w-px bg-border" aria-hidden="true" /> : null}
+              </div>
+              <div className="flex-1 pb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-text">{step.status}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">{step.timestamp}</p>
+                </div>
+                <p className="mt-1 text-sm font-medium leading-6 text-muted">{step.description}</p>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </Card>
+  );
+}
+
 function OrdersBreadcrumb({ label }: { label: string }) {
   return (
     <nav aria-label="Breadcrumb" className="mb-5">
@@ -160,86 +163,6 @@ function OrdersPageShell({
   );
 }
 
-function OrdersHeader({
-  title,
-  subtitle,
-  count,
-  searchValue,
-  onSearchChange,
-  onOpenFilters,
-  sort,
-  onSortChange,
-}: {
-  title: string;
-  subtitle: string;
-  count: number;
-  searchValue: string;
-  onSearchChange: (value: string) => void;
-  onOpenFilters: () => void;
-  sort: OrderSortMode;
-  onSortChange: (value: OrderSortMode) => void;
-}) {
-  return (
-    <div className="space-y-5">
-      <OrdersBreadcrumb label={title} />
-
-      <div className="flex flex-col gap-4 rounded-[1.6rem] border border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)] sm:p-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
-            <Badge variant="accent" className="eyebrow-font w-fit">
-              Orders
-            </Badge>
-            <div>
-              <h1 className="text-2xl font-black tracking-tight text-text sm:text-3xl">{title}</h1>
-              <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-muted sm:text-base">{subtitle}</p>
-            </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background-secondary px-3 py-1.5 text-sm font-semibold text-text">
-              <Package className="h-4 w-4 text-accent" aria-hidden="true" />
-              {count} total orders
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3 lg:max-w-lg lg:flex-1">
-            <label className="relative block">
-              <span className="sr-only">Search orders</span>
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
-              <Input
-                type="search"
-                value={searchValue}
-                onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="Search by order ID, product, or address"
-                className="h-12 rounded-full border-border/80 bg-white/95 pl-11 shadow-[var(--shadow-sm)]"
-              />
-            </label>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
-              <Button type="button" variant="outline" size="md" onClick={onOpenFilters} className="w-full sm:w-auto">
-                <ChevronDown className="h-4 w-4" aria-hidden="true" />
-                Filter
-              </Button>
-              <label className="relative block">
-                <span className="sr-only">Sort orders</span>
-                <select
-                  value={sort}
-                  onChange={(event) => onSortChange(event.target.value as OrderSortMode)}
-                  aria-label="Sort orders"
-                  className="h-12 w-full appearance-none rounded-full border border-border/80 bg-white/95 px-4 pr-10 text-sm font-semibold text-text shadow-[var(--shadow-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  {Object.entries(SORT_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
-              </label>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function OrderTabs({
   activeTab,
   onTabChange,
@@ -272,305 +195,46 @@ function OrderTabs({
   );
 }
 
-function OrdersFilterModal({
-  open,
-  onOpenChange,
-  selectedStatuses,
-  onToggleStatus,
-  onClear,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  selectedStatuses: OrderStatus[];
-  onToggleStatus: (status: OrderStatus) => void;
-  onClear: () => void;
-}) {
-  return (
-    <Modal
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Filter Orders"
-      description="Narrow your order history by current order status."
-      className="max-w-2xl"
-    >
-      <div className="space-y-5">
-        <div className="flex flex-wrap gap-2">
-          {STATUS_FILTERS.map((status) => {
-            const active = selectedStatuses.includes(status);
-            return (
-              <button
-                key={status}
-                type="button"
-                onClick={() => onToggleStatus(status)}
-                className={cn(
-                  "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] transition-all",
-                  active
-                    ? "border-transparent bg-primary text-primary-foreground"
-                    : "border-border/70 bg-white text-text hover:border-accent/20",
-                )}
-              >
-                {status}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-          <Button type="button" variant="ghost" onClick={onClear}>
-            Clear filters
-          </Button>
-          <Button type="button" onClick={() => onOpenChange(false)}>
-            Apply
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function OrderActionRow({
-  order,
-}: {
-  order: OrderRecord;
-}) {
-  const canReturn = order.status === "Delivered";
-  const canCancel = canCancelOrder(order.status);
-  const cancelMessage = "Order can no longer be cancelled because it has already been shipped.";
-  const router = useRouter();
-  const [cancelling, setCancelling] = useState(false);
-
-  const handleCancel = async () => {
-    if (!canCancel || cancelling) {
-      return;
-    }
-
-    setCancelling(true);
-    try {
-      const client = getSupabaseBrowserClient();
-      if (!client) {
-        toast({ title: "Supabase unavailable", description: "Order cancellation needs a connected Supabase client.", variant: "danger" });
-        return;
-      }
-
-      const result = await cancelOrder(client, order.id);
-      if (result.error) {
-        toast({ title: "Unable to cancel order", description: result.error, variant: "danger" });
-        return;
-      }
-
-      toast({ title: "Order cancelled", description: order.orderNumber, variant: "success" });
-      router.refresh();
-    } finally {
-      setCancelling(false);
-    }
-  };
-
-  return (
-    <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:grid-cols-3">
-      <Button asChild variant="outline" size="sm" className="w-full">
-        <Link href={`/orders/${order.id}`}>
-          View Details
-          <ArrowRight className="h-4 w-4" aria-hidden="true" />
-        </Link>
-      </Button>
-      <Button
-        asChild
-        variant="outline"
-        size="sm"
-        className="w-full"
-      >
-        <Link href={`/orders/${order.id}#shipment-tracking`}>Track Shipment</Link>
-      </Button>
-      <Button
-        type="button"
-        variant="accent"
-        size="sm"
-        className="w-full"
-        onClick={() => toast({ title: "Buy again ready", description: `We will re-add items from ${order.orderNumber} in a future phase.`, variant: "success" })}
-      >
-        Buy Again
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="w-full border border-border/70 bg-white/75"
-        onClick={() => toast({ title: "Invoice download", description: "Invoice PDF download is UI-only for now." })}
-      >
-        <Download className="h-4 w-4" aria-hidden="true" />
-        Invoice
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="w-full border border-border/70 bg-white/75"
-        onClick={() => toast({ title: "Support requested", description: "Customer support contact flow is ready for integration." })}
-      >
-        <MessageCircleQuestion className="h-4 w-4" aria-hidden="true" />
-        Help
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="w-full border border-border/70 bg-white/75"
-        disabled={!canReturn}
-        onClick={() => toast({ title: "Return item", description: "Return flow is UI-only and will connect later.", variant: "warning" })}
-      >
-        <RotateCcw className="h-4 w-4" aria-hidden="true" />
-        Return
-      </Button>
-      {canCancel ? (
-        <Button
-          type="button"
-          variant="danger"
-          size="sm"
-          className="w-full"
-          loading={cancelling}
-          disabled={cancelling}
-          onClick={() => void handleCancel()}
-        >
-          <Ban className="h-4 w-4" aria-hidden="true" />
-          Cancel
-        </Button>
-      ) : (
-        <p className="w-full rounded-[1rem] border border-border/70 bg-background-secondary px-3 py-2 text-sm font-medium text-muted min-[420px]:col-span-2 lg:col-span-1">
-          {cancelMessage}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function OrderCard({ order }: { order: OrderRecord }) {
-  const primaryItem = order.items[0];
-  const secondaryItem = order.items[1];
-
   return (
     <Card className="overflow-hidden rounded-[1.6rem] border-white/80 bg-white/92 shadow-[var(--shadow-lg)]">
-      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.1fr)_18rem]">
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-lg font-bold text-text">{order.orderNumber}</h3>
-                <OrderStatusBadge status={order.status} />
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm font-medium text-muted">
-                <span>Placed {order.placedAt}</span>
-                {order.deliveredAt ? <span>Delivered {order.deliveredAt}</span> : null}
-              </div>
+      <div className="space-y-4 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg font-bold text-text">{order.orderNumber}</h3>
+              <OrderStatusBadge status={order.status} />
             </div>
-            <div className="rounded-full border border-border/70 bg-background-secondary px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-              {order.itemsCount} items
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm font-medium text-muted">
+              <span>Placed {order.placedAt}</span>
+              {order.deliveredAt ? <span>Delivered {order.deliveredAt}</span> : null}
             </div>
           </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-[1.2rem] border border-border/70 bg-background-secondary px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Order total</p>
-              <p className="mt-1 text-lg font-bold text-text">{formatPrice(order.grandTotal)}</p>
-            </div>
-            <div className="rounded-[1.2rem] border border-border/70 bg-background-secondary px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Payment</p>
-              <p className="mt-1 text-sm font-bold text-text">{order.paymentMethod}</p>
-              <p className="mt-1 text-xs font-medium uppercase tracking-[0.18em] text-muted">{order.paymentStatus}</p>
-            </div>
-            <div className="rounded-[1.2rem] border border-border/70 bg-background-secondary px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Delivery</p>
-              <p className="mt-1 line-clamp-2 text-sm font-medium text-text">
-                {order.deliveryAddress.line1}, {order.deliveryAddress.city}
-              </p>
-            </div>
-            <div className="rounded-[1.2rem] border border-border/70 bg-background-secondary px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Reference</p>
-              <p className="mt-1 text-sm font-bold text-text">{order.paymentReference}</p>
-            </div>
+          <div className="rounded-full border border-border/70 bg-background-secondary px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+            {order.itemsCount} items
           </div>
-
-          <div className="space-y-3 rounded-[1.35rem] border border-border/70 bg-white/85 p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Order items</p>
-                <p className="mt-1 text-sm font-medium text-muted">Products from this order</p>
-              </div>
-              <Button asChild variant="ghost" size="sm" className="hidden rounded-full px-3 text-accent sm:inline-flex">
-                <Link href={`/orders/${order.id}`}>View details</Link>
-              </Button>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[primaryItem, secondaryItem]
-                .filter((item): item is OrderItem => Boolean(item))
-                .map((item) => (
-                  <OrderLineItem key={item.id} item={item} />
-                ))}
-            </div>
-          </div>
-
-          <OrderActionRow order={order} />
         </div>
 
-        <div className="space-y-4">
-          <div className="overflow-hidden rounded-[1.35rem] border border-white/80 bg-gradient-to-br from-background-secondary via-white to-white p-3 shadow-[var(--shadow-sm)]">
-            <div className="grid grid-cols-2 gap-2">
-              {order.items.slice(0, 4).map((item) => (
-                <div key={item.id} className="relative overflow-hidden rounded-[1rem] bg-white">
-                  <Image src={item.image} alt={item.name} width={320} height={320} className="aspect-square w-full object-cover" />
-                </div>
-              ))}
-            </div>
+        <div className="space-y-3 rounded-[1.35rem] border border-border/70 bg-white/85 p-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Order items</p>
+            <p className="mt-1 text-sm font-medium text-muted">Products from this order</p>
           </div>
 
-          <div className="rounded-[1.35rem] border border-border/70 bg-white/85 p-4 shadow-[var(--shadow-sm)]">
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Delivery address</p>
-            <div className="mt-3 space-y-1.5 text-sm font-medium text-muted">
-              <p className="font-bold text-text">{order.deliveryAddress.name}</p>
-              <p>{order.deliveryAddress.line1}</p>
-              <p>{order.deliveryAddress.line2}</p>
-              <p>
-                {order.deliveryAddress.city}, {order.deliveryAddress.state} {order.deliveryAddress.pincode}
-              </p>
-              <p>{order.deliveryAddress.phone}</p>
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {order.items.map((item) => (
+              <OrderLineItem key={item.id} item={item} />
+            ))}
           </div>
+        </div>
 
-          <div className="rounded-[1.35rem] border border-border/70 bg-white/85 p-4 shadow-[var(--shadow-sm)]">
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Summary</p>
-            <div className="mt-3 space-y-2 text-sm font-medium text-muted">
-              <div className="flex items-center justify-between gap-3">
-                <span>Items</span>
-                <span>{order.itemsCount}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span>Subtotal</span>
-                <span>{formatPrice(order.subtotal)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span>Discount</span>
-                <span>-{formatPrice(order.discount)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span>Coupon</span>
-                <span>-{formatPrice(order.couponDiscount)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span>GST</span>
-                <span>{formatPrice(order.gst)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span>Shipping</span>
-                <span>{order.shipping === 0 ? "Free" : formatPrice(order.shipping)}</span>
-              </div>
-            </div>
-            <div className="mt-4 border-t border-border/70 pt-4">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-bold text-text">Grand total</span>
-                <span className="text-xl font-bold text-text">{formatPrice(order.grandTotal)}</span>
-              </div>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Button asChild variant="outline" size="sm" className="w-full">
+            <Link href={`/orders/${order.id}`}>
+              View Details
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          </Button>
         </div>
       </div>
     </Card>
@@ -600,162 +264,6 @@ function OrderLineItem({ item }: { item: OrderItem }) {
         </div>
       </div>
     </Link>
-  );
-}
-
-function OrderTimeline({ order }: { order: OrderRecord }) {
-  return (
-    <Card id="timeline" className="rounded-[1.5rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
-      <div className="mb-4">
-        <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Order timeline</p>
-        <h2 className="mt-2 text-xl font-bold text-text">Progress</h2>
-      </div>
-      <ol className="space-y-4" aria-label="Order timeline">
-        {order.timeline.map((step, index) => {
-          const Icon = TIMELINE_ICONS[step.icon] as IconType;
-          return (
-            <li key={step.status} className="flex gap-4">
-              <div className="flex flex-col items-center">
-                <span
-                  className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-full border",
-                    step.active
-                      ? "border-transparent bg-accent text-accent-foreground shadow-[var(--shadow-sm)]"
-                      : "border-border/70 bg-background-secondary text-muted",
-                  )}
-                >
-                  <Icon className="h-4 w-4" aria-hidden={true} />
-                </span>
-                {index < order.timeline.length - 1 ? <span className="mt-2 h-full w-px bg-border" aria-hidden="true" /> : null}
-              </div>
-              <div className="flex-1 pb-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-bold text-text">{step.status}</p>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">{step.timestamp}</p>
-                </div>
-                <p className="mt-1 text-sm font-medium leading-6 text-muted">{step.description}</p>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-    </Card>
-  );
-}
-
-function getShipmentProgress(order: OrderRecord) {
-  const activeSteps = order.timeline.filter((step) => step.active).length;
-  const totalSteps = Math.max(order.timeline.length, 1);
-  const percentage = Math.max(8, Math.round((activeSteps / totalSteps) * 100));
-  const currentStep = [...order.timeline].reverse().find((step) => step.active) ?? order.timeline[0] ?? null;
-
-  return {
-    percentage,
-    currentStep,
-  };
-}
-
-function ShipmentTrackingCard({ order }: { order: OrderRecord }) {
-  const { percentage, currentStep } = getShipmentProgress(order);
-
-  return (
-    <Card id="shipment-tracking" className="rounded-[1.5rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Shipment tracking</p>
-          <h2 className="mt-2 text-xl font-bold text-text">Live progress</h2>
-        </div>
-        <Badge variant={order.trackingNumber ? "success" : "neutral"}>{order.trackingNumber ? "Tracking set" : "Awaiting dispatch"}</Badge>
-      </div>
-
-      <div className="space-y-4">
-        <div className="rounded-[1.25rem] border border-border/70 bg-background-secondary/35 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Current status</p>
-              <p className="mt-1 text-base font-bold text-text">{ORDER_STATUS_LABELS[order.status]}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Progress</p>
-              <p className="mt-1 text-base font-bold text-text">{percentage}%</p>
-            </div>
-          </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-white">
-            <div className="h-full rounded-full bg-gradient-to-r from-accent to-[#fdba74]" style={{ width: `${percentage}%` }} />
-          </div>
-          <p className="mt-3 text-sm font-medium leading-6 text-muted">
-            {currentStep?.description ?? "Your shipment will appear here once admin updates the order."}
-          </p>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-[1.2rem] border border-border/70 bg-white/85 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Tracking number</p>
-            <p className="mt-2 break-all text-sm font-bold text-text">{order.trackingNumber ?? "Not assigned yet"}</p>
-          </div>
-          <div className="rounded-[1.2rem] border border-border/70 bg-white/85 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Last update</p>
-            <p className="mt-2 text-sm font-bold text-text">{order.deliveredAt ?? order.placedAt}</p>
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function OrderSupportLinks() {
-  const supportLinks = [
-    { label: "Contact Support", icon: MessageCircleQuestion, description: "Talk to our team", href: "/contact" },
-    { label: "Return Policy", icon: RotateCcw, description: "Review return rules", href: "/terms" },
-    { label: "Track Shipment", icon: Truck, description: "See delivery progress", href: "#shipment-tracking" },
-  ];
-
-  return (
-    <Card className="rounded-[1.5rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
-      <div className="mb-4">
-        <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Need help?</p>
-        <h2 className="mt-2 text-xl font-bold text-text">Support</h2>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {supportLinks.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Button
-              key={item.label}
-              asChild
-              variant="ghost"
-              className="h-auto justify-start rounded-[1.2rem] border border-border/70 bg-white/85 px-4 py-3 text-left hover:border-accent/20 hover:bg-white"
-            >
-              <Link href={item.href} className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/10 text-accent">
-                  <Icon className="h-4 w-4" aria-hidden="true" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-bold text-text">{item.label}</span>
-                  <span className="block text-xs font-medium text-muted">{item.description}</span>
-                </span>
-              </Link>
-            </Button>
-          );
-        })}
-        <Button
-          type="button"
-          variant="ghost"
-          className="h-auto justify-start rounded-[1.2rem] border border-border/70 bg-white/85 px-4 py-3 text-left hover:border-accent/20 hover:bg-white"
-          onClick={() => window.print()}
-        >
-          <span className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/10 text-accent">
-              <FileText className="h-4 w-4" aria-hidden="true" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-bold text-text">Download Invoice</span>
-              <span className="block text-xs font-medium text-muted">Print or save the billing copy</span>
-            </span>
-          </span>
-        </Button>
-      </div>
-    </Card>
   );
 }
 
@@ -861,63 +369,14 @@ function OrderDetailSkeleton() {
   );
 }
 
-function buildProductSubset(_items: OrderItem[]): Product[] {
-  return [];
-}
-
 function OrdersListPage({ orders }: { orders: OrderRecord[] }) {
   const shouldReduceMotion = useReducedMotion();
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<OrderSortMode>("latest");
   const [activeTab, setActiveTab] = useState<OrderTab>("all");
-  const [selectedStatuses, setSelectedStatuses] = useState<OrderStatus[]>([]);
-  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const filteredOrders = useMemo(() => {
-    const term = search.trim().toLowerCase();
     return [...orders]
-      .filter((order) => {
-        const matchesTab = activeTab === "all" || getOrderTab(order.status) === activeTab;
-        const matchesStatus = selectedStatuses.length === 0 || selectedStatuses.includes(order.status);
-        const haystack = [
-          order.orderNumber,
-          order.deliveryAddress.name,
-          order.deliveryAddress.line1,
-          order.deliveryAddress.city,
-          order.paymentMethod,
-          order.status,
-          ...order.items.map((item) => item.name),
-        ]
-          .join(" ")
-          .toLowerCase();
-        const matchesSearch = term.length === 0 || haystack.includes(term);
-        return matchesTab && matchesStatus && matchesSearch;
-      })
-      .sort((left, right) => {
-        switch (sort) {
-          case "oldest":
-            return Date.parse(left.placedAt) - Date.parse(right.placedAt);
-          case "amount-high":
-            return right.grandTotal - left.grandTotal;
-          case "amount-low":
-            return left.grandTotal - right.grandTotal;
-          case "status":
-            return left.status.localeCompare(right.status);
-          case "latest":
-          default:
-            return Date.parse(right.placedAt) - Date.parse(left.placedAt);
-        }
-      });
-  }, [activeTab, orders, search, selectedStatuses, sort]);
-
-  const clearFilters = () => {
-    setSelectedStatuses([]);
-    setActiveTab("all");
-  };
-
-  const toggleStatus = (status: OrderStatus) => {
-    setSelectedStatuses((current) => (current.includes(status) ? current.filter((item) => item !== status) : [...current, status]));
-  };
+      .filter((order) => activeTab === "all" || getOrderTab(order.status) === activeTab);
+  }, [activeTab, orders]);
 
   return (
     <OrdersPageShell>
@@ -927,30 +386,16 @@ function OrdersListPage({ orders }: { orders: OrderRecord[] }) {
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
         className="space-y-5"
       >
-        <OrdersHeader
-          title="My Orders"
-          subtitle="Track your purchase history, manage shipments, and revisit invoice, return, and support tools."
-          count={orders.length}
-          searchValue={search}
-          onSearchChange={setSearch}
-          onOpenFilters={() => setFiltersOpen(true)}
-          sort={sort}
-          onSortChange={setSort}
-        />
+        <div className="px-1">
+          <h1 className="text-xl font-black tracking-tight text-text">My Orders</h1>
+        </div>
 
         <OrderTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
         {orders.length === 0 ? (
           <OrdersEmptyState onContinueShopping={() => window.location.assign("/products")} />
         ) : filteredOrders.length === 0 ? (
-          <EmptyState
-            title="No orders matched your filters"
-            description="Try a different search, change the tab, or clear the filters to see your full order history."
-            actionLabel="Clear filters"
-            onAction={clearFilters}
-            secondaryActionLabel="Continue Shopping"
-            onSecondaryAction={() => window.location.assign("/products")}
-          />
+          <OrdersEmptyState onContinueShopping={() => window.location.assign("/products")} />
         ) : (
           <div className="space-y-4">
             {filteredOrders.map((order) => (
@@ -959,151 +404,7 @@ function OrdersListPage({ orders }: { orders: OrderRecord[] }) {
           </div>
         )}
       </motion.main>
-
-      <OrdersFilterModal
-        open={filtersOpen}
-        onOpenChange={setFiltersOpen}
-        selectedStatuses={selectedStatuses}
-        onToggleStatus={toggleStatus}
-        onClear={clearFilters}
-      />
     </OrdersPageShell>
-  );
-}
-
-function canManageOrder(roleKey: OrderAccessRole | null | undefined) {
-  return roleKey === "admin" || roleKey === "manager" || roleKey === "staff";
-}
-
-function OrderStatusUpdateCard({
-  order,
-  roleKey,
-}: {
-  order: OrderRecord;
-  roleKey: OrderAccessRole | null;
-}) {
-  const router = useRouter();
-  const [saving, setSaving] = useState(false);
-  const [trackingSaving, setTrackingSaving] = useState(false);
-  const [status, setStatus] = useState<OrderMutableStatus>(
-    ORDER_MUTABLE_STATUS_OPTIONS.includes(order.status as OrderMutableStatus) ? (order.status as OrderMutableStatus) : "Confirmed",
-  );
-  const [trackingNumber, setTrackingNumber] = useState(order.trackingNumber ?? "");
-
-  useEffect(() => {
-    setStatus(ORDER_MUTABLE_STATUS_OPTIONS.includes(order.status as OrderMutableStatus) ? (order.status as OrderMutableStatus) : "Confirmed");
-    setTrackingNumber(order.trackingNumber ?? "");
-  }, [order.id, order.status, order.trackingNumber]);
-
-  if (!canManageOrder(roleKey)) {
-    return null;
-  }
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const client = getSupabaseBrowserClient();
-      if (!client) {
-        toast({ title: "Supabase unavailable", description: "Status updates need a connected Supabase client.", variant: "danger" });
-        return;
-      }
-
-      const result = await updateOrderStatus(client, order.id, status, { roleKey });
-      if (result.error) {
-        toast({ title: "Unable to update status", description: result.error, variant: "danger" });
-        return;
-      }
-
-      toast({ title: "Order status updated", description: `${order.orderNumber} is now marked as ${status}.`, variant: "success" });
-      router.refresh();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSaveTracking = async () => {
-    setTrackingSaving(true);
-    try {
-      const client = getSupabaseBrowserClient();
-      if (!client) {
-        toast({ title: "Supabase unavailable", description: "Tracking updates need a connected Supabase client.", variant: "danger" });
-        return;
-      }
-
-      const result = await updateOrderTrackingNumber(client, order.id, trackingNumber, { roleKey });
-      if (result.error) {
-        toast({ title: "Unable to update tracking", description: result.error, variant: "danger" });
-        return;
-      }
-
-      toast({
-        title: "Tracking updated",
-        description: trackingNumber.trim().length > 0 ? `${order.orderNumber} now has a tracking number.` : `${order.orderNumber} tracking number cleared.`,
-        variant: "success",
-      });
-      router.refresh();
-    } finally {
-      setTrackingSaving(false);
-    }
-  };
-
-  const dirty = status !== order.status;
-
-  return (
-    <Card className="rounded-[1.6rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Order control</p>
-          <h2 className="mt-2 text-xl font-bold text-text">Update status</h2>
-        </div>
-        <Badge variant="neutral" className="shrink-0">
-          Staff only
-        </Badge>
-      </div>
-      <div className="space-y-3">
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-muted">Status</span>
-          <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value as OrderMutableStatus)}
-            className="h-12 w-full rounded-[1rem] border border-border/70 bg-white px-4 text-sm font-semibold text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            aria-label="Update order status"
-          >
-            {ORDER_MUTABLE_STATUS_OPTIONS.map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="text-sm leading-6 text-muted">
-          Updating the status will refresh the order timeline and keep the timestamps in sync automatically.
-        </p>
-        <Button type="button" variant="accent" size="md" className="w-full" loading={saving} disabled={saving || !dirty} onClick={() => void handleSave()}>
-          Save status
-        </Button>
-      </div>
-
-      <div className="mt-5 space-y-3 border-t border-border/70 pt-5">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Shipment</p>
-          <h3 className="mt-2 text-lg font-bold text-text">Tracking number</h3>
-        </div>
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-muted">Carrier / tracking ID</span>
-          <Input
-            value={trackingNumber}
-            onChange={(event) => setTrackingNumber(event.target.value)}
-            placeholder="Enter tracking number"
-            className="h-12 rounded-[1rem]"
-            aria-label="Tracking number"
-          />
-        </label>
-        <Button type="button" variant="outline" size="md" className="w-full" loading={trackingSaving} disabled={trackingSaving} onClick={() => void handleSaveTracking()}>
-          Save tracking
-        </Button>
-      </div>
-    </Card>
   );
 }
 
@@ -1114,7 +415,14 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
   const [liveOrder, setLiveOrder] = useState(order);
   const [liveSyncState, setLiveSyncState] = useState<"live" | "refreshing" | "offline">("live");
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
-  const recommendedProducts = useMemo(() => buildProductSubset(liveOrder.items), [liveOrder.items]);
+  const [returnRequests, setReturnRequests] = useState<OrderReturnRequest[]>([]);
+  const [returnItem, setReturnItem] = useState<OrderItem | null>(null);
+  const [returnReason, setReturnReason] = useState("Damaged product");
+  const [returnPickupOption, setReturnPickupOption] = useState<ReturnPickupOption>("Home Pickup");
+  const [returnPickupLocation, setReturnPickupLocation] = useState("");
+  const [returnNotes, setReturnNotes] = useState("");
+  const [returnSubmitting, setReturnSubmitting] = useState(false);
+  const [cancellingOrder, setCancellingOrder] = useState(false);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") {
@@ -1134,6 +442,8 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
 
   useEffect(() => {
     setLiveOrder(order);
+    setReturnRequests([]);
+    setReturnItem(null);
   }, [order]);
 
   useEffect(() => {
@@ -1166,7 +476,15 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
       }
     };
 
+    const refreshReturns = async () => {
+      const nextReturns = await loadOrderReturnRequests(client, liveOrder.id, user.id, { roleKey });
+      if (!cancelled) {
+        setReturnRequests(nextReturns);
+      }
+    };
+
     void refreshOrder();
+    void refreshReturns();
 
     const channel = client
       .channel(`order-live-${liveOrder.id}`)
@@ -1175,6 +493,13 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
         { event: "*", schema: "public", table: "orders", filter: `id=eq.${liveOrder.id}` },
         () => {
           void refreshOrder();
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "support_tickets", filter: `order_id=eq.${liveOrder.id}` },
+        () => {
+          void refreshReturns();
         },
       )
       .subscribe();
@@ -1189,6 +514,135 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
       void client.removeChannel(channel);
     };
   }, [authLoading, liveOrder.id, roleKey, user?.id]);
+
+  const activeReturnRequestByProductId = useMemo(() => {
+    return new Map(returnRequests.map((request) => [request.productId, request]));
+  }, [returnRequests]);
+
+  const pricing = useMemo(() => {
+    return calculateCartPricing(
+      liveOrder.items.map((item) => ({
+        price: item.price,
+        quantity: item.quantity,
+        compareAtPrice: item.compareAtPrice ?? null,
+      })),
+      resolveCouponCode(liveOrder.couponApplied ?? ""),
+    );
+  }, [liveOrder.couponApplied, liveOrder.items]);
+
+  const returnEligibilityByProductId = useMemo(() => {
+    const entries = liveOrder.items.map((item) => {
+      const itemKey = item.productId ?? item.id;
+      const activeRequest = activeReturnRequestByProductId.get(itemKey) ?? null;
+      const eligibility = getReturnEligibility(
+        { status: liveOrder.status, deliveredAtRaw: liveOrder.deliveredAtRaw ?? null },
+        item,
+        activeRequest,
+      );
+
+      return [itemKey, eligibility] as const;
+    });
+
+    return new Map(entries);
+  }, [activeReturnRequestByProductId, liveOrder.items, liveOrder.deliveredAtRaw, liveOrder.status]);
+
+  const canCancelLiveOrder = canCancelOrder(liveOrder.status);
+
+  const handleCancelOrder = async () => {
+    if (!canCancelLiveOrder || cancellingOrder) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Cancel order ${liveOrder.orderNumber}? This cannot be undone.`);
+    if (!confirmed) {
+      return;
+    }
+
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      toast({ title: "Cancel order unavailable", description: "Supabase is not configured.", variant: "danger" });
+      return;
+    }
+
+    if (!user?.id) {
+      toast({ title: "Cancel order unavailable", description: "Please sign in again to cancel this order.", variant: "danger" });
+      return;
+    }
+
+    setCancellingOrder(true);
+    const result = await cancelOrder(client, liveOrder.id);
+
+    if (result.error) {
+      toast({ title: "Unable to cancel order", description: result.error, variant: "danger" });
+      setCancellingOrder(false);
+      return;
+    }
+
+    const refreshedOrder = await loadOrderById(client, liveOrder.id, user.id, { roleKey });
+    if (refreshedOrder) {
+      setLiveOrder(refreshedOrder);
+      setLastSyncedAt(new Date());
+    }
+    const refreshedReturns = await loadOrderReturnRequests(client, liveOrder.id, user.id, { roleKey });
+    setReturnRequests(refreshedReturns);
+    setCancellingOrder(false);
+
+    toast({
+      title: "Order cancelled",
+      description: "The order was cancelled and will appear in the admin panel live.",
+      variant: "success",
+    });
+  };
+
+  const closeReturnModal = () => {
+    setReturnItem(null);
+    setReturnReason("Damaged product");
+    setReturnPickupOption("Home Pickup");
+    setReturnPickupLocation("");
+    setReturnNotes("");
+    setReturnSubmitting(false);
+  };
+
+  const submitReturnRequest = async () => {
+    if (!returnItem) {
+      return;
+    }
+
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      toast({ title: "Return request unavailable", description: "Supabase is not configured.", variant: "danger" });
+      return;
+    }
+
+    setReturnSubmitting(true);
+    const nextReason = returnReason.trim() || "Damaged product";
+    const combinedReason = returnNotes.trim().length > 0 ? `${nextReason}. ${returnNotes.trim()}` : nextReason;
+    const result = await createReturnRequest(client, {
+      orderId: liveOrder.id,
+      productId: returnItem.productId ?? returnItem.id,
+      productName: returnItem.name,
+      reason: combinedReason,
+      pickupOption: returnPickupOption,
+      pickupLocation: returnPickupLocation,
+    });
+
+    if (result.error) {
+      toast({ title: "Unable to create return request", description: result.error, variant: "danger" });
+      setReturnSubmitting(false);
+      return;
+    }
+
+    toast({
+      title: "Return request submitted",
+      description: "Delivery charge remains non-refundable. We will update the ticket shortly.",
+      variant: "success",
+    });
+    setReturnSubmitting(false);
+    closeReturnModal();
+
+    const refreshedReturns = await loadOrderReturnRequests(client, liveOrder.id, user?.id ?? null, { roleKey });
+    setReturnRequests(refreshedReturns);
+  };
 
   return (
     <OrdersPageShell>
@@ -1214,35 +668,6 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
                     {liveOrder.deliveredAt ? ` - Delivered on ${liveOrder.deliveredAt}` : ""}
                   </p>
                 </div>
-                <div className="grid w-full grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:w-auto lg:grid-cols-3">
-                  <Button asChild variant="outline" size="sm" className="w-full justify-center">
-                    <Link href={`/orders/${liveOrder.id}#shipment-tracking`}>
-                      <Truck className="h-4 w-4" aria-hidden="true" />
-                      Track Shipment
-                    </Link>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="accent"
-                    size="sm"
-                    className="w-full justify-center"
-                    onClick={() => toast({ title: "Invoice download", description: "Invoice download is UI-only for now." })}
-                  >
-                    <Download className="h-4 w-4" aria-hidden="true" />
-                    Invoice
-                  </Button>
-                  <Button
-                    asChild
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-center border border-border/70 bg-white/75"
-                  >
-                    <Link href="/contact">
-                      <MessageCircleQuestion className="h-4 w-4" aria-hidden="true" />
-                      Help
-                    </Link>
-                  </Button>
-                </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted">
                 <span className="rounded-full border border-border/70 bg-background-secondary px-3 py-1">
@@ -1252,23 +677,75 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
                   {lastSyncedAt ? `Synced ${lastSyncedAt.toLocaleTimeString()}` : "Awaiting first sync"}
                 </span>
               </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                {canCancelLiveOrder ? (
+                  <Button type="button" variant="danger" size="md" onClick={() => void handleCancelOrder()} loading={cancellingOrder}>
+                    Cancel Order
+                  </Button>
+                ) : liveOrder.status === "Shipped" || liveOrder.status === "Delivered" || liveOrder.status === "Out for Delivery" ? (
+                  <Badge variant="warning" className="rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]">
+                    Cancel not available after shipment
+                  </Badge>
+                ) : null}
+              </div>
             </Card>
-
-            <ShipmentTrackingCard order={liveOrder} />
-
-            <OrderTimeline order={liveOrder} />
 
             <Card className="rounded-[1.6rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
               <div className="mb-4">
                 <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Items ordered</p>
                 <h2 className="mt-2 text-xl font-bold text-text">Products</h2>
               </div>
-              <div className="grid gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
                 {liveOrder.items.map((item) => (
-                  <OrderedProductCard key={item.id} item={item} />
+                  (() => {
+                    const itemKey = item.productId ?? item.id;
+                    const activeRequest = activeReturnRequestByProductId.get(itemKey) ?? null;
+                    const eligibility = returnEligibilityByProductId.get(itemKey);
+                    const canOpenReturnModal = Boolean(eligibility?.eligible);
+                    const returnStatus = activeRequest?.status ?? eligibility?.message ?? null;
+
+                    return (
+                      <OrderedProductCard
+                        key={item.id}
+                        item={item}
+                        returnStatus={returnStatus}
+                        returnable={canOpenReturnModal}
+                        onReturn={canOpenReturnModal ? () => setReturnItem(item) : undefined}
+                      />
+                    );
+                  })()
                 ))}
               </div>
             </Card>
+
+            {returnRequests.length > 0 ? (
+              <Card className="rounded-[1.6rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
+                <div className="mb-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Returns</p>
+                  <h2 className="mt-2 text-xl font-bold text-text">Return requests</h2>
+                </div>
+                <div className="space-y-3">
+                  {returnRequests.map((request) => (
+                    <div key={request.id} className="rounded-[1.2rem] border border-border/70 bg-background-secondary/30 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-text">{request.productName}</p>
+                          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted">{request.ticketNumber}</p>
+                        </div>
+                        <Badge variant="warning">{request.status}</Badge>
+                      </div>
+                      <p className="mt-3 text-sm font-medium leading-6 text-muted">{request.reason}</p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+                        <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">{request.pickupOption}</span>
+                        <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1 normal-case tracking-normal">{request.pickupLocation}</span>
+                        <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">{request.deliveryChargeNote}</span>
+                        <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">{request.createdAt}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            ) : null}
 
             <Card className="rounded-[1.6rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
               <div className="mb-4">
@@ -1280,16 +757,10 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
                   <p className="text-sm font-bold text-text">Shipping address</p>
                   <AddressBlock address={liveOrder.deliveryAddress} />
                 </div>
-                <div className="space-y-3 rounded-[1.35rem] border border-border/70 bg-white/85 p-4">
-                  <p className="text-sm font-bold text-text">Billing address</p>
-                  <AddressBlock address={liveOrder.billingAddress} />
-                </div>
               </div>
             </Card>
-          </div>
 
-          <div className="space-y-5">
-            <OrderStatusUpdateCard order={liveOrder} roleKey={roleKey} />
+            <OrderTimeline order={liveOrder} />
 
             <Card className="rounded-[1.6rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
               <div className="mb-4">
@@ -1297,28 +768,14 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
                 <h2 className="mt-2 text-xl font-bold text-text">Order summary</h2>
               </div>
               <div className="space-y-2 text-sm font-medium text-muted">
-                <Row label="Subtotal" value={formatPrice(liveOrder.subtotal)} />
-                <Row label="Discount" value={`-${formatPrice(liveOrder.discount)}`} />
-                <Row label="Coupon Applied" value={liveOrder.couponApplied ?? "None"} />
-                <Row label="Tracking Number" value={liveOrder.trackingNumber ?? "Not set"} />
-                <Row label="GST" value={formatPrice(liveOrder.gst)} />
-                <Row label="Delivery Charges" value={liveOrder.shipping === 0 ? "Free" : formatPrice(liveOrder.shipping)} />
+                <Row label="Subtotal" value={formatPrice(pricing.subtotal)} />
+                <Row label="Discount" value={`-${formatPrice(pricing.discount)}`} />
+                <Row label="Coupon Discount" value={pricing.couponDiscount > 0 ? `-${formatPrice(pricing.couponDiscount)}` : formatPrice(0)} />
+                <Row label="GST" value={formatPrice(pricing.gst)} />
+                <Row label="Delivery Charges" value={pricing.shipping === 0 ? "Free" : formatPrice(pricing.shipping)} />
                 <div className="border-t border-border/70 pt-3">
-                  <Row label="Grand Total" value={formatPrice(liveOrder.grandTotal)} strong />
+                  <Row label="Grand Total" value={formatPrice(pricing.grandTotal)} strong />
                 </div>
-              </div>
-            </Card>
-
-            <Card className="rounded-[1.6rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
-              <div className="mb-4">
-                <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Payment details</p>
-                <h2 className="mt-2 text-xl font-bold text-text">Payment</h2>
-              </div>
-              <div className="space-y-2 text-sm font-medium text-muted">
-                <Row label="Payment status" value={liveOrder.paymentStatus} />
-                <Row label="Method" value={liveOrder.paymentMethod} />
-                <Row label="Reference" value={liveOrder.paymentReference} />
-                <Row label="Status" value={liveOrder.status} />
               </div>
             </Card>
 
@@ -1331,141 +788,129 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
           </div>
         </div>
 
-        <section className="space-y-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Support section</p>
-            <h2 className="mt-2 text-xl font-bold text-text">Help</h2>
-          </div>
-          <OrderSupportLinks />
-        </section>
+        <Modal
+          open={Boolean(returnItem)}
+          onOpenChange={(open) => {
+            if (!open) {
+              closeReturnModal();
+            }
+          }}
+          title="Request return pickup"
+          description="Tell us why you want to return this delivered item. Returns are allowed only within 5 days of delivery, and the delivery charge remains non-refundable."
+        >
+          <div className="space-y-4">
+            <div className="rounded-[1.2rem] border border-border/70 bg-background-secondary/40 p-4">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Selected item</p>
+              <p className="mt-1 text-sm font-bold text-text">{returnItem?.name ?? "Item"}</p>
+              <p className="mt-1 text-xs font-medium text-muted">{returnItem?.variant}</p>
+            </div>
 
-        <div className="space-y-6">
-          <ProductShowcase
-            title="Recently Viewed"
-            subtitle="Quick access to products you recently browsed in this shopping session."
-            products={recommendedProducts.slice(0, 4)}
-            viewAllHref="/products"
-            badge="Recently Viewed"
-          />
-          <ProductShowcase
-            title="Frequently Bought Together"
-            subtitle="Useful add-on products that pair well with this order."
-            products={[]}
-            viewAllHref="/products"
-            badge="Frequently Bought Together"
-          />
-          <ProductShowcase
-            title="Recommended Products"
-            subtitle="More options from the UniqueShopee catalog."
-            products={[]}
-            viewAllHref="/products"
-            badge="Recommended"
-          />
-        </div>
+            <form
+              className="space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitReturnRequest();
+              }}
+            >
+              <FormField label="Return reason" htmlFor="return-reason">
+                <select
+                  id="return-reason"
+                  value={returnReason}
+                  onChange={(event) => setReturnReason(event.target.value)}
+                  className="h-11 w-full rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <option value="Damaged product">Damaged product</option>
+                  <option value="Wrong item received">Wrong item received</option>
+                  <option value="Product is not needed">Product is not needed</option>
+                  <option value="Quality issue">Quality issue</option>
+                  <option value="Other">Other</option>
+                </select>
+              </FormField>
+
+              <FormField label="Pickup option" htmlFor="return-pickup">
+                <select
+                  id="return-pickup"
+                  value={returnPickupOption}
+                  onChange={(event) => setReturnPickupOption(event.target.value as ReturnPickupOption)}
+                  className="h-11 w-full rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <option value="Home Pickup">Home pickup</option>
+                  <option value="Store Drop-off">Store drop-off</option>
+                  <option value="Schedule Pickup">Schedule pickup</option>
+                </select>
+              </FormField>
+
+              <FormField label="Pickup location" htmlFor="return-location" hint="Enter the address or drop-off point where we should collect the item.">
+                <textarea
+                  id="return-location"
+                  value={returnPickupLocation}
+                  onChange={(event) => setReturnPickupLocation(event.target.value)}
+                  rows={3}
+                  className="w-full rounded-[var(--radius-md)] border border-border bg-background px-3.5 py-3 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  placeholder="Flat no., landmark, city, or store counter"
+                />
+              </FormField>
+
+              <FormField label="Additional note" htmlFor="return-note" hint="Optional details for the pickup team.">
+                <textarea
+                  id="return-note"
+                  value={returnNotes}
+                  onChange={(event) => setReturnNotes(event.target.value)}
+                  rows={4}
+                  className="w-full rounded-[var(--radius-md)] border border-border bg-background px-3.5 py-3 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  placeholder="Add any extra details"
+                />
+              </FormField>
+
+              <div className="rounded-[1.2rem] border border-border/70 bg-background-secondary/30 p-3 text-xs font-semibold text-muted">
+                Delivery charge is non-refundable. Return pickup is created as a support ticket and will be reviewed live.
+              </div>
+
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <Button type="button" variant="outline" size="md" onClick={closeReturnModal} disabled={returnSubmitting}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="accent" size="md" loading={returnSubmitting}>
+                  Request return
+                </Button>
+              </div>
+            </form>
+          </div>
+        </Modal>
+
       </motion.main>
 
-      <div className="sticky inset-x-0 bottom-0 z-40 border-t border-border/70 bg-white/92 px-4 py-3 shadow-[0_-8px_30px_-20px_rgba(16,33,58,0.45)] backdrop-blur-sm lg:hidden">
-        <div className="mx-auto grid max-w-7xl grid-cols-1 gap-2 min-[420px]:grid-cols-3">
-          <Button asChild variant="outline" size="sm" className="w-full">
-            <Link href={`/orders/${liveOrder.id}#timeline`}>
-              <Clock3 className="h-4 w-4" aria-hidden="true" />
-              Timeline
-            </Link>
-          </Button>
-          <Button
-            type="button"
-            variant="accent"
-            size="sm"
-            className="w-full"
-            onClick={() => toast({ title: "Invoice download", description: "Download will be wired in a future phase." })}
-          >
-            <Download className="h-4 w-4" aria-hidden="true" />
-            Invoice
-          </Button>
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="w-full border border-border/70 bg-white/75"
-          >
-            <Link href="/contact">
-              <MessageCircleQuestion className="h-4 w-4" aria-hidden="true" />
-              Help
-            </Link>
-          </Button>
-        </div>
-      </div>
     </OrdersPageShell>
   );
 }
 
-function OrderedProductCard({ item }: { item: OrderItem }) {
-  const savePercent =
-    item.compareAtPrice && item.compareAtPrice > item.price
-      ? Math.round(((item.compareAtPrice - item.price) / item.compareAtPrice) * 100)
-      : null;
-
+function OrderedProductCard({
+  item,
+  returnable,
+  returnStatus,
+  onReturn,
+}: {
+  item: OrderItem;
+  returnable: boolean;
+  returnStatus?: string | null;
+  onReturn?: () => void;
+}) {
   return (
-    <div className="overflow-hidden rounded-[1.35rem] border border-border/70 bg-white/95 shadow-[var(--shadow-sm)]">
-      <div className="grid gap-3 p-3 sm:grid-cols-[7rem_minmax(0,1fr)]">
-        <Link
-          href={`/product/${item.slug}`}
-          className="block overflow-hidden rounded-[1rem] bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <div className="relative aspect-square w-full">
-            <Image src={item.image} alt={item.name} fill sizes="(max-width: 640px) 50vw, 7rem" className="object-cover" />
-          </div>
-        </Link>
-        <div className="space-y-2">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">{item.brand}</p>
-              <Link href={`/product/${item.slug}`} className="block">
-                <h3 className="line-clamp-2 text-sm font-bold leading-5 text-text">{item.name}</h3>
-              </Link>
-            </div>
-            {savePercent ? <Badge variant="success">Save {savePercent}%</Badge> : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-bold text-text">{formatPrice(item.price)}</span>
-            <Badge variant="neutral" className="text-[10px]">
-              Qty {item.quantity}
-            </Badge>
-            <Badge variant="accent" className="text-[10px]">
-              {item.variant}
-            </Badge>
-          </div>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => toast({ title: "Buy again", description: `Reorder for ${item.name} is ready for future wiring.` })}
-            >
-              Buy Again
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="border border-border/70 bg-white/75"
-              onClick={() => toast({ title: "Write review", description: "Review submission is UI-only for now." })}
-            >
-              Write Review
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="border border-border/70 bg-white/75"
-              onClick={() => toast({ title: "Return item", description: "Return flow will connect in the next phase.", variant: "warning" })}
-            >
-              Return
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <SharedProductCard
+      mode="order"
+      image={item.image}
+      href={`/product/${item.slug}`}
+      brand={item.brand}
+      title={item.name}
+      subtitle={item.variant}
+      quantity={item.quantity}
+      price={item.price}
+      compareAtPrice={item.compareAtPrice}
+      returnable={returnable}
+      returnStatus={returnStatus}
+      onReturn={onReturn}
+      onBuyAgain={() => toast({ title: "Buy again", description: `Reorder for ${item.name} is ready for future wiring.` })}
+    />
   );
 }
 

@@ -325,7 +325,51 @@ function CategoryLandingPage({
   const tone = category.tone;
 
   return (
-    <main className="bg-background">
+    <main className="bg-background pt-20 sm:pt-24 lg:pt-28">
+      <div className="fixed inset-x-0 top-0 z-50 border-b border-border/70 bg-[color:var(--color-background)]/96 backdrop-blur-xl">
+        <div className="mx-auto max-w-7xl px-6 py-3 lg:px-6">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+            <label className="relative block">
+              <span className="sr-only">Search products</span>
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+              <Input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={`Search ${category.title.toLowerCase()}...`}
+                className="h-12 rounded-full border-border/80 bg-white/90 pl-11 shadow-[var(--shadow-sm)]"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Sort by</span>
+              <div className="relative">
+                <select
+                  value={sort}
+                  onChange={(event) => setSort(event.target.value as SortMode)}
+                  aria-label="Sort products"
+                  className="h-12 w-full appearance-none rounded-full border border-border/80 bg-white/90 px-4 pr-10 text-sm font-semibold text-text shadow-[var(--shadow-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {Object.entries(SORT_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+              </div>
+            </label>
+
+            <div className="flex items-end justify-between gap-3">
+              <Button variant="outline" size="md" type="button" className="md:hidden" onClick={() => setMobileFiltersOpen(true)}>
+                <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+                Filters
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <motion.section
         aria-labelledby="category-title"
         className="relative isolate overflow-hidden border-b border-border surface-warm"
@@ -446,46 +490,6 @@ function CategoryLandingPage({
               >
                 <List className="h-4 w-4" aria-hidden="true" />
               </button>
-            </div>
-          </div>
-
-          <div className="mb-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
-            <label className="relative block">
-              <span className="sr-only">Search products</span>
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
-              <Input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={`Search ${category.title.toLowerCase()}...`}
-                className="h-12 rounded-full border-border/80 bg-white/90 pl-11 shadow-[var(--shadow-sm)]"
-              />
-            </label>
-
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Sort by</span>
-              <div className="relative">
-                <select
-                  value={sort}
-                  onChange={(event) => setSort(event.target.value as SortMode)}
-                  aria-label="Sort products"
-                  className="h-12 w-full appearance-none rounded-full border border-border/80 bg-white/90 px-4 pr-10 text-sm font-semibold text-text shadow-[var(--shadow-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  {Object.entries(SORT_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
-              </div>
-            </label>
-
-            <div className="flex items-end justify-between gap-3">
-              <Button variant="outline" size="md" type="button" className="md:hidden" onClick={() => setMobileFiltersOpen(true)}>
-                <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-                Filters
-              </Button>
             </div>
           </div>
 

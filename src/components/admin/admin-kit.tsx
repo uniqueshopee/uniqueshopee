@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
+  Check,
   Bell,
   ChevronDown,
   ChevronRight,
@@ -31,6 +32,7 @@ import {
   Star,
   Store,
   Tag,
+  Sparkles,
   Trash2,
   TrendingUp,
   Users,
@@ -49,6 +51,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/components/auth/auth-provider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { uploadCloudinaryImage } from "@/lib/cloudinary";
+import { getCurrentUserRoleKey } from "@/lib/supabase/auth";
 import { cn, formatPrice } from "@/lib/utils";
 import type { Json } from "@/lib/supabase/types";
 import { isQaBypassEnabled } from "@/lib/qa-mode";
@@ -58,6 +61,7 @@ import {
   loadAdminCustomerRows,
   loadAdminDashboardData,
   loadAdminOrdersRows,
+  loadAdminReturnRows,
   loadAdminReviewRows,
   loadAdminSettingsRows,
   upsertAdminSetting,
@@ -67,6 +71,7 @@ import {
   type AdminCouponRow,
   type AdminCustomerRow,
   type AdminOrdersRow,
+  type AdminReturnRow,
   type AdminReviewRow,
 } from "@/lib/admin-service";
 import {
@@ -74,6 +79,8 @@ import {
   PRODUCT_ROWS,
   type AdminStat,
 } from "@/lib/admin-data";
+import { ORDER_MUTABLE_STATUS_OPTIONS } from "@/lib/orders-data";
+import { updateOrderStatus } from "@/lib/order-service";
 
 type NavItem = {
   label: string;
@@ -88,10 +95,12 @@ const ADMIN_NAV: NavItem[] = [
   { label: "Categories", href: "/admin/categories", icon: LayoutGrid },
   { label: "Brands", href: "/admin/brands", icon: Store },
   { label: "Orders", href: "/admin/orders", icon: ClipboardList },
+  { label: "Returns", href: "/admin/returns", icon: RefreshCcw },
   { label: "Inventory", href: "/admin/inventory", icon: Warehouse },
   { label: "Customers", href: "/admin/customers", icon: Users },
   { label: "Reviews", href: "/admin/reviews", icon: Star },
   { label: "Coupons", href: "/admin/coupons", icon: Tag },
+  { label: "Offers", href: "/admin/offers", icon: Sparkles },
   { label: "Banners", href: "/admin/banners", icon: Megaphone },
   { label: "Reports", href: "/admin/reports", icon: LineChart },
   { label: "Settings", href: "/admin/settings", icon: Settings2 },
@@ -104,10 +113,12 @@ const NAV_META = {
   "/admin/categories": { title: "Categories", subtitle: "Hierarchy and structure" },
   "/admin/brands": { title: "Brands", subtitle: "Brand directory" },
   "/admin/orders": { title: "Orders", subtitle: "Order operations" },
+  "/admin/returns": { title: "Returns", subtitle: "Return request management" },
   "/admin/inventory": { title: "Inventory", subtitle: "Stock control" },
   "/admin/customers": { title: "Customers", subtitle: "Customer records" },
   "/admin/reviews": { title: "Reviews", subtitle: "Moderation queue" },
   "/admin/coupons": { title: "Coupons", subtitle: "Offer management" },
+  "/admin/offers": { title: "Offers", subtitle: "Exclusive product promotions" },
   "/admin/banners": { title: "Banners", subtitle: "Promo placements" },
   "/admin/reports": { title: "Reports", subtitle: "Sales and insights" },
   "/admin/settings": { title: "Settings", subtitle: "Store configuration" },
@@ -157,6 +168,26 @@ function statusVariant(status: string) {
 
 function AdminStatusBadge({ status }: { status: string }) {
   return <Badge variant={statusVariant(status)}>{status}</Badge>;
+}
+
+function parseConsultationSummary(comment: string) {
+  const lines = comment.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const getValue = (label: string) => {
+    const line = lines.find((entry) => entry.toLowerCase().startsWith(`${label.toLowerCase()}:`));
+    return line ? line.slice(label.length + 1).trim() : "";
+  };
+
+  return {
+    name: getValue("Name"),
+    phone: getValue("Phone"),
+    slot: getValue("Preferred slot"),
+    notes: getValue("Notes"),
+  };
+}
+
+function toMutableOrderStatus(status: string) {
+  const normalized = status.trim().toLowerCase();
+  return ORDER_MUTABLE_STATUS_OPTIONS.find((option) => option.toLowerCase() === normalized) ?? "Pending";
 }
 
 function PageHeader({
@@ -298,6 +329,95 @@ function AdminLoadingView({ title }: { title: string }) {
       </div>
       <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">{title}</div>
     </section>
+  );
+}
+
+function ReturnRequestsTable({
+  rows,
+  loading,
+}: {
+  rows: AdminReturnRow[];
+  loading: boolean;
+}) {
+  return loading ? (
+    <div className="space-y-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <Skeleton key={index} className="h-24 rounded-[1.2rem]" />
+      ))}
+    </div>
+  ) : rows.length === 0 ? (
+    <Card className="rounded-[1.2rem] border border-border/70 bg-background-secondary/30 p-5">
+      <p className="text-sm font-medium text-muted">No return requests yet.</p>
+    </Card>
+  ) : (
+    <div className="overflow-hidden rounded-[1.2rem] border border-border/70">
+      <table className="min-w-full divide-y divide-border/70">
+        <thead className="bg-background-secondary/35">
+          <tr className="text-left text-xs font-bold uppercase tracking-[0.18em] text-muted">
+            <th className="px-4 py-3">Ticket</th>
+            <th className="px-4 py-3">Order</th>
+            <th className="px-4 py-3">Customer</th>
+            <th className="px-4 py-3">Product</th>
+            <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">Pickup</th>
+            <th className="px-4 py-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/70 bg-white/80">
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td className="px-4 py-3">
+                <div className="font-semibold text-text">{row.ticketNumber}</div>
+                <div className="text-xs text-muted">{row.createdAt}</div>
+              </td>
+              <td className="px-4 py-3">
+                <div className="font-semibold text-text">{row.orderNumber}</div>
+              </td>
+              <td className="px-4 py-3 text-sm text-muted">{row.customer}</td>
+              <td className="px-4 py-3 text-sm text-muted">
+                <div className="max-w-[18rem]">
+                  <p className="font-medium text-text">{row.product}</p>
+                  <p className="mt-1 text-xs text-muted">{row.reason}</p>
+                </div>
+              </td>
+              <td className="px-4 py-3">
+                <AdminStatusBadge status={row.status} />
+              </td>
+              <td className="px-4 py-3 text-sm text-muted">
+                <div className="space-y-1">
+                  <p className="font-medium text-text">{row.pickupOption}</p>
+                  <p className="text-xs">{row.pickupLocation}</p>
+                </div>
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/orders/${row.orderId}`}>
+                      <Eye className="h-4 w-4" />
+                      Open
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      toast({
+                        title: "Delivery charge note",
+                        description: row.deliveryChargeNote,
+                        variant: "success",
+                      })
+                    }
+                  >
+                    <FileText className="h-4 w-4" />
+                    Note
+                  </Button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -2519,12 +2639,14 @@ function BrandsAdminPage() {
 
 function OrdersAdminPage() {
   const [rows, setRows] = useState<AdminOrdersRow[]>([]);
+  const [returnRows, setReturnRows] = useState<AdminReturnRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("All");
+  const [statusDrafts, setStatusDrafts] = useState<Record<string, string>>({});
 
-  const loadRows = async () => {
+  const loadRows = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -2536,18 +2658,51 @@ function OrdersAdminPage() {
     }
 
     try {
-      const nextRows = await loadAdminOrdersRows(client, 50);
+      const [nextRows, nextReturnRows] = await Promise.all([loadAdminOrdersRows(client, 50), loadAdminReturnRows(client, 50)]);
       setRows(nextRows);
+      setReturnRows(nextReturnRows);
+      setStatusDrafts(
+        Object.fromEntries(nextRows.map((row) => [row.id, toMutableOrderStatus(row.status)])),
+      );
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load orders.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadRows();
-  }, []);
+  }, [loadRows]);
+
+  useEffect(() => {
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      return;
+    }
+
+    const channel = client
+      .channel("admin-orders-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        () => {
+          void loadRows();
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "support_tickets" },
+        () => {
+          void loadRows();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [loadRows]);
 
   const filteredRows = useMemo(
     () =>
@@ -2559,10 +2714,39 @@ function OrdersAdminPage() {
       }),
     [rows, search, status],
   );
+  const filteredReturnRows = useMemo(
+    () =>
+      returnRows.filter((row) => {
+        const term = search.trim().toLowerCase();
+        if (term && ![row.ticketNumber, row.orderNumber, row.customer, row.product, row.status, row.pickupOption, row.pickupLocation].join(" ").toLowerCase().includes(term)) return false;
+        return true;
+      }),
+    [returnRows, search],
+  );
 
-  const totalAmount = filteredRows.reduce((sum, row) => sum + row.amount, 0);
   const pendingCount = rows.filter((row) => row.status === "pending").length;
   const paidCount = rows.filter((row) => row.paymentStatus === "paid").length;
+  const returnCount = returnRows.length;
+
+  const handleOrderStatusUpdate = async (row: AdminOrdersRow) => {
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      toast({ title: "Status update failed", description: "Supabase is not configured.", variant: "danger" });
+      return;
+    }
+
+    const roleKey = await getCurrentUserRoleKey(client);
+    const nextStatus = toMutableOrderStatus(statusDrafts[row.id] ?? row.status);
+    const { error: updateError } = await updateOrderStatus(client, row.id, nextStatus, { roleKey });
+
+    if (updateError) {
+      toast({ title: "Status update failed", description: updateError, variant: "danger" });
+      return;
+    }
+
+    toast({ title: "Order updated", description: `${row.orderNumber} marked as ${nextStatus}.`, variant: "success" });
+    await loadRows();
+  };
 
   return (
     <section className="space-y-6">
@@ -2577,7 +2761,7 @@ function OrdersAdminPage() {
         <AdminStatCard stat={{ label: "Orders", value: String(rows.length), delta: `${filteredRows.length} visible`, note: "Live order records", tone: "accent" }} />
         <AdminStatCard stat={{ label: "Pending", value: String(pendingCount), delta: "Needs attention", note: "Status = pending", tone: "warning" }} />
         <AdminStatCard stat={{ label: "Paid", value: String(paidCount), delta: "Collected", note: "Payment complete", tone: "success" }} />
-        <AdminStatCard stat={{ label: "Value", value: formatPrice(totalAmount), delta: "Filtered total", note: "Visible orders", tone: "neutral" }} />
+        <AdminStatCard stat={{ label: "Returns", value: String(returnCount), delta: `${filteredReturnRows.length} visible`, note: "Return tickets", tone: "neutral" }} />
       </div>
 
       <AdminSectionCard title="Search & Filters" description="Search by order number, customer, tracking number, or status.">
@@ -2644,7 +2828,25 @@ function OrdersAdminPage() {
                     <td className="px-4 py-3"><AdminStatusBadge status={row.paymentStatus} /></td>
                     <td className="px-4 py-3 font-semibold text-text">{formatPrice(row.amount)}</td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-col gap-2">
+                        <select
+                          value={statusDrafts[row.id] ?? toMutableOrderStatus(row.status)}
+                          onChange={(event) =>
+                            setStatusDrafts((current) => ({
+                              ...current,
+                              [row.id]: event.target.value,
+                            }))
+                          }
+                          className="h-10 rounded-[var(--radius-md)] border border-border bg-background px-3 text-xs font-semibold uppercase tracking-[0.12em] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                          aria-label={`Update status for ${row.orderNumber}`}
+                        >
+                          {ORDER_MUTABLE_STATUS_OPTIONS.map((value) => (
+                            <option key={value} value={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex flex-wrap gap-2">
                         <Button variant="outline" size="sm" onClick={() => void navigator.clipboard?.writeText(row.orderNumber || row.id)}>
                           <Copy className="h-4 w-4" />
                           Copy
@@ -2661,6 +2863,10 @@ function OrdersAdminPage() {
                             Track
                           </Button>
                         ) : null}
+                        <Button variant="accent" size="sm" onClick={() => void handleOrderStatusUpdate(row)}>
+                          Update
+                        </Button>
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -2669,6 +2875,94 @@ function OrdersAdminPage() {
             </table>
           </div>
         )}
+      </AdminSectionCard>
+
+      <AdminSectionCard title="Return Requests" description="Delivered order returns with pickup options and non-refundable delivery charge notes.">
+        <ReturnRequestsTable rows={filteredReturnRows} loading={loading} />
+      </AdminSectionCard>
+    </section>
+  );
+}
+
+function ReturnsAdminPage() {
+  const [rows, setRows] = useState<AdminReturnRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  const loadRows = async () => {
+    setLoading(true);
+    setError(null);
+
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      setError("Supabase is not configured for this environment.");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setRows(await loadAdminReturnRows(client, 100));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load return requests.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadRows();
+  }, []);
+
+  const filteredRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        const term = search.trim().toLowerCase();
+        if (term && ![row.ticketNumber, row.orderNumber, row.customer, row.product, row.status, row.pickupOption, row.pickupLocation].join(" ").toLowerCase().includes(term)) return false;
+        return true;
+      }),
+    [rows, search],
+  );
+
+  const pendingCount = rows.filter((row) => row.status.toLowerCase().includes("pending")).length;
+
+  return (
+    <section className="space-y-6">
+      <PageHeader
+        crumbs={[{ label: "Admin", href: "/admin" }, { label: "Returns" }]}
+        title="Returns"
+        subtitle="Review return tickets, pickup preferences, and delivery-charge notes from live Supabase data."
+        actions={<AdminActionButton variant="outline" onClick={() => void loadRows()}><Download className="h-4 w-4" />Refresh</AdminActionButton>}
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <AdminStatCard stat={{ label: "Returns", value: String(rows.length), delta: `${filteredRows.length} visible`, note: "Return tickets", tone: "neutral" }} />
+        <AdminStatCard stat={{ label: "Pending", value: String(pendingCount), delta: "Needs review", note: "Waiting on admin action", tone: "warning" }} />
+        <AdminStatCard stat={{ label: "Resolved", value: String(rows.length - pendingCount), delta: "Completed", note: "Processed returns", tone: "success" }} />
+        <AdminStatCard stat={{ label: "Search", value: filteredRows.length ? "Active" : "None", delta: "Filtered list", note: "Search results", tone: "accent" }} />
+      </div>
+
+      <AdminSectionCard title="Search & Filters" description="Search by ticket, order number, customer, product, pickup option, or status.">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_auto]">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search returns" aria-label="Search returns" />
+          <Button type="button" variant="outline" size="md" onClick={() => void loadRows()} loading={loading} className="w-full lg:w-auto">
+            Reload
+          </Button>
+        </div>
+      </AdminSectionCard>
+
+      {error ? (
+        <Card className="rounded-[1.6rem] border-danger/20 bg-danger/5 p-5 shadow-[var(--shadow-sm)]">
+          <p className="text-base font-bold text-text">Unable to load return requests</p>
+          <p className="mt-1 text-sm font-medium text-muted">{error}</p>
+          <Button variant="outline" size="md" className="mt-4" onClick={() => void loadRows()}>
+            Retry
+          </Button>
+        </Card>
+      ) : null}
+
+      <AdminSectionCard title="Return Requests" description="Delivered order returns with pickup options and non-refundable delivery charge notes.">
+        <ReturnRequestsTable rows={filteredRows} loading={loading} />
       </AdminSectionCard>
     </section>
   );
@@ -2788,8 +3082,9 @@ function ReviewsAdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("All");
+  const [kindFilter, setKindFilter] = useState<"all" | "reviews" | "consultations">("all");
 
-  const loadRows = async () => {
+  const loadRows = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -2807,11 +3102,40 @@ function ReviewsAdminPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadRows();
-  }, []);
+  }, [loadRows]);
+
+  useEffect(() => {
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      return;
+    }
+
+    const channel = client
+      .channel("admin-reviews-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "reviews" },
+        () => {
+          void loadRows();
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "consultations" },
+        () => {
+          void loadRows();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [loadRows]);
 
   const filteredRows = useMemo(
     () =>
@@ -2819,10 +3143,15 @@ function ReviewsAdminPage() {
         const term = search.trim().toLowerCase();
         if (term && ![row.product, row.customer, row.comment, row.status].join(" ").toLowerCase().includes(term)) return false;
         if (status !== "All" && row.status !== status) return false;
+        if (kindFilter === "reviews" && row.kind === "consultation") return false;
+        if (kindFilter === "consultations" && row.kind !== "consultation") return false;
         return true;
       }),
-    [rows, search, status],
+    [kindFilter, rows, search, status],
   );
+
+  const consultationCount = rows.filter((row) => row.kind === "consultation").length;
+  const reviewCount = rows.length - consultationCount;
 
   const updateReview = async (row: AdminReviewRow, nextStatus: "approved" | "rejected" | "hidden") => {
     const client = getSupabaseBrowserClient();
@@ -2841,12 +3170,48 @@ function ReviewsAdminPage() {
     await loadRows();
   };
 
+  const updateConsultation = async (row: AdminReviewRow, nextStatus: "contacted" | "completed" | "cancelled") => {
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      toast({ title: "Supabase unavailable", description: "Cannot update consultations right now.", variant: "danger" });
+      return;
+    }
+
+    const { error: updateError } = await client.from("consultations").update({ status: nextStatus }).eq("id", row.id);
+    if (updateError) {
+      toast({ title: "Consultation update failed", description: updateError.message, variant: "danger" });
+      return;
+    }
+
+    toast({ title: "Consultation updated", description: `${row.customer} marked as ${nextStatus}.`, variant: "success" });
+    await loadRows();
+  };
+
   return (
-    <section className="space-y-6">
-      <PageHeader crumbs={[{ label: "Admin", href: "/admin" }, { label: "Reviews" }]} title="Reviews" subtitle="Moderate live customer feedback with real approve, reject, and hide actions." />
+      <section className="space-y-6">
+      <PageHeader crumbs={[{ label: "Admin", href: "/admin" }, { label: "Reviews" }]} title="Reviews" subtitle="Moderate live customer feedback and consultation requests from the admin console." />
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <AdminStatCard stat={{ label: "All Entries", value: String(rows.length), delta: `${filteredRows.length} visible`, note: "Reviews + consultations", tone: "accent" }} />
+        <AdminStatCard stat={{ label: "Consultations", value: String(consultationCount), delta: "Live leads", note: "Colour consultation requests", tone: "success" }} />
+        <AdminStatCard stat={{ label: "Reviews", value: String(reviewCount), delta: "Product feedback", note: "Normal review rows", tone: "neutral" }} />
+        <AdminStatCard stat={{ label: "Pending", value: String(rows.filter((row) => row.status === "Pending").length), delta: "Needs action", note: "Open moderation", tone: "warning" }} />
+      </div>
 
       <AdminSectionCard title="Review Search" description="Filter by customer, product, comment, or status.">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.5fr)_auto]">
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant={kindFilter === "all" ? "accent" : "outline"} size="sm" onClick={() => setKindFilter("all")}>
+              All
+            </Button>
+            <Button type="button" variant={kindFilter === "reviews" ? "accent" : "outline"} size="sm" onClick={() => setKindFilter("reviews")}>
+              Reviews
+            </Button>
+            <Button type="button" variant={kindFilter === "consultations" ? "accent" : "outline"} size="sm" onClick={() => setKindFilter("consultations")}>
+              Consultations
+            </Button>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.5fr)_auto]">
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reviews" aria-label="Search reviews" />
           <select
             value={status}
@@ -2864,6 +3229,7 @@ function ReviewsAdminPage() {
           <Button type="button" variant="outline" size="md" onClick={() => void loadRows()} loading={loading}>
             Reload
           </Button>
+          </div>
         </div>
       </AdminSectionCard>
 
@@ -2889,6 +3255,7 @@ function ReviewsAdminPage() {
                   <th className="px-4 py-3">Rating</th>
                   <th className="px-4 py-3">Product</th>
                   <th className="px-4 py-3">Customer</th>
+                  <th className="px-4 py-3">Details</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
@@ -2897,31 +3264,104 @@ function ReviewsAdminPage() {
                 {filteredRows.map((row) => (
                   <tr key={row.id}>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-white/85 px-3 py-1 text-sm font-semibold text-text">
-                        <Star className="h-3.5 w-3.5 fill-warning text-warning" aria-hidden="true" />
-                        {row.rating.toFixed(1)}
-                      </span>
+                      {row.kind === "consultation" ? (
+                        <Badge variant="accent" className="rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]">
+                          Consultation
+                        </Badge>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-white/85 px-3 py-1 text-sm font-semibold text-text">
+                          <Star className="h-3.5 w-3.5 fill-warning text-warning" aria-hidden="true" />
+                          {row.rating.toFixed(1)}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm text-muted">
                       <div className="font-semibold text-text">{row.product}</div>
                       <div className="text-xs text-muted">{row.createdAt}</div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-muted">{row.customer}</td>
+                    <td className="px-4 py-3 text-sm text-muted">
+                      <div className="font-semibold text-text">{row.customer}</div>
+                      {row.kind === "consultation" ? (
+                        <div className="mt-2 space-y-1 rounded-[1rem] border border-accent/15 bg-accent/5 p-3 text-xs text-muted">
+                          {(() => {
+                            const details = parseConsultationSummary(row.comment);
+                            return (
+                              <>
+                                <div className="flex flex-wrap gap-2">
+                                  <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em]">
+                                    Consultation Lead
+                                  </Badge>
+                                  <Badge variant="neutral" className="rounded-full px-2.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em]">
+                                    Live Review
+                                  </Badge>
+                                </div>
+                                <p className="font-semibold text-text">{details.name || row.customer}</p>
+                                <p>Phone: {details.phone || "Not provided"}</p>
+                                <p>Preferred slot: {details.slot || "Not provided"}</p>
+                                {details.notes ? <p className="line-clamp-2">Notes: {details.notes}</p> : null}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted">
+                      {row.kind === "consultation" ? (
+                        <div className="space-y-2">
+                          <Badge variant="success" className="rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]">
+                            Consultation Request
+                          </Badge>
+                          <div className="rounded-[1rem] border border-border/70 bg-white/85 p-3 text-xs leading-5 text-muted">
+                            {(() => {
+                              const details = parseConsultationSummary(row.comment);
+                              return (
+                                <>
+                                  <p className="font-semibold text-text">Name: {details.name || row.customer}</p>
+                                  <p>Phone: {details.phone || "Not provided"}</p>
+                                  <p>Slot: {details.slot || "Not provided"}</p>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="line-clamp-2 block max-w-[18rem] text-xs leading-5">{row.comment || "No comment"}</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3"><AdminStatusBadge status={row.status} /></td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" onClick={() => void updateReview(row, "approved")}>
-                          <ShieldCheck className="h-4 w-4" />
-                          Approve
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => void updateReview(row, "rejected")}>
-                          <X className="h-4 w-4" />
-                          Reject
-                        </Button>
-                        <Button variant="danger" size="sm" onClick={() => void updateReview(row, "hidden")}>
-                          <Trash2 className="h-4 w-4" />
-                          Hide
-                        </Button>
+                        {row.kind === "consultation" ? (
+                          <>
+                            <Button variant="outline" size="sm" onClick={() => void updateConsultation(row, "contacted")}>
+                              <ShieldCheck className="h-4 w-4" />
+                              Contacted
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => void updateConsultation(row, "completed")}>
+                              <Check className="h-4 w-4" />
+                              Complete
+                            </Button>
+                            <Button variant="danger" size="sm" onClick={() => void updateConsultation(row, "cancelled")}>
+                              <X className="h-4 w-4" />
+                              Cancel
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button variant="outline" size="sm" onClick={() => void updateReview(row, "approved")}>
+                              <ShieldCheck className="h-4 w-4" />
+                              Approve
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => void updateReview(row, "rejected")}>
+                              <X className="h-4 w-4" />
+                              Reject
+                            </Button>
+                            <Button variant="danger" size="sm" onClick={() => void updateReview(row, "hidden")}>
+                              <Trash2 className="h-4 w-4" />
+                              Hide
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -4186,4 +4626,5 @@ export {
   ReportsAdminPage,
   ReviewsAdminPage,
   SettingsAdminPage,
+  ReturnsAdminPage,
 };

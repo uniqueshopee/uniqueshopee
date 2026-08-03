@@ -32,7 +32,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Modal } from "@/components/ui/modal";
 import { cn, formatPrice } from "@/lib/utils";
 import {
   POPULAR_SEARCHES,
@@ -77,7 +76,7 @@ const CATALOG_SORT_OPTIONS: Array<{ value: CatalogSortMode; label: string }> = [
 ];
 
 const PAGE_SIZE: Record<SearchTab, number> = {
-  products: 2,
+  products: 20,
   brands: 6,
   categories: 4,
 };
@@ -282,10 +281,6 @@ function buildSearchHref(query: string) {
   return trimmed ? `/search?q=${encodeURIComponent(trimmed)}` : "/search";
 }
 
-function getDefaultSortForTab(tab: SearchTab) {
-  return tab === "products" ? "relevance" : "az";
-}
-
 function sortProducts(products: SearchProduct[], sortMode: ProductSortMode) {
   const sorted = [...products];
 
@@ -314,28 +309,6 @@ function sortProducts(products: SearchProduct[], sortMode: ProductSortMode) {
     default:
       return sorted;
   }
-}
-
-function sortBrands(brands: SearchBrand[], sortMode: CatalogSortMode) {
-  const sorted = [...brands];
-  return sorted.sort((left, right) =>
-    sortMode === "az" ? left.name.localeCompare(right.name) : right.name.localeCompare(left.name),
-  );
-}
-
-function sortCategories(categories: SearchCategory[], sortMode: CatalogSortMode) {
-  const sorted = [...categories];
-  return sorted.sort((left, right) =>
-    sortMode === "az" ? left.name.localeCompare(right.name) : right.name.localeCompare(left.name),
-  );
-}
-
-function getProductCategories(products: SearchProduct[]) {
-  return Array.from(new Set(products.map((product) => product.category)));
-}
-
-function getProductBrands(products: SearchProduct[]) {
-  return Array.from(new Set(products.map((product) => product.brand)));
 }
 
 function SearchSuggestionOverlay({
@@ -1067,6 +1040,10 @@ function SearchResultsToolbar({
   );
 }
 
+void SearchFilters;
+
+void SearchResultsToolbar;
+
 function SearchExperience({ initialQuery, products, brands, categories }: SearchExperienceProps) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1074,16 +1051,8 @@ function SearchExperience({ initialQuery, products, brands, categories }: Search
   const [inputValue, setInputValue] = useState(initialQuery);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<SearchTab>("products");
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [sortMode, setSortMode] = useState<ProductSortMode | CatalogSortMode>("relevance");
-  const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState("all");
-  const [availability, setAvailability] = useState<AvailabilityFilter>("all");
-  const [discountOnly, setDiscountOnly] = useState(false);
-  const [priceCap, setPriceCap] = useState(0);
   const [page, setPage] = useState(1);
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const deferredQuery = useDeferredValue(inputValue);
   const query = deferredQuery.trim();
   const hasQuery = query.length > 0;
@@ -1103,24 +1072,9 @@ function SearchExperience({ initialQuery, products, brands, categories }: Search
   const allResults = useMemo(() => getSearchResultsFromCatalog(query, catalog), [query, catalog]);
   const suggestionItems = useMemo(() => getSearchSuggestionItemsFromCatalog(inputValue, catalog).slice(0, 8), [inputValue, catalog]);
 
-  const productBrands = getProductBrands(allResults.products);
-  const productCategories = getProductCategories(allResults.products);
-
-  const productPriceMin = allResults.products.length > 0 ? Math.min(...allResults.products.map((item) => item.price)) : 0;
-  const productPriceMax = allResults.products.length > 0 ? Math.max(...allResults.products.map((item) => item.price)) : 0;
-
-  useEffect(() => {
-    setPriceCap(productPriceMax);
-  }, [productPriceMax]);
-
   useEffect(() => {
     setPage(1);
-  }, [query, activeTab]);
-
-  useEffect(() => {
-    setSortMode(getDefaultSortForTab(activeTab));
-    setPage(1);
-  }, [activeTab]);
+  }, [query]);
 
   const handleSubmit = () => {
     const nextQuery = inputValue.trim();
@@ -1193,84 +1147,17 @@ function SearchExperience({ initialQuery, products, brands, categories }: Search
     router.push("/search");
   };
 
-  const handleTabChange = (tab: SearchTab) => {
-    setActiveTab(tab);
-    setSortMode(getDefaultSortForTab(tab));
-    setPage(1);
-  };
-
   const rawProducts = allResults.products;
-  const filteredProducts = sortProducts(
-    rawProducts.filter((product) => {
-      if (selectedBrands.length > 0 && !selectedBrands.includes(product.brand)) {
-        return false;
-      }
+  const filteredProducts = sortProducts(rawProducts, sortMode as ProductSortMode);
 
-      if (selectedCategory !== "all" && product.category !== selectedCategory) {
-        return false;
-      }
-
-      if (availability === "in-stock" && !product.inStock) {
-        return false;
-      }
-
-      if (availability === "out-of-stock" && product.inStock) {
-        return false;
-      }
-
-      if (discountOnly && !(product.compareAtPrice && product.compareAtPrice > product.price)) {
-        return false;
-      }
-
-      if (priceCap > 0 && product.price > priceCap) {
-        return false;
-      }
-
-      return true;
-    }),
-    sortMode as ProductSortMode,
-  );
-
-  const sortedBrands = sortBrands(allResults.brands, sortMode as CatalogSortMode);
-  const sortedCategories = sortCategories(allResults.categories, sortMode as CatalogSortMode);
-
-  const activeResults =
-    activeTab === "products"
-      ? filteredProducts
-      : activeTab === "brands"
-        ? sortedBrands
-        : sortedCategories;
-
-  const totalPages = Math.max(1, Math.ceil(activeResults.length / PAGE_SIZE[activeTab]));
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PAGE_SIZE.products));
   const safePage = Math.min(page, totalPages);
-  const paginatedProducts = filteredProducts.slice(
-    (safePage - 1) * PAGE_SIZE[activeTab],
-    safePage * PAGE_SIZE[activeTab],
-  );
-  const paginatedBrands = sortedBrands.slice(
-    (safePage - 1) * PAGE_SIZE[activeTab],
-    safePage * PAGE_SIZE[activeTab],
-  );
-  const paginatedCategories = sortedCategories.slice(
-    (safePage - 1) * PAGE_SIZE[activeTab],
-    safePage * PAGE_SIZE[activeTab],
-  );
-
-  const clearFilters = () => {
-    setSelectedBrands([]);
-    setSelectedCategory("all");
-    setAvailability("all");
-    setDiscountOnly(false);
-    setSortMode("relevance");
-    setViewMode("grid");
-    setPriceCap(productPriceMax);
-    setPage(1);
-  };
+  const paginatedProducts = filteredProducts.slice((safePage - 1) * PAGE_SIZE.products, safePage * PAGE_SIZE.products);
 
   const counts = {
     products: rawProducts.length,
-    brands: sortedBrands.length,
-    categories: sortedCategories.length,
+    brands: allResults.brands.length,
+    categories: allResults.categories.length,
   };
 
   return (
@@ -1304,31 +1191,16 @@ function SearchExperience({ initialQuery, products, brands, categories }: Search
           )}
         </motion.nav>
 
-        <motion.header className="mb-6 space-y-4" variants={ITEM_VARIANTS}>
-          <div className="flex flex-wrap items-center gap-2">
+        <motion.header className="mb-4 flex items-center justify-between gap-3" variants={ITEM_VARIANTS}>
+          <div className="flex min-w-0 items-center gap-2">
             <Badge variant="accent" className="eyebrow-font">
-              Search
+              Search Catalog
             </Badge>
-            <Badge variant="neutral" className="eyebrow-font">
-              {counts.products} products
-            </Badge>
-            <Badge variant="neutral" className="eyebrow-font">
-              {counts.brands} brands
-            </Badge>
-            <Badge variant="neutral" className="eyebrow-font">
-              {counts.categories} categories
-            </Badge>
+            <span className="truncate text-sm font-semibold text-muted">{counts.products} products found</span>
           </div>
-          <div className="max-w-3xl space-y-3">
-            <h1 className="text-3xl font-bold tracking-tight text-text sm:text-4xl">
-              Search everything in one premium catalog.
-            </h1>
-            <p className="max-w-2xl text-base font-medium leading-7 text-muted sm:text-lg">
-              Search across products, brands, and categories. Use recent searches, arrow-key
-              suggestions, and refined filters to find the right paint or plumbing essential
-              faster.
-            </p>
-          </div>
+          <Badge variant="neutral" className="eyebrow-font">
+            {hasQuery ? query : "All items"}
+          </Badge>
         </motion.header>
 
         <motion.div className="relative mb-8" variants={ITEM_VARIANTS}>
@@ -1437,312 +1309,123 @@ function SearchExperience({ initialQuery, products, brands, categories }: Search
             </motion.div>
           </motion.div>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
-            <aside className="hidden lg:block">
-              <div className="sticky top-24">
-                <SearchFilters
-                  activeTab={activeTab}
-                  brands={productBrands}
-                  categories={productCategories}
-                  counts={counts}
-                  selectedBrands={selectedBrands}
-                  setSelectedBrands={(value) => {
-                    setSelectedBrands(value);
-                    setPage(1);
-                  }}
-                  selectedCategory={selectedCategory}
-                  setSelectedCategory={(value) => {
-                    setSelectedCategory(value);
-                    setPage(1);
-                  }}
-                  availability={availability}
-                  setAvailability={(value) => {
-                    setAvailability(value);
-                    setPage(1);
-                  }}
-                  discountOnly={discountOnly}
-                  setDiscountOnly={(value) => {
-                    setDiscountOnly(value);
-                    setPage(1);
-                  }}
-                  sortMode={sortMode}
-                  setSortMode={(value) => {
-                    setSortMode(value);
-                    setPage(1);
-                  }}
-                  priceCap={priceCap}
-                  setPriceCap={(value) => {
-                    setPriceCap(value);
-                    setPage(1);
-                  }}
-                  minPrice={productPriceMin}
-                  maxPrice={productPriceMax}
-                  onClear={clearFilters}
-                />
-              </div>
-            </aside>
-
-            <div className="space-y-4">
-              <details className="hidden rounded-[1.5rem] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-sm)] md:block lg:hidden">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-text">
-                  <span className="inline-flex items-center gap-2">
-                    <Filter className="h-4 w-4 text-accent" aria-hidden="true" />
-                    Refine results
-                  </span>
-                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
-                    Collapsible
-                  </span>
-                </summary>
-                <div className="mt-4">
-                <SearchFilters
-                  activeTab={activeTab}
-                  brands={productBrands}
-                  categories={productCategories}
-                  counts={counts}
-                  selectedBrands={selectedBrands}
-                    setSelectedBrands={(value) => {
-                      setSelectedBrands(value);
-                      setPage(1);
-                    }}
-                    selectedCategory={selectedCategory}
-                    setSelectedCategory={(value) => {
-                      setSelectedCategory(value);
-                      setPage(1);
-                    }}
-                    availability={availability}
-                    setAvailability={(value) => {
-                      setAvailability(value);
-                      setPage(1);
-                    }}
-                    discountOnly={discountOnly}
-                    setDiscountOnly={(value) => {
-                      setDiscountOnly(value);
-                      setPage(1);
-                    }}
-                    sortMode={sortMode}
-                    setSortMode={(value) => {
-                      setSortMode(value);
-                      setPage(1);
-                    }}
-                    priceCap={priceCap}
-                    setPriceCap={(value) => {
-                      setPriceCap(value);
-                      setPage(1);
-                    }}
-                    minPrice={productPriceMin}
-                    maxPrice={productPriceMax}
-                    onClear={clearFilters}
-                  />
+          <div className="space-y-4">
+            <div className="flex flex-col gap-3 rounded-[1.5rem] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-sm)]">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/10 text-accent">
+                    <Filter className="h-4 w-4" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-text">Live search results</p>
+                    <p className="text-sm font-medium text-muted">{filteredProducts.length} items</p>
+                  </div>
                 </div>
-              </details>
-
-              <div className="md:hidden">
-                <div className="flex items-center justify-between rounded-[1.35rem] border border-white/80 bg-white/92 px-4 py-3 shadow-[var(--shadow-sm)]">
-                  <p className="text-sm font-semibold text-text">Need filters?</p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    type="button"
-                    onClick={() => setMobileFiltersOpen(true)}
-                  >
-                    Open
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 rounded-full border border-border/70 bg-white/85 px-3 py-2 text-sm font-semibold text-text">
+                    <span className="text-muted">Sort</span>
+                    <select
+                      aria-label="Sort search results"
+                      value={sortMode}
+                      onChange={(event) => {
+                        setSortMode(event.target.value as ProductSortMode);
+                        setPage(1);
+                      }}
+                      className="bg-transparent text-sm font-semibold text-text outline-none"
+                    >
+                      {PRODUCT_SORT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button type="button" variant="outline" size="sm" onClick={clearSearch}>
+                    Clear
                   </Button>
                 </div>
               </div>
-
-              <SearchResultsToolbar
-                activeTab={activeTab}
-                setActiveTab={handleTabChange}
-                counts={counts}
-                resultsCount={activeResults.length}
-                sortMode={sortMode}
-                setSortMode={(value) => {
-                  setSortMode(value);
-                  setPage(1);
-                }}
-                viewMode={viewMode}
-                setViewMode={setViewMode}
-                hasQuery={hasQuery}
-                mobileFiltersOpen={mobileFiltersOpen}
-                setMobileFiltersOpen={setMobileFiltersOpen}
-              />
-
-              {activeResults.length === 0 ? (
-                <EmptyState
-                  title="No results matched your search"
-                  description="Try a different search term, clear one of the filters, or browse a broader category."
-                  actionLabel="Clear filters"
-                  onAction={clearFilters}
-                  secondaryActionLabel="Browse products"
-                  onSecondaryAction={() => router.push("/products")}
-                />
-              ) : (
-                <>
-                  {activeTab === "products" ? (
-                    <motion.ul
-                      className={cn(
-                        "grid gap-4",
-                        viewMode === "grid"
-                          ? "grid-cols-1 sm:grid-cols-2"
-                          : "grid-cols-1",
-                      )}
-                      variants={SECTION_VARIANTS}
-                      initial={false}
-                      animate="visible"
-                      layout
-                      role="tabpanel"
-                      id="search-panel-products"
-                      aria-labelledby="search-tab-products"
-                    >
-                      {paginatedProducts.map((product) => (
-                        <motion.li key={product.id} variants={ITEM_VARIANTS} className="h-full list-none" layout>
-                          <ProductCard product={product} />
-                        </motion.li>
-                      ))}
-                    </motion.ul>
-                  ) : activeTab === "brands" ? (
-                    <motion.ul
-                      className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4"
-                      variants={SECTION_VARIANTS}
-                      initial={false}
-                      animate="visible"
-                      layout
-                      role="tabpanel"
-                      id="search-panel-brands"
-                      aria-labelledby="search-tab-brands"
-                    >
-                      {paginatedBrands.map((brand) => (
-                        <motion.li key={brand.slug} variants={ITEM_VARIANTS} className="list-none" layout>
-                          <BrandCard brand={brand} />
-                        </motion.li>
-                      ))}
-                    </motion.ul>
-                  ) : (
-                    <motion.ul
-                      className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
-                      variants={SECTION_VARIANTS}
-                      initial={false}
-                      animate="visible"
-                      layout
-                      role="tabpanel"
-                      id="search-panel-categories"
-                      aria-labelledby="search-tab-categories"
-                    >
-                      {paginatedCategories.map((category) => (
-                        <motion.li key={category.slug} variants={ITEM_VARIANTS} className="list-none" layout>
-                          <CategoryCard category={category} />
-                        </motion.li>
-                      ))}
-                    </motion.ul>
-                  )}
-
-                  {totalPages > 1 && (
-                    <div className="flex flex-col gap-3 rounded-[1.5rem] border border-white/80 bg-white/92 px-4 py-4 shadow-[var(--shadow-sm)] sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-sm font-medium text-muted">
-                        Page {safePage} of {totalPages}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setPage((current) => Math.max(1, current - 1))}
-                          disabled={safePage === 1}
-                        >
-                          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-                          Prev
-                        </Button>
-                        {Array.from({ length: totalPages }).map((_, index) => {
-                          const value = index + 1;
-                          return (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() => setPage(value)}
-                              aria-current={value === safePage ? "page" : undefined}
-                              className={cn(
-                                "flex h-10 min-w-10 items-center justify-center rounded-full border px-3 text-sm font-semibold transition-all",
-                                value === safePage
-                                  ? "border-accent/20 bg-accent/10 text-accent"
-                                  : "border-border/70 bg-white/80 text-text hover:border-accent/20 hover:bg-white",
-                              )}
-                            >
-                              {value}
-                            </button>
-                          );
-                        })}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                          disabled={safePage === totalPages}
-                        >
-                          Next
-                          <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
             </div>
+
+            {filteredProducts.length === 0 ? (
+              <EmptyState
+                title="No products matched your search"
+                description="Try a different search term."
+                actionLabel="Clear search"
+                onAction={clearSearch}
+                secondaryActionLabel="Browse products"
+                onSecondaryAction={() => router.push("/products")}
+              />
+            ) : (
+              <>
+                <motion.ul
+                  className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4"
+                  variants={SECTION_VARIANTS}
+                  initial={false}
+                  animate="visible"
+                  layout
+                >
+                  {paginatedProducts.map((product) => (
+                    <motion.li key={product.id} variants={ITEM_VARIANTS} className="h-full list-none" layout>
+                      <ProductCard product={product} />
+                    </motion.li>
+                  ))}
+                </motion.ul>
+
+                {totalPages > 1 && (
+                  <div className="flex flex-col gap-3 rounded-[1.5rem] border border-white/80 bg-white/92 px-4 py-4 shadow-[var(--shadow-sm)] sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm font-medium text-muted">
+                      Page {safePage} of {totalPages}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPage((current) => Math.max(1, current - 1))}
+                        disabled={safePage === 1}
+                      >
+                        <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                        Prev
+                      </Button>
+                      {Array.from({ length: totalPages }).map((_, index) => {
+                        const value = index + 1;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setPage(value)}
+                            aria-current={value === safePage ? "page" : undefined}
+                            className={cn(
+                              "flex h-10 min-w-10 items-center justify-center rounded-full border px-3 text-sm font-semibold transition-all",
+                              value === safePage
+                                ? "border-accent/20 bg-accent/10 text-accent"
+                                : "border-border/70 bg-white/80 text-text hover:border-accent/20 hover:bg-white",
+                            )}
+                          >
+                            {value}
+                          </button>
+                        );
+                      })}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                        disabled={safePage === totalPages}
+                      >
+                        Go next page
+                        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
 
-      <Modal
-        open={mobileFiltersOpen}
-        onOpenChange={setMobileFiltersOpen}
-        title="Filters"
-        description="Refine search results on mobile."
-        className="bottom-0 left-auto right-0 top-auto h-[88vh] w-full max-w-none translate-x-0 translate-y-0 rounded-t-[1.5rem] border-t border-border p-4 md:hidden"
-      >
-        <div className="h-full overflow-y-auto pr-1">
-          <SearchFilters
-            activeTab={activeTab}
-            brands={productBrands}
-            categories={productCategories}
-            counts={counts}
-            selectedBrands={selectedBrands}
-            setSelectedBrands={(value) => {
-              setSelectedBrands(value);
-              setPage(1);
-            }}
-            selectedCategory={selectedCategory}
-            setSelectedCategory={(value) => {
-              setSelectedCategory(value);
-              setPage(1);
-            }}
-            availability={availability}
-            setAvailability={(value) => {
-              setAvailability(value);
-              setPage(1);
-            }}
-            discountOnly={discountOnly}
-            setDiscountOnly={(value) => {
-              setDiscountOnly(value);
-              setPage(1);
-            }}
-            sortMode={sortMode}
-            setSortMode={(value) => {
-              setSortMode(value);
-              setPage(1);
-            }}
-            priceCap={priceCap}
-            setPriceCap={(value) => {
-              setPriceCap(value);
-              setPage(1);
-            }}
-            minPrice={productPriceMin}
-            maxPrice={productPriceMax}
-            onClear={() => {
-              clearFilters();
-              setMobileFiltersOpen(false);
-            }}
-          />
-        </div>
-      </Modal>
     </motion.section>
   );
 }

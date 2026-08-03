@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
-import { SupportTicketPage } from "@/components/support/support-kit";
+import { ReturnsRefundsPage } from "@/components/account/returns-refunds-page";
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
-    title: "Support Ticket | UniqueShopee",
-    description: "Track an existing support ticket, view timeline updates, and send responses from one screen.",
+    title: "Returns & Refunds | UniqueShopee",
+    description: "View return orders, check return summaries, and contact support by WhatsApp or phone.",
   };
 }
 
 export default function SupportTicketRoute() {
   return (
     <main>
-      <SupportTicketPage />
+      <ReturnsRefundsPage />
     </main>
   );
 }

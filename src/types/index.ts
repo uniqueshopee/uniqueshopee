@@ -13,7 +13,9 @@ export interface Product {
   stockCount?: number;
   reservedCount?: number;
   lowStockThreshold?: number;
-  badge?: "new" | "bestseller" | "sale";
+  badge?: "new" | "bestseller" | "sale" | "exclusive";
+  exclusiveOffer?: boolean;
+  exclusiveOfferPercent?: number;
 }
 
 export interface Category {

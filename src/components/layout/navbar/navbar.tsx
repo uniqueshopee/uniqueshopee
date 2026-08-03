@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { DesktopNav } from "./desktop-nav";
 import { MobileNav } from "./mobile-nav";
 import { cn } from "@/lib/utils";
 
 function Navbar() {
   const [scrolled, setScrolled] = useState(false);
+  const pathname = usePathname();
+  const isHomeRoute = pathname === "/";
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 4);
@@ -23,9 +26,11 @@ function Navbar() {
       )}
     >
       <DesktopNav />
-      <div className="relative border-t border-border/50 lg:border-t-0">
-        <MobileNav />
-      </div>
+      {!isHomeRoute ? (
+        <div className="relative border-t border-border/50 lg:border-t-0">
+          <MobileNav />
+        </div>
+      ) : null}
     </header>
   );
 }

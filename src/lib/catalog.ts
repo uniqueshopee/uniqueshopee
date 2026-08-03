@@ -438,6 +438,7 @@ type ProductDetail = {
   brandAccent: "paint" | "plumbing" | "tools";
   brandDescription: string;
   gallery: string[];
+  showVariants: boolean;
   variants: ProductVariant[];
   description: string;
   highlights: string[];
@@ -570,6 +571,15 @@ function buildProductRating(attributes: JsonRecord | null) {
   return rating > 0 ? rating : 4.5;
 }
 
+function buildProductExclusiveOffer(attributes: JsonRecord | null) {
+  return toBoolean(attributes?.exclusive_offer ?? attributes?.exclusiveOffer ?? attributes?.offer_exclusive, false);
+}
+
+function buildProductOfferPercent(attributes: JsonRecord | null) {
+  const value = toNumber(attributes?.exclusive_offer_percent ?? attributes?.exclusiveOfferPercent ?? attributes?.offer_percent, 0);
+  return value > 0 ? value : undefined;
+}
+
 function buildSearchKeywords(product: CatalogProduct) {
   return [
     product.name,
@@ -620,6 +630,8 @@ function buildProductFromRow(
   const mrp = toNumber(row.mrp);
   const compareAtPrice = mrp > price ? mrp : undefined;
   const isNew = new Date(row.created_at).getTime() > Date.now() - 1000 * 60 * 60 * 24 * 45;
+  const exclusiveOffer = buildProductExclusiveOffer(row.attributes);
+  const exclusiveOfferPercent = buildProductOfferPercent(row.attributes);
 
   return {
     id: row.id,
@@ -633,7 +645,9 @@ function buildProductFromRow(
     rating: buildProductRating(row.attributes),
     reviewCount: buildProductReviewCount(row.attributes),
     inStock: stockCount > 0,
-    badge: row.featured ? "bestseller" : compareAtPrice && compareAtPrice > price ? "sale" : isNew ? "new" : undefined,
+    badge: exclusiveOffer ? "exclusive" : row.featured ? "bestseller" : compareAtPrice && compareAtPrice > price ? "sale" : isNew ? "new" : undefined,
+    exclusiveOffer,
+    exclusiveOfferPercent,
     departmentId: department.id,
     departmentSlug: department.slug,
     departmentName: department.name,
@@ -1305,6 +1319,9 @@ export async function getLiveHomeData() {
   const featuredProducts = snapshot.products
     .filter((product) => product.featured)
     .slice(0, 4);
+  const exclusiveProducts = snapshot.products
+    .filter((product) => product.exclusiveOffer)
+    .slice(0, 4);
   const homeProducts = [paints[0], plumbing[0], paints[1], plumbing[1]].filter(Boolean) as CatalogProduct[];
   const brandChips = snapshot.brands.slice(0, 7).map((brand) => ({
     name: brand.name,
@@ -1314,6 +1331,7 @@ export async function getLiveHomeData() {
   return {
     products: snapshot.products,
     featuredProducts: featuredProducts.length > 0 ? featuredProducts : snapshot.products.slice(0, 4),
+    exclusiveProducts: exclusiveProducts.length > 0 ? exclusiveProducts : snapshot.products.slice(0, 4),
     homeProducts: homeProducts.length > 0 ? homeProducts : snapshot.products.slice(0, 4),
     brandChips,
   };
@@ -1337,9 +1355,17 @@ export async function getLiveProductBySlug(slug: string) {
     .slice(0, 4);
   const recentlyViewedProducts = snapshot.products.filter((item) => item.slug !== slug).slice(0, 4);
   const bundleProducts = relatedProducts.length > 0 ? relatedProducts.slice(0, 2) : recentlyViewedProducts.slice(0, 2);
+  const attributes = product.attributes ?? {};
+  const showVariants = toBoolean(attributes.show_variants ?? attributes.showVariants, variantRows.length > 0);
+  const returnable = toBoolean(attributes.returnable ?? attributes.is_returnable ?? attributes.returnable_product, false);
   const relatedIds = Array.isArray(product.attributes?.related_product_ids)
     ? (product.attributes?.related_product_ids as string[])
     : relatedProducts.map((item) => item.id);
+  const specifications = Object.entries(product.specification ?? {}).map(([key, value]) => ({
+    label: key,
+    value: String(value ?? ""),
+  }));
+  const hasReturnableSpecification = specifications.some((item) => item.label.trim().toLowerCase() === "returnable");
 
   return {
     product,
@@ -1354,15 +1380,18 @@ export async function getLiveProductBySlug(slug: string) {
           : product.gallery.length > 0
             ? product.gallery
             : [product.primaryImageUrl],
+      showVariants,
       variants:
-        variantRows.length > 0
-          ? variantRows.map((variant, index) => ({
-              label: variant.option_value || variant.variant_name || `Variant ${index + 1}`,
-              value: variant.option_value || variant.sku || variant.id,
-              group: variant.option_label?.trim() || null,
-              isDefault: variant.is_default,
-            }))
-          : [{ label: "Default", value: "default", group: null, isDefault: true }],
+        showVariants
+          ? variantRows.length > 0
+            ? variantRows.map((variant, index) => ({
+                label: variant.option_value || variant.variant_name || `Variant ${index + 1}`,
+                value: variant.option_value || variant.sku || variant.id,
+                group: variant.option_label?.trim() || null,
+                isDefault: variant.is_default,
+              }))
+            : [{ label: "Default", value: "default", group: null, isDefault: true }]
+          : [],
       description:
         product.shortDescription ||
         product.description ||
@@ -1373,10 +1402,9 @@ export async function getLiveProductBySlug(slug: string) {
         `SKU: ${product.sku}`,
         `Category: ${product.categoryName}`,
       ],
-      specifications: Object.entries(product.specification ?? {}).map(([key, value]) => ({
-        label: key,
-        value: String(value ?? ""),
-      })),
+      specifications: hasReturnableSpecification
+        ? specifications
+        : [...specifications, { label: "Returnable", value: returnable ? "Yes" : "No" }],
       applications: makeApplications(product.departmentSlug, product.categoryName),
       downloads: [
         { label: "Product datasheet", meta: "PDF · mock" },

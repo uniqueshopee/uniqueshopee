@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/card";
 import { DepartmentCard } from "./department-card";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/components/auth/auth-provider";
+import { buildLoginRedirectPath } from "@/lib/auth";
 
 const QUICK_SHOP_ACTIONS = [
   { label: "All Products", href: "/products", icon: LayoutGrid, tone: "bg-primary/8 text-primary" },
@@ -41,6 +43,19 @@ const itemVariants = {
 
 function DepartmentGrid() {
   const shouldReduceMotion = useReducedMotion();
+  const { isAuthenticated } = useAuth();
+
+  const getProtectedHref = (href: string) => {
+    if (isAuthenticated) {
+      return href;
+    }
+
+    if (href === "/cart") {
+      return buildLoginRedirectPath(href);
+    }
+
+    return href;
+  };
 
   return (
     <motion.section
@@ -90,10 +105,11 @@ function DepartmentGrid() {
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {QUICK_SHOP_ACTIONS.map((action) => {
                 const Icon = action.icon;
+                const href = getProtectedHref(action.href);
                 return (
                   <Link
                     key={action.label}
-                    href={action.href}
+                    href={href}
                     className="group rounded-[1.35rem] border border-border/70 bg-background-secondary/40 p-3 text-center transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:border-accent/20 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     <div className={cn("mx-auto flex h-12 w-12 items-center justify-center rounded-[1rem]", action.tone)}>

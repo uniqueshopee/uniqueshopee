@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowLeft,
@@ -176,8 +177,15 @@ function AuthCard({ children, className }: { children: React.ReactNode; classNam
 function AuthBrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex h-11 w-11 items-center justify-center rounded-[1rem] bg-gradient-to-br from-accent via-[#fb923c] to-[#fdba74] text-white shadow-[0_16px_30px_-16px_rgba(249,115,22,0.55)]">
-        <ShoppingBag className="h-5 w-5" aria-hidden="true" />
+      <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-[1rem] border border-border/60 bg-white shadow-[0_16px_30px_-16px_rgba(16,33,58,0.28)]">
+        <Image
+          src="/images/auth-us-logo.jpg"
+          alt="UniqueShopee logo"
+          width={128}
+          height={128}
+          className="h-full w-full object-cover"
+          priority
+        />
       </div>
       <div className="min-w-0">
         <p className={cn("truncate font-black tracking-tight text-text", compact ? "text-lg" : "text-xl")}>

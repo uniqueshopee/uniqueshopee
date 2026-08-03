@@ -3,13 +3,14 @@
 import type { ReactNode, SVGProps } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Heart, Home, LayoutGrid, ShoppingCart, Tag, User } from "lucide-react";
+import { Heart, Home, LayoutGrid, Package, ShoppingCart, Tag, User } from "lucide-react";
 import { MOBILE_BOTTOM_NAV, SITE_NAME } from "@/lib/constants";
 import { SearchBar } from "./search-bar";
 import { useCartStore } from "@/store/cart-store";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
+import { buildLoginRedirectPath } from "@/lib/auth";
 import { CONTACT_DETAILS } from "@/lib/support-data";
 import { isQaBypassEnabled } from "@/lib/qa-mode";
 
@@ -27,8 +28,8 @@ const WHATSAPP_URL = SUPPORT_PHONE_DIGITS ? `https://wa.me/${SUPPORT_PHONE_DIGIT
 const PRIMARY_NAV_ICONS = {
   home: Home,
   grid: LayoutGrid,
-  heart: Heart,
   cart: ShoppingCart,
+  order: Package,
   user: User,
 };
 
@@ -69,6 +70,17 @@ function DesktopNav() {
   const { isAuthenticated, signOut } = useAuth();
   const cartCount = useCartStore((s) => s.totalItems());
   const wishlistCount = useWishlistStore((s) => s.count());
+  const getProtectedHref = (href: string) => {
+    if (isAuthenticated) {
+      return href;
+    }
+
+    if (href === "/cart" || href === "/wishlist" || href === "/account" || href === "/orders") {
+      return buildLoginRedirectPath(href);
+    }
+
+    return href;
+  };
 
   const handleAuthAction = async () => {
     const result = await signOut();
@@ -108,10 +120,10 @@ function DesktopNav() {
             <Tag className="h-4 w-4" aria-hidden="true" />
             Offers
           </Link>
-          <IconLink href="/wishlist" label="Wishlist" count={wishlistCount}>
+          <IconLink href={getProtectedHref("/wishlist")} label="Wishlist" count={wishlistCount}>
             <Heart className="h-5 w-5" aria-hidden="true" />
           </IconLink>
-          <IconLink href="/cart" label="Cart" count={cartCount}>
+          <IconLink href={getProtectedHref("/cart")} label="Cart" count={cartCount}>
             <ShoppingCart className="h-5 w-5" aria-hidden="true" />
           </IconLink>
           <Link
@@ -153,8 +165,7 @@ function DesktopNav() {
           {MOBILE_BOTTOM_NAV.map((item) => {
             const Icon = PRIMARY_NAV_ICONS[item.icon];
             const active = pathname === item.href;
-            const count =
-              item.icon === "cart" ? cartCount : item.icon === "heart" ? wishlistCount : 0;
+            const count = item.icon === "cart" ? cartCount : 0;
 
             return (
               <li key={item.href}>

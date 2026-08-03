@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -11,9 +10,7 @@ import {
   Check,
   CreditCard,
   Edit3,
-  ExternalLink,
   MapPin,
-  Minus,
   Plus,
   ShieldCheck,
   Trash2,
@@ -24,7 +21,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
+import { SharedProductCard } from "@/components/product/shared-product-card";
 import { calculateCartPricing, defaultShippingResolver, resolveCouponCode } from "@/lib/checkout-pricing";
+import { buildLoginRedirectPath } from "@/lib/auth";
 import { cn, formatPrice } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useCartSync } from "@/components/cart/cart-sync-provider";
@@ -104,20 +103,6 @@ const STORAGE_KEYS = {
 function toOptionalText(value: string) {
   const next = value.trim();
   return next.length > 0 ? next : null;
-}
-
-function formatExpectedDelivery() {
-  const start = new Date();
-  const end = new Date();
-  start.setDate(start.getDate() + 2);
-  end.setDate(end.getDate() + 4);
-
-  const formatter = new Intl.DateTimeFormat("en-IN", {
-    day: "numeric",
-    month: "short",
-  });
-
-  return `${formatter.format(start)} - ${formatter.format(end)}`;
 }
 
 function formatAddressType(type: CheckoutAddress["type"]) {
@@ -301,64 +286,20 @@ function CheckoutItem({
   onRemove: () => void;
 }) {
   return (
-    <div className="rounded-[1.35rem] border border-border/70 bg-white p-2.5 shadow-[var(--shadow-sm)] sm:p-3">
-      <div className="grid gap-2.5 sm:grid-cols-[88px_minmax(0,1fr)] sm:gap-3">
-        <div className="relative aspect-square overflow-hidden rounded-[1rem] border border-border/60 bg-background-secondary">
-          <Image src={product.image} alt={product.name} fill sizes="88px" className="object-cover" />
-        </div>
-
-        <div className="space-y-2.5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">{brand}</p>
-              <h3 className="mt-1 line-clamp-2 text-sm font-bold leading-6 text-text">{product.name}</h3>
-              <p className="mt-1 text-xs font-medium text-muted">{variant}</p>
-            </div>
-            <Button asChild size="sm" variant="ghost" className="shrink-0 rounded-full px-2 text-muted">
-              <Link href={`/product/${product.slug}`} target="_blank" rel="noreferrer">
-                <ExternalLink className="h-4 w-4" aria-hidden="true" />
-              </Link>
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2.5">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-sm font-medium text-muted">
-                <span>Qty</span>
-                <div className="inline-flex h-11 items-center overflow-hidden rounded-full border border-border/70 bg-white shadow-[var(--shadow-sm)]">
-                  <button
-                    type="button"
-                    className="flex h-11 w-11 items-center justify-center text-text transition-colors hover:bg-background-secondary"
-                    onClick={onDecrease}
-                    aria-label={`Decrease quantity for ${product.name}`}
-                    disabled={quantity <= 1}
-                  >
-                    <Minus className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                  <span className="min-w-8 px-2 text-center text-sm font-bold text-text">{quantity}</span>
-                  <button
-                    type="button"
-                    className="flex h-11 w-11 items-center justify-center text-text transition-colors hover:bg-background-secondary"
-                    onClick={onIncrease}
-                    aria-label={`Increase quantity for ${product.name}`}
-                  >
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-sm">
-                <span className="font-medium text-muted">Unit {formatPrice(product.price)}</span>
-                <span className="font-bold text-text">Total {formatPrice(product.price * quantity)}</span>
-              </div>
-            </div>
-
-            <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={onRemove}>
-              Remove Item
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <SharedProductCard
+      mode="checkout"
+      image={product.image}
+      href={`/product/${product.slug}`}
+      brand={brand}
+      title={product.name}
+      subtitle={variant}
+      quantity={quantity}
+      price={product.price}
+      compareAtPrice={product.compareAtPrice}
+      onIncrease={onIncrease}
+      onDecrease={onDecrease}
+      onRemove={onRemove}
+    />
   );
 }
 
@@ -832,21 +773,13 @@ function CheckoutShell() {
     [items],
   );
 
-  const [deliveryEstimate, setDeliveryEstimate] = useState("Calculating delivery window...");
   const pricing = useMemo(
     () => buildCheckoutPricingSummary(items, couponCode),
     [couponCode, items],
   );
 
-  useEffect(() => {
-    setDeliveryEstimate(formatExpectedDelivery());
-  }, []);
-
   const empty = items.length === 0;
   const summarySavings = Math.max(0, pricing.discountTotal + pricing.couponDiscount);
-  const selectedAddressLine = selectedAddress
-    ? `${selectedAddress.city}, ${selectedAddress.state}`
-    : "Select a delivery address";
 
   const validateDraftAddress = () => {
     const errors: Partial<Record<keyof DraftAddressState, string>> = {};
@@ -1113,11 +1046,7 @@ function CheckoutShell() {
     }
 
     if (!user || !accountId) {
-      toast({
-        title: "Sign in required",
-        description: user ? UI_MESSAGES.generic.server : UI_MESSAGES.checkout.signInRequired,
-        variant: "warning",
-      });
+      router.push(buildLoginRedirectPath(pathname));
       return;
     }
 
@@ -1632,134 +1561,33 @@ function CheckoutShell() {
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_21rem]">
             <div className="space-y-3.5">
               <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
-                <SectionTitle eyebrow="Order Summary" title="Order Summary" />
+                <SectionTitle eyebrow="Order Items" title="Review what you are buying" />
 
-                <div className="mt-3 space-y-2.5 rounded-[1.25rem] border border-border/70 bg-white p-3 sm:mt-4 sm:space-y-3 sm:p-4">
-                  <SummaryRow label="Subtotal" value={formatPrice(pricing.subtotal)} />
-                  <SummaryRow label="Discount" value={`- ${formatPrice(pricing.discountTotal)}`} />
-                  <SummaryRow
-                    label="Coupon Discount"
-                    value={pricing.couponDiscount > 0 ? `- ${formatPrice(pricing.couponDiscount)}` : formatPrice(0)}
-                  />
-                  <SummaryRow label="GST" value={formatPrice(pricing.taxTotal)} />
-                  <SummaryRow label="Shipping" value={pricing.shippingTotal === 0 ? "Free" : formatPrice(pricing.shippingTotal)} />
-                  <div className="border-t border-border/70 pt-3">
-                    <SummaryRow label="Grand Total" value={formatPrice(pricing.totalAmount)} emphasize />
-                  </div>
-                  <div className="rounded-[1rem] border border-success/20 bg-success/10 px-3 py-2 text-xs font-medium text-success sm:text-sm">
-                    You Saved {formatPrice(summarySavings)}
-                  </div>
+                <div className="mt-3 grid grid-cols-1 gap-2.5 sm:mt-4 sm:grid-cols-2 sm:gap-3">
+                  {items.map((item, index) => {
+                    const product = cartProducts[index];
+                    if (!product) {
+                      return null;
+                    }
+
+                    const quantity = item.quantity;
+                    const maxQuantity = item.stockCount ?? quantity + 10;
+
+                    return (
+                      <motion.div key={product.id} variants={ITEM_VARIANTS}>
+                        <CheckoutItem
+                          product={product}
+                          quantity={quantity}
+                          brand={item.brand ?? metaByProductId[item.productId]?.brand ?? "Brand"}
+                          variant={item.variant ?? metaByProductId[item.productId]?.variant ?? "Standard"}
+                          onIncrease={() => updateQuantity(item.productId, Math.min(maxQuantity, quantity + 1))}
+                          onDecrease={() => updateQuantity(item.productId, Math.max(1, quantity - 1))}
+                          onRemove={() => removeItem(item.productId)}
+                        />
+                      </motion.div>
+                    );
+                  })}
                 </div>
-              </motion.section>
-
-              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
-                <SectionTitle eyebrow="Coupon" title="Coupon" />
-                <div className="mt-3 flex items-center gap-2 rounded-[1.2rem] border border-border/70 bg-white p-2 sm:mt-4">
-                  <Input
-                    id="checkout-coupon"
-                    value={couponInput}
-                    onChange={(event) => setCouponInput(event.target.value)}
-                    placeholder="Coupon"
-                    className="h-11 flex-1 rounded-full border-0 bg-transparent px-3 shadow-none focus-visible:ring-0"
-                  />
-                  <Button type="button" variant="accent" size="md" className="rounded-full px-4" onClick={handleApplyCoupon}>
-                    Apply
-                  </Button>
-                </div>
-                <div className="mt-2 flex items-center gap-2 rounded-[1rem] px-1 text-sm font-medium">
-                  {couponCode ? (
-                    <>
-                      <BadgeCheck className="h-4 w-4 text-success" aria-hidden="true" />
-                      <span className="text-text">{couponCode} applied</span>
-                    </>
-                  ) : couponInput.trim().length > 0 ? (
-                    <>
-                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-danger text-[10px] font-bold text-danger">!</span>
-                      <span className="text-danger">Not valid</span>
-                    </>
-                  ) : (
-                    <span className="text-muted">Enter a coupon to update totals.</span>
-                  )}
-                </div>
-              </motion.section>
-
-              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
-                <SectionTitle
-                  eyebrow="Deliver To"
-                  title="Choose where to deliver"
-                  description="Select an existing address or add a new one. Saved addresses stay in Supabase."
-                />
-
-                <div className="mt-3 rounded-[1.25rem] border border-border/70 bg-background-secondary/25 p-3 sm:mt-4 sm:p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Deliver To</p>
-                      <p className="mt-2 text-sm font-bold text-text">{selectedAddress ? selectedAddress.name : "No address selected"}</p>
-                      <p className="mt-1 text-sm font-medium text-muted">{selectedAddressLine}</p>
-                      <p className="mt-1 text-sm font-medium text-muted">Expected Delivery {deliveryEstimate}</p>
-                      <p className="mt-1 text-sm font-medium text-muted">
-                        {paymentMethod === "cod" ? "Cash on Delivery Available" : "Online payment selected"}
-                      </p>
-                    </div>
-                    {selectedAddress ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="shrink-0 rounded-full px-2 text-muted"
-                        onClick={() => openEditAddressForm(selectedAddress)}
-                      >
-                        <Edit3 className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <Button type="button" variant="outline" size="md" className="rounded-full" onClick={onToggleAddressForm}>
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                    Add New Address
-                  </Button>
-                </div>
-
-                <AnimatePresence>
-                  {showAddressForm ? (
-                    <motion.div key="address-form" variants={ITEM_VARIANTS} initial="hidden" animate="visible" exit="hidden" className="mt-3">
-                      <AddressForm
-                        value={draftAddress}
-                        onChange={setDraftAddress}
-                        onSave={() => void saveAddress()}
-                        onCancel={() => {
-                          setShowAddressForm(false);
-                          setEditingAddressId(null);
-                          setAddressErrors({});
-                        }}
-                        saving={addressBusy}
-                        error={addressErrors.pin || addressErrors.phone || addressErrors.name || addressErrors.line1 || addressErrors.city || addressErrors.state || null}
-                        profileName={profileName}
-                        profilePhone={profilePhone}
-                      />
-                    </motion.div>
-                  ) : null}
-                </AnimatePresence>
-
-                {addresses.length > 0 ? (
-                  <div className="mt-3 grid gap-3">
-                    {addresses.map((address) => (
-                      <AddressCard
-                        key={address.id}
-                        address={address}
-                        selected={address.id === selectedAddressId}
-                        onSelect={() => {
-                          setSelectedAddressId(address.id);
-                          setShowAddressForm(false);
-                        }}
-                        onEdit={() => openEditAddressForm(address)}
-                        onDelete={() => void deleteAddress(address.id)}
-                      />
-                    ))}
-                  </div>
-                ) : null}
               </motion.section>
 
               <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
@@ -1816,126 +1644,150 @@ function CheckoutShell() {
                 </div>
 
                 <div className="mt-3 rounded-[1.15rem] border border-border/70 bg-background-secondary/25 p-3 sm:mt-4 sm:p-4">
-                  <Label htmlFor="checkout-notes">Notes</Label>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">Notes</p>
                   <textarea
                     id="checkout-notes"
                     value={notes}
                     onChange={(event) => setNotes(event.target.value)}
                     placeholder="Delivery instructions, floor number, landmark, GST note..."
-                    className="mt-2 min-h-24 w-full rounded-[1.15rem] border border-border/80 bg-white px-4 py-3 text-sm font-medium text-text outline-none transition-colors placeholder:text-muted focus:border-accent/25 focus:ring-2 focus:ring-accent/20"
+                    className="mt-2 min-h-20 w-full rounded-[1.15rem] border border-border/80 bg-white px-3 py-2.5 text-sm font-medium text-text outline-none transition-colors placeholder:text-muted focus:border-accent/25 focus:ring-2 focus:ring-accent/20"
                   />
                 </div>
+              </motion.section>
 
+              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
+                <SectionTitle eyebrow="Order Summary" title="Order Summary" />
+
+                <div className="mt-3 space-y-2.5 rounded-[1.25rem] border border-border/70 bg-white p-3 sm:mt-4 sm:space-y-3 sm:p-4">
+                  <SummaryRow label="Subtotal" value={formatPrice(pricing.subtotal)} />
+                  <SummaryRow label="Discount" value={`- ${formatPrice(pricing.discountTotal)}`} />
+                  <SummaryRow
+                    label="Coupon Discount"
+                    value={pricing.couponDiscount > 0 ? `- ${formatPrice(pricing.couponDiscount)}` : formatPrice(0)}
+                  />
+                  <SummaryRow label="GST" value={formatPrice(pricing.taxTotal)} />
+                  <SummaryRow label="Shipping" value={pricing.shippingTotal === 0 ? "Free" : formatPrice(pricing.shippingTotal)} />
+                  <div className="border-t border-border/70 pt-3">
+                    <SummaryRow label="Grand Total" value={formatPrice(pricing.totalAmount)} emphasize />
+                  </div>
+                  <div className="rounded-[1rem] border border-success/20 bg-success/10 px-3 py-2 text-xs font-medium text-success sm:text-sm">
+                    You Saved {formatPrice(summarySavings)}
+                  </div>
+                </div>
+              </motion.section>
+
+              <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
+                <SectionTitle eyebrow="Promo code" title="Apply coupon" />
+                <div className="mt-3 flex items-center gap-2 rounded-[1.2rem] border border-border/70 bg-white p-2 sm:mt-4">
+                  <Input
+                    id="checkout-coupon"
+                    value={couponInput}
+                    onChange={(event) => setCouponInput(event.target.value)}
+                    placeholder="Coupon"
+                    className="h-10 flex-1 rounded-full border-0 bg-transparent px-3 text-sm shadow-none focus-visible:ring-0"
+                  />
+                  <Button type="button" variant="accent" size="sm" className="rounded-full px-4" onClick={handleApplyCoupon}>
+                    Apply
+                  </Button>
+                </div>
+                <div className="mt-2 flex items-center gap-2 rounded-[1rem] px-1 text-xs font-medium sm:text-sm">
+                  {couponCode ? (
+                    <>
+                      <BadgeCheck className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+                      <span className="text-text">{couponCode} applied</span>
+                    </>
+                  ) : couponInput.trim().length > 0 ? (
+                    <>
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-danger text-[9px] font-bold text-danger">!</span>
+                      <span className="text-danger">Not valid</span>
+                    </>
+                  ) : (
+                    <span className="text-muted">Enter a coupon to update totals.</span>
+                  )}
+                </div>
               </motion.section>
 
               <motion.section variants={ITEM_VARIANTS} className="rounded-[1.65rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
                 <SectionTitle
-                  eyebrow="Order Items"
-                  title="Review what you are buying"
-                  description="Adjust quantities, remove items, or open a product page without leaving checkout."
+                  eyebrow="Deliver To"
+                  title="Choose where to deliver"
+                  description="Select an existing address or add a new one. Saved addresses stay in Supabase."
                 />
 
-                <div className="mt-3 grid grid-cols-1 gap-2.5 sm:mt-4 sm:grid-cols-2 sm:gap-3">
-                  {items.map((item, index) => {
-                    const product = cartProducts[index];
-                    if (!product) {
-                      return null;
-                    }
-
-                    const quantity = item.quantity;
-                    const maxQuantity = item.stockCount ?? quantity + 10;
-
-                    return (
-                      <motion.div key={product.id} variants={ITEM_VARIANTS}>
-                        <CheckoutItem
-                          product={product}
-                          quantity={quantity}
-                          brand={item.brand ?? metaByProductId[item.productId]?.brand ?? "Brand"}
-                          variant={item.variant ?? metaByProductId[item.productId]?.variant ?? "Standard"}
-                          onIncrease={() => updateQuantity(item.productId, Math.min(maxQuantity, quantity + 1))}
-                          onDecrease={() => updateQuantity(item.productId, Math.max(1, quantity - 1))}
-                          onRemove={() => removeItem(item.productId)}
-                        />
-                      </motion.div>
-                    );
-                  })}
+                <div className="mt-3">
+                  <Button type="button" variant="outline" size="md" className="rounded-full" onClick={onToggleAddressForm}>
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    Add New Address
+                  </Button>
                 </div>
+
+                <AnimatePresence>
+                  {showAddressForm ? (
+                    <motion.div key="address-form" variants={ITEM_VARIANTS} initial="hidden" animate="visible" exit="hidden" className="mt-3">
+                      <AddressForm
+                        value={draftAddress}
+                        onChange={setDraftAddress}
+                        onSave={() => void saveAddress()}
+                        onCancel={() => {
+                          setShowAddressForm(false);
+                          setEditingAddressId(null);
+                          setAddressErrors({});
+                        }}
+                        saving={addressBusy}
+                        error={addressErrors.pin || addressErrors.phone || addressErrors.name || addressErrors.line1 || addressErrors.city || addressErrors.state || null}
+                        profileName={profileName}
+                        profilePhone={profilePhone}
+                      />
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+
+                {addresses.length > 0 ? (
+                  <div className="mt-3 grid gap-3">
+                    {addresses.map((address) => (
+                      <AddressCard
+                        key={address.id}
+                        address={address}
+                        selected={address.id === selectedAddressId}
+                        onSelect={() => {
+                          setSelectedAddressId(address.id);
+                          setShowAddressForm(false);
+                        }}
+                        onEdit={() => openEditAddressForm(address)}
+                        onDelete={() => void deleteAddress(address.id)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </motion.section>
             </div>
 
-            <div className="space-y-3.5">
-              <div className="lg:sticky lg:top-4">
-                <Card className="rounded-[1.65rem] border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-accent" aria-hidden="true" />
-                    <h3 className="text-base font-bold text-text">Order Summary</h3>
-                  </div>
-
-                  <div className="mt-3 space-y-3 sm:mt-4 sm:space-y-4">
-                    <div className="rounded-[1.15rem] border border-border/70 bg-white p-3 sm:p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Items</p>
-                      <div className="mt-2.5 space-y-2.5 sm:mt-3 sm:space-y-3">
-                        {items.map((item, index) => {
-                          const product = cartProducts[index];
-                          if (!product) {
-                            return null;
-                          }
-                          return (
-                            <div key={item.productId} className="flex items-start justify-between gap-3 text-sm">
-                              <div className="min-w-0">
-                                <p className="truncate font-semibold text-text">{product.name}</p>
-                                <p className="mt-0.5 text-xs font-medium text-muted">Qty {item.quantity}</p>
-                              </div>
-                              <p className="shrink-0 font-bold text-text">{formatPrice(item.price * item.quantity)}</p>
-                            </div>
-                          );
-                        })}
-                      </div>
+              <div className="space-y-3.5">
+                <div className="lg:sticky lg:top-4">
+                  <Card className="rounded-[1.65rem] border-white/80 bg-white/92 p-3 shadow-[var(--shadow-lg)] sm:p-4">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4 text-accent" aria-hidden="true" />
+                      <h3 className="text-base font-bold text-text">Checkout</h3>
                     </div>
+                    <p className="mt-2 text-xs font-medium leading-6 text-muted">
+                      Review the items above and place your order when everything looks right.
+                    </p>
 
-                    <div className="rounded-[1.15rem] border border-border/70 bg-background-secondary/25 p-3 sm:p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Deliver To</p>
-                      <p className="mt-2 text-sm font-bold text-text">{selectedAddress ? selectedAddress.name : "No address selected"}</p>
-                      <p className="mt-1 text-sm font-medium text-muted">{selectedAddressLine}</p>
-                      <p className="mt-1 text-sm font-medium text-muted">Expected Delivery {deliveryEstimate}</p>
-                      <p className="mt-1 text-sm font-medium text-muted">
-                        {paymentMethod === "cod" ? "Cash on Delivery Available" : "Online payment selected"}
-                      </p>
-                    </div>
-
-                    <div className="rounded-[1.15rem] border border-border/70 bg-white p-3 sm:p-4">
-                      <SummaryRow label="Subtotal" value={formatPrice(pricing.subtotal)} />
-                      <SummaryRow label="Discount" value={`- ${formatPrice(pricing.discountTotal)}`} />
-                      <SummaryRow
-                        label="Coupon Discount"
-                        value={pricing.couponDiscount > 0 ? `- ${formatPrice(pricing.couponDiscount)}` : formatPrice(0)}
-                      />
-                      <SummaryRow label="GST" value={formatPrice(pricing.taxTotal)} />
-                      <SummaryRow label="Shipping" value={pricing.shippingTotal === 0 ? "Free" : formatPrice(pricing.shippingTotal)} />
-                      <div className="border-t border-border/70 pt-3">
-                        <SummaryRow label="Grand Total" value={formatPrice(pricing.totalAmount)} emphasize />
-                      </div>
-                      <div className="mt-3 rounded-[1rem] border border-success/20 bg-success/10 px-3 py-2 text-sm font-medium text-success">
-                        You Saved {formatPrice(summarySavings)}
-                      </div>
-
-                      <Button
-                        type="button"
-                        variant="primary"
-                        size="lg"
-                        className="mt-3 hidden h-11 w-full rounded-full px-4 text-sm shadow-[0_16px_30px_-16px_rgba(16,33,58,0.6)] lg:inline-flex"
-                        onClick={handlePlaceOrder}
-                        loading={placingOrder || razorpayLoading || addressBusy}
-                        disabled={placingOrder || razorpayLoading || addressBusy || hasOutOfStockItems}
-                      >
-                        Place Order
-                        <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="lg"
+                      className="mt-3 hidden h-11 w-full rounded-full px-4 text-sm shadow-[0_16px_30px_-16px_rgba(16,33,58,0.6)] lg:inline-flex"
+                      onClick={handlePlaceOrder}
+                      loading={placingOrder || razorpayLoading || addressBusy}
+                      disabled={placingOrder || razorpayLoading || addressBusy || hasOutOfStockItems}
+                    >
+                      Place Order
+                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </Card>
+                </div>
               </div>
-            </div>
           </div>
         )}
       </div>

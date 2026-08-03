@@ -77,6 +77,7 @@ type ProductRow = {
   og_image_url: string | null;
   category_id: string;
   brand_id: string;
+  attributes: Record<string, unknown> | null;
   deleted_at: string | null;
   status: string;
 };
@@ -184,6 +185,20 @@ function toNumber(value: unknown, fallback = 0) {
 
 function asText(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
+}
+
+function toBoolean(value: unknown, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "n", "off"].includes(normalized)) return false;
+  }
+  return fallback;
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -339,6 +354,7 @@ function buildOrderItem(
 ): OrderItem {
   const price = toNumber(item.unit_price);
   const compareAtPrice = product && toNumber(product.mrp) > price ? toNumber(product.mrp) : undefined;
+  const attributes = product?.attributes ?? null;
   const variantLabel =
     [variant?.variant_name, variant?.option_label && variant?.option_value ? `${variant.option_label}: ${variant.option_value}` : null]
       .filter(Boolean)
@@ -351,6 +367,8 @@ function buildOrderItem(
     id: item.id,
     name: item.product_name_snapshot,
     slug: product?.slug ?? item.product_id,
+    productId: item.product_id,
+    returnable: toBoolean(attributes?.returnable ?? attributes?.is_returnable ?? attributes?.returnable_product, false),
     price,
     compareAtPrice,
     image: firstImage(item.product_id, images) || product?.og_image_url || "/images/placeholders/department-plumbing.svg",
@@ -377,7 +395,9 @@ function toOrderRecord(
     status: mapStatus(order.status),
     paymentStatus: (order.payment_status ?? "pending") as OrderRecord["paymentStatus"],
     placedAt: formatTimestamp(order.placed_at),
+    placedAtRaw: order.placed_at,
     deliveredAt: order.delivered_at ? formatTimestamp(order.delivered_at) : undefined,
+    deliveredAtRaw: order.delivered_at,
     trackingNumber: order.tracking_number ?? undefined,
     paymentMethod: order.payment_method ?? "Pending",
     paymentReference: order.payment_reference ?? "pending",
@@ -424,7 +444,7 @@ async function loadOrderBundle(client: SupabaseClient, orders: OrderRow[]) {
     productIds.length > 0
       ? await client
           .from("products")
-          .select("id, slug, name, mrp, og_image_url, category_id, brand_id, deleted_at, status")
+          .select("id, slug, name, mrp, og_image_url, category_id, brand_id, attributes, deleted_at, status")
           .in("id", productIds)
           .is("deleted_at", null)
       : { data: [] as ProductRow[] };

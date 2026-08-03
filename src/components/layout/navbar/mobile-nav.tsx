@@ -5,20 +5,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { AnimatePresence, motion } from "framer-motion";
-import { Heart, Home, LayoutGrid, LogOut, Menu, ShoppingCart, User, X } from "lucide-react";
+import { Home, LayoutGrid, LogOut, Menu, Package, ShoppingCart, User, X } from "lucide-react";
 import type { SVGProps } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { SITE_NAME, CATEGORIES, MOBILE_BOTTOM_NAV } from "@/lib/constants";
 import { useCartStore } from "@/store/cart-store";
 import { CONTACT_DETAILS } from "@/lib/support-data";
 import { cn } from "@/lib/utils";
+import { buildLoginRedirectPath } from "@/lib/auth";
 import { isQaBypassEnabled } from "@/lib/qa-mode";
 
 const ICONS = {
   home: Home,
   grid: LayoutGrid,
-  heart: Heart,
   cart: ShoppingCart,
+  order: Package,
   user: User,
 };
 
@@ -39,6 +40,17 @@ function MobileNav() {
   const router = useRouter();
   const { isAuthenticated, signOut } = useAuth();
   const cartCount = useCartStore((s) => s.totalItems());
+  const getProtectedHref = (href: string) => {
+    if (isAuthenticated) {
+      return href;
+    }
+
+    if (href === "/cart" || href === "/account" || href === "/orders" || href === "/wishlist") {
+      return buildLoginRedirectPath(href);
+    }
+
+    return href;
+  };
 
   const handleAuthAction = async () => {
     const result = await signOut();
@@ -83,7 +95,7 @@ function MobileNav() {
           <WhatsAppIcon className="h-5 w-5" />
         </Link>
         <Link
-          href="/cart"
+          href={getProtectedHref("/cart")}
           aria-label="Cart"
           className="relative flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] text-text hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
@@ -140,10 +152,11 @@ function MobileNav() {
                       <div className="mt-2 grid grid-cols-2 gap-2">
                         {MOBILE_BOTTOM_NAV.map((item) => {
                           const Icon = ICONS[item.icon];
+                          const href = getProtectedHref(item.href);
                           return (
                             <Link
                               key={item.href}
-                              href={item.href}
+                              href={href}
                               onClick={() => setMenuOpen(false)}
                               className={cn(
                                 "flex items-center gap-2 rounded-[var(--radius-md)] px-3 py-3 text-sm font-semibold transition-colors",

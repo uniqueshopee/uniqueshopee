@@ -4,8 +4,8 @@ export default function Loading() {
   return (
     <section className="relative isolate overflow-hidden border-b border-border surface-texture">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-16 top-4 h-72 w-72 rounded-full bg-orange-400/8 blur-3xl" />
-        <div className="absolute right-0 top-16 h-64 w-64 rounded-full bg-sky-400/8 blur-3xl" />
+        <div className="absolute -left-16 top-4 h-72 w-72 rounded-full bg-slate-400/8 blur-3xl" />
+        <div className="absolute right-0 top-16 h-64 w-64 rounded-full bg-slate-300/8 blur-3xl" />
       </div>
 
       <div className="relative mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:py-8">

@@ -46,11 +46,11 @@ export const DEPARTMENTS: Department[] = [
   },
 ];
 
-export const MOBILE_BOTTOM_NAV: (NavLink & { icon: "home" | "grid" | "heart" | "cart" | "user" })[] = [
+export const MOBILE_BOTTOM_NAV: (NavLink & { icon: "home" | "grid" | "cart" | "order" | "user" })[] = [
   { label: "Home", href: "/", icon: "home" },
-  { label: "Products", href: "/products", icon: "grid" },
-  { label: "Wishlist", href: "/wishlist", icon: "heart" },
+  { label: "Category", href: "/products", icon: "grid" },
   { label: "Cart", href: "/cart", icon: "cart" },
+  { label: "Orders", href: "/orders", icon: "order" },
   { label: "Account", href: "/account", icon: "user" },
 ];
 

@@ -38,8 +38,8 @@ export type QaProductCatalog = {
     meta_keywords: string[] | null;
     canonical_url: string | null;
     og_image_url: string | null;
-    specification: Record<string, string> | null;
-    attributes: Record<string, string> | null;
+    specification: Record<string, unknown> | null;
+    attributes: Record<string, unknown> | null;
     deleted_at: string | null;
     created_at: string;
     updated_at: string;
@@ -220,6 +220,7 @@ export function getQaOrderItems(): OrderItem[] {
   return [
     {
       id: "qa-item-1",
+      productId: "qa-prod-paint-1",
       name: "Asian Paints Royale Luxury Emulsion - Ivory Mist, 10 Litre",
       slug: "asian-paints-royale-luxury-emulsion-ivory-mist-10-litre",
       price: 3890,
@@ -230,9 +231,11 @@ export function getQaOrderItems(): OrderItem[] {
       brand: "Asian Paints",
       quantity: 2,
       variant: "10 Litre - Finish: Premium Matt",
+      returnable: true,
     },
     {
       id: "qa-item-2",
+      productId: "qa-prod-plumb-1",
       name: "Astral CPVC Pipe 20 mm Heavy Duty Long Supply Line",
       slug: "astral-cpvc-pipe-20-mm-heavy-duty-long-supply-line",
       price: 540,
@@ -243,9 +246,11 @@ export function getQaOrderItems(): OrderItem[] {
       brand: "Astral",
       quantity: 4,
       variant: "20 mm - Length: 3 m",
+      returnable: true,
     },
     {
       id: "qa-item-3",
+      productId: "qa-prod-plumb-2",
       name: "Dr. Fixit Waterproofing Coating 4 Litre Bucket",
       slug: "dr-fixit-waterproofing-coating-4-litre-bucket",
       price: 1299,
@@ -256,6 +261,7 @@ export function getQaOrderItems(): OrderItem[] {
       brand: "Dr. Fixit",
       quantity: 1,
       variant: "Bucket - 4 Litre",
+      returnable: true,
     },
   ];
 }
@@ -441,6 +447,40 @@ export function getQaAdminReviewRows() {
   ];
 }
 
+export function getQaAdminConsultationRows() {
+  return [
+    {
+      id: "qa-consultation-1",
+      product: "Asian Paints Royale Luxury Emulsion",
+      customer: "Piyush Kumar Singh",
+      phone: "93334981947",
+      slot: "Today Evening (6 - 8 PM)",
+      notes: "Please call after 6 PM.",
+      status: "Pending",
+      createdAt: "30 Jul 2026",
+    },
+  ];
+}
+
+export function getQaAdminReturnRows() {
+  return [
+    {
+      id: "qa-return-1",
+      ticketNumber: "RTN-QA-0001",
+      orderId: "qa-order-1",
+      orderNumber: "US202600023",
+      customer: "Piyush Kumar Singh",
+      product: "Asian Paints Royale Luxury Emulsion - Ivory Mist, 10 Litre",
+      status: "Open",
+      reason: "Damaged packaging on arrival",
+      pickupOption: "Home Pickup",
+      pickupLocation: "Kolkata, West Bengal",
+      createdAt: "30 Jul 2026, 11:20 am",
+      deliveryChargeNote: "Delivery charge is non-refundable.",
+    },
+  ];
+}
+
 export function getQaAdminCouponRows() {
   return [
     { id: "qa-coupon-1", code: "WELCOME10", discount: "10% off", status: "Active", expiry: "31 Aug 2026", minimumOrder: "₹0", maximumDiscount: "₹500", usageLimit: "Unlimited", perUserLimit: "1", title: "Welcome Offer", description: "First-order savings", couponType: "percentage", value: 10, appliesTo: "{}" },
@@ -507,7 +547,7 @@ export function getQaProductCatalog(): QaProductCatalog {
         canonical_url: null,
         og_image_url: "/images/placeholders/department-paints.svg",
         specification: { finish: "Premium Matt", coverage: "120 sq ft/litre" },
-        attributes: { shade: "Ivory Mist" },
+        attributes: { shade: "Ivory Mist", exclusive_offer: true, exclusive_offer_percent: 15 },
         deleted_at: null,
         created_at: "2026-07-01T10:00:00.000Z",
         updated_at: "2026-07-29T10:00:00.000Z",
@@ -563,7 +603,7 @@ export function getQaProductCatalog(): QaProductCatalog {
         canonical_url: null,
         og_image_url: "/images/placeholders/department-paints.svg",
         specification: { coverage: "75 sq ft/litre", finish: "Liquid coat" },
-        attributes: { pack: "Bucket" },
+        attributes: { pack: "Bucket", exclusive_offer: true, exclusive_offer_percent: 13 },
         deleted_at: null,
         created_at: "2026-06-20T10:00:00.000Z",
         updated_at: "2026-07-27T08:00:00.000Z",

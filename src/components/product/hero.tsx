@@ -17,6 +17,8 @@ import {
 import { motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useAuth } from "@/components/auth/auth-provider";
+import { buildLoginRedirectPath } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const QUICK_ACTIONS = [
@@ -65,6 +67,19 @@ const cardVariants = {
 
 function Hero() {
   const shouldReduceMotion = useReducedMotion();
+  const { isAuthenticated } = useAuth();
+
+  const getProtectedHref = (href: string) => {
+    if (isAuthenticated) {
+      return href;
+    }
+
+    if (href === "/cart" || href === "/wishlist") {
+      return buildLoginRedirectPath(href);
+    }
+
+    return href;
+  };
 
   return (
     <motion.section
@@ -171,10 +186,11 @@ function Hero() {
             <motion.div variants={cardVariants} className="grid grid-cols-2 gap-3">
               {QUICK_ACTIONS.map((action) => {
                 const Icon = action.icon;
+                const href = getProtectedHref(action.href);
                 return (
                   <Link
                     key={action.label}
-                    href={action.href}
+                    href={href}
                     className="group rounded-[1.4rem] border border-white/80 bg-white/92 p-3 shadow-[var(--shadow-sm)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:border-accent/20 hover:shadow-[var(--shadow-md)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     <div className="flex flex-col items-center gap-2 text-center">

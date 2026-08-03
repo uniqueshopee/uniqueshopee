@@ -3,14 +3,17 @@ import type { Json } from "@/lib/supabase/types";
 import type { Database } from "@/lib/supabase/types";
 import {
   getQaAdminBannerRows,
+  getQaAdminConsultationRows,
   getQaAdminCouponRows,
   getQaAdminCustomerRows,
   getQaAdminDashboardData,
   getQaAdminOrderRows,
+  getQaAdminReturnRows,
   getQaAdminReviewRows,
   getQaAdminSettingsRows,
   isQaBypassEnabled,
 } from "@/lib/qa-mode";
+import { loadAdminReturnRequests } from "@/lib/return-service";
 
 export type AdminDashboardStat = {
   label: string;
@@ -83,6 +86,33 @@ export type AdminReviewRow = {
   status: string;
   comment: string;
   createdAt: string;
+  kind?: "review" | "consultation";
+};
+
+export type AdminConsultationRow = {
+  id: string;
+  product: string;
+  customer: string;
+  phone: string;
+  slot: string;
+  notes: string;
+  status: string;
+  createdAt: string;
+};
+
+export type AdminReturnRow = {
+  id: string;
+  ticketNumber: string;
+  orderId: string;
+  orderNumber: string;
+  customer: string;
+  product: string;
+  status: string;
+  reason: string;
+  pickupOption: string;
+  pickupLocation: string;
+  createdAt: string;
+  deliveryChargeNote: string;
 };
 
 export type AdminCouponRow = {
@@ -407,11 +437,28 @@ export async function loadAdminCustomerRows(client: SupabaseClient<Database>, li
 
 export async function loadAdminReviewRows(client: SupabaseClient<Database>, limit = 25) {
   if (isQaBypassEnabled()) {
-    return getQaAdminReviewRows().slice(0, limit);
+    return [...getQaAdminReviewRows(), ...getQaAdminConsultationRows().map((row) => ({
+      id: row.id,
+      product: row.product,
+      customer: row.customer,
+      rating: 5,
+      status: row.status,
+      comment: [
+        "CONSULTATION_REQUEST",
+        `Product: ${row.product}`,
+        `Name: ${row.customer}`,
+        `Phone: ${row.phone}`,
+        `Preferred slot: ${row.slot}`,
+        `Notes: ${row.notes || "None"}`,
+      ].join("\n"),
+      createdAt: row.createdAt,
+      kind: "consultation" as const,
+    }))].slice(0, limit);
   }
 
-  const [reviewsResult, profilesResult, productsResult] = await Promise.all([
+  const [reviewsResult, consultationsResult, profilesResult, productsResult] = await Promise.all([
     client.from("reviews").select("id, user_id, product_id, rating, status, comment, created_at, deleted_at").is("deleted_at", null).order("created_at", { ascending: false }).limit(limit),
+    client.from("consultations").select("id, user_id, product_id, full_name, phone, preferred_slot, notes, status, created_at, deleted_at").is("deleted_at", null).order("created_at", { ascending: false }).limit(limit),
     client.from("profiles").select("id, full_name, email").is("deleted_at", null),
     client.from("products").select("id, name").is("deleted_at", null),
   ]);
@@ -424,7 +471,7 @@ export async function loadAdminReviewRows(client: SupabaseClient<Database>, limi
   );
   const productById = new Map(((productsResult.data ?? []) as Array<{ id: string; name: string }>).map((product) => [product.id, product.name]));
 
-  return ((reviewsResult.data ?? []) as Array<{
+  const reviewRows = ((reviewsResult.data ?? []) as Array<{
     id: string;
     user_id: string;
     product_id: string;
@@ -433,6 +480,7 @@ export async function loadAdminReviewRows(client: SupabaseClient<Database>, limi
     comment: string | null;
     created_at: string;
   }>).map((review) => ({
+    kind: "review" as const,
     id: review.id,
     product: productById.get(review.product_id) ?? "Unknown product",
     customer: profileById.get(review.user_id) ?? review.user_id.slice(0, 8).toUpperCase(),
@@ -440,7 +488,75 @@ export async function loadAdminReviewRows(client: SupabaseClient<Database>, limi
     status: toTitleCase(review.status),
     comment: review.comment ?? "",
     createdAt: new Date(review.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
-  })) satisfies AdminReviewRow[];
+    createdAtIso: review.created_at,
+  }));
+
+  const consultationRows = ((consultationsResult.data ?? []) as Array<{
+    id: string;
+    user_id: string;
+    product_id: string;
+    full_name: string;
+    phone: string;
+    preferred_slot: string;
+    notes: string | null;
+    status: string;
+    created_at: string;
+  }>).map((consultation) => ({
+    kind: "consultation" as const,
+    id: consultation.id,
+    product: productById.get(consultation.product_id) ?? "Unknown product",
+    customer: consultation.full_name?.trim() || profileById.get(consultation.user_id) || consultation.user_id.slice(0, 8).toUpperCase(),
+    rating: 5,
+    status: toTitleCase(consultation.status),
+    comment: [
+      "CONSULTATION_REQUEST",
+      `Product: ${productById.get(consultation.product_id) ?? "Unknown product"}`,
+      `Name: ${consultation.full_name}`,
+      `Phone: ${consultation.phone}`,
+      `Preferred slot: ${consultation.preferred_slot}`,
+      `Notes: ${consultation.notes?.trim() || "None"}`,
+    ].join("\n"),
+    createdAt: new Date(consultation.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
+    createdAtIso: consultation.created_at,
+  }));
+
+  return [...reviewRows, ...consultationRows]
+    .sort((left, right) => new Date(right.createdAtIso).getTime() - new Date(left.createdAtIso).getTime())
+    .map(({ createdAtIso: _createdAtIso, ...row }) => row satisfies AdminReviewRow);
+}
+
+export async function loadAdminReturnRows(client: SupabaseClient<Database>, limit = 25) {
+  if (isQaBypassEnabled()) {
+    return getQaAdminReturnRows().slice(0, limit) as AdminReturnRow[];
+  }
+
+  return ((await loadAdminReturnRequests(client, limit)) as Array<{
+    id: string;
+    ticketNumber: string;
+    orderId: string;
+    orderNumber: string;
+    customer: string;
+    productName: string;
+    status: string;
+    reason: string;
+    pickupOption: string;
+    pickupLocation: string;
+    createdAt: string;
+    deliveryChargeNote: string;
+  }>).map((row) => ({
+    id: row.id,
+    ticketNumber: row.ticketNumber,
+    orderId: row.orderId,
+    orderNumber: row.orderNumber,
+    customer: row.customer,
+    product: row.productName,
+    status: row.status,
+    reason: row.reason,
+    pickupOption: row.pickupOption,
+    pickupLocation: row.pickupLocation,
+    createdAt: row.createdAt,
+    deliveryChargeNote: row.deliveryChargeNote,
+  })) satisfies AdminReturnRow[];
 }
 
 export async function loadAdminCouponRows(client: SupabaseClient<Database>, limit = 50) {

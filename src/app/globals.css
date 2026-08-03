@@ -12,9 +12,9 @@
   /* Brand palette */
   --color-primary: #10213a;
   --color-primary-foreground: #ffffff;
-  --color-accent: #f97316;
+  --color-accent: #111827;
   --color-accent-foreground: #ffffff;
-  --color-secondary: #38bdf8;
+  --color-secondary: #6b7280;
 
   /* Semantic */
   --color-success: #16a34a;
@@ -53,9 +53,9 @@
 .dark {
   --color-primary: #f8fafc;
   --color-primary-foreground: #10213a;
-  --color-accent: #fb923c;
-  --color-accent-foreground: #10213a;
-  --color-secondary: #38bdf8;
+  --color-accent: #f8fafc;
+  --color-accent-foreground: #111827;
+  --color-secondary: #9ca3af;
 
   --color-success: #22c55e;
   --color-warning: #fbbf24;
@@ -122,8 +122,8 @@
     position: relative;
     isolation: isolate;
     background:
-      radial-gradient(circle at 12% 8%, rgb(249 115 22 / 0.08), transparent 0 24%),
-      radial-gradient(circle at 88% 12%, rgb(56 189 248 / 0.06), transparent 0 22%),
+      radial-gradient(circle at 12% 8%, rgb(17 24 39 / 0.06), transparent 0 24%),
+      radial-gradient(circle at 88% 12%, rgb(107 114 128 / 0.05), transparent 0 22%),
       radial-gradient(circle at 50% 100%, rgb(16 33 58 / 0.035), transparent 0 30%),
       linear-gradient(180deg, #fffdf8 0%, #fffaf2 100%);
     color: var(--color-text);
@@ -140,8 +140,8 @@
     z-index: -1;
     pointer-events: none;
     background:
-      radial-gradient(circle at 20% 14%, rgb(249 115 22 / 0.06), transparent 0 18%),
-      radial-gradient(circle at 80% 18%, rgb(56 189 248 / 0.05), transparent 0 16%),
+      radial-gradient(circle at 20% 14%, rgb(17 24 39 / 0.05), transparent 0 18%),
+      radial-gradient(circle at 80% 18%, rgb(107 114 128 / 0.04), transparent 0 16%),
       radial-gradient(circle at 60% 72%, rgb(16 185 129 / 0.03), transparent 0 20%),
       repeating-linear-gradient(135deg, rgb(16 33 58 / 0.012) 0 1px, transparent 1px 56px);
     mix-blend-mode: multiply;
@@ -215,15 +215,15 @@
 
   .surface-warm {
     background:
-      radial-gradient(circle at 18% 10%, rgb(249 115 22 / 0.08), transparent 0 24%),
-      radial-gradient(circle at 82% 8%, rgb(56 189 248 / 0.06), transparent 0 22%),
+      radial-gradient(circle at 18% 10%, rgb(17 24 39 / 0.05), transparent 0 24%),
+      radial-gradient(circle at 82% 8%, rgb(107 114 128 / 0.05), transparent 0 22%),
       linear-gradient(180deg, rgb(255 253 248 / 0.95), rgb(255 251 245 / 0.95));
   }
 
   .surface-splash {
     background:
-      radial-gradient(circle at 12% 18%, rgb(249 115 22 / 0.07), transparent 0 22%),
-      radial-gradient(circle at 86% 24%, rgb(59 130 246 / 0.05), transparent 0 24%),
+      radial-gradient(circle at 12% 18%, rgb(17 24 39 / 0.05), transparent 0 22%),
+      radial-gradient(circle at 86% 24%, rgb(107 114 128 / 0.04), transparent 0 24%),
       linear-gradient(180deg, rgb(255 252 247 / 0.96), rgb(255 255 255 / 0.98));
   }
 
@@ -233,8 +233,8 @@
 
   .surface-texture {
     background:
-      radial-gradient(circle at 22% 8%, rgb(249 115 22 / 0.05), transparent 0 20%),
-      radial-gradient(circle at 78% 18%, rgb(56 189 248 / 0.04), transparent 0 18%),
+      radial-gradient(circle at 22% 8%, rgb(17 24 39 / 0.04), transparent 0 20%),
+      radial-gradient(circle at 78% 18%, rgb(107 114 128 / 0.03), transparent 0 18%),
       repeating-linear-gradient(135deg, rgb(16 33 58 / 0.012) 0 1px, transparent 1px 50px),
       linear-gradient(180deg, rgb(255 253 248 / 0.98), rgb(255 251 245 / 0.98));
   }

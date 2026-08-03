@@ -28,6 +28,8 @@ export type OrderItem = Pick<Product, "id" | "name" | "slug" | "price" | "compar
   brand: string;
   quantity: number;
   variant: string;
+  productId?: string;
+  returnable?: boolean;
 };
 
 export type OrderRecord = {
@@ -36,7 +38,9 @@ export type OrderRecord = {
   status: OrderStatus;
   paymentStatus: "pending" | "paid" | "failed" | "refunded" | "partially_refunded";
   placedAt: string;
+  placedAtRaw?: string;
   deliveredAt?: string;
+  deliveredAtRaw?: string | null;
   trackingNumber?: string;
   paymentMethod: string;
   paymentReference: string;

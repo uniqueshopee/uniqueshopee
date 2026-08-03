@@ -15,14 +15,14 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary:
-          "bg-gradient-to-r from-primary via-[#16335c] to-[#1d4ed8] text-primary-foreground shadow-[0_16px_30px_-16px_rgba(16,33,58,0.6)] hover:-translate-y-0.5 hover:shadow-[0_20px_40px_-18px_rgba(16,33,58,0.7)] active:translate-y-0",
+          "bg-gradient-to-r from-slate-700 via-slate-600 to-slate-500 text-white shadow-[0_16px_30px_-16px_rgba(15,23,42,0.35)] hover:-translate-y-0.5 hover:shadow-[0_20px_40px_-18px_rgba(15,23,42,0.45)] active:translate-y-0",
         accent:
-          "bg-gradient-to-r from-accent via-[#fb923c] to-[#fdba74] text-accent-foreground shadow-[0_16px_30px_-16px_rgba(249,115,22,0.5)] hover:-translate-y-0.5 hover:shadow-[0_20px_40px_-18px_rgba(249,115,22,0.6)] active:translate-y-0",
+          "bg-gradient-to-r from-slate-600 via-slate-500 to-slate-400 text-white shadow-[0_16px_30px_-16px_rgba(15,23,42,0.3)] hover:-translate-y-0.5 hover:shadow-[0_20px_40px_-18px_rgba(15,23,42,0.4)] active:translate-y-0",
         outline:
-          "border border-border/80 bg-white/80 text-text shadow-[0_10px_20px_-18px_rgba(16,33,58,0.4)] hover:-translate-y-0.5 hover:border-accent/25 hover:bg-white active:translate-y-0",
+          "border border-border/80 bg-white/80 text-text shadow-[0_10px_20px_-18px_rgba(16,33,58,0.4)] hover:-translate-y-0.5 hover:border-border hover:bg-white active:translate-y-0",
         ghost: "bg-transparent text-text hover:bg-background-secondary",
         danger: "bg-danger text-danger-foreground hover:opacity-90",
-        link: "bg-transparent text-accent underline-offset-4 hover:underline p-0 h-auto shadow-none border-0",
+        link: "bg-transparent text-text underline-offset-4 hover:underline p-0 h-auto shadow-none border-0",
       },
       size: {
         sm: "h-11 px-4 text-sm",

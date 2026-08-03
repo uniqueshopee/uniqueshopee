@@ -4,13 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowRight,
   BadgePercent,
   Check,
   ChevronDown,
-  Heart,
   Minus,
   Plus,
   ShoppingCart,
@@ -23,9 +22,12 @@ import type { ProductDetail, ProductFaq } from "@/lib/product-detail-data";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
+import { useAuth } from "@/components/auth/auth-provider";
+import { buildLoginRedirectPath } from "@/lib/auth";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn, formatPrice } from "@/lib/utils";
 import { addValidatedCartItem } from "@/lib/cart-service";
-import { useWishlistStore } from "@/store/wishlist-store";
 import { toast } from "@/hooks/use-toast";
 
 type ProductDetailPageProps = {
@@ -157,30 +159,6 @@ function Rating({ rating, reviewCount }: { rating: number; reviewCount: number }
   );
 }
 
-function getStockState(product: Product) {
-  const stockCount = product.stockCount ?? 0;
-  const threshold = product.lowStockThreshold ?? 10;
-
-  if (!product.inStock || stockCount <= 0) {
-    return {
-      label: "Out of Stock",
-      note: "This item is currently unavailable.",
-    };
-  }
-
-  if (stockCount <= threshold) {
-    return {
-      label: stockCount === 1 ? "Only 1 left" : `Only ${stockCount} left`,
-      note: "Inventory is running low.",
-    };
-  }
-
-  return {
-    label: "In stock",
-    note: "Ready to ship now.",
-  };
-}
-
 function FAQItem({ item }: { item: ProductFaq }) {
   return (
     <details className="group rounded-[1.1rem] border border-border/70 bg-white/95 p-4 shadow-[var(--shadow-sm)]">
@@ -200,8 +178,8 @@ function ProductDetailPage({
 }: ProductDetailPageProps) {
   const shouldReduceMotion = useReducedMotion();
   const router = useRouter();
-  const wishlistHas = useWishlistStore((state) => state.has(product.id));
-  const toggleWishlist = useWishlistStore((state) => state.toggle);
+  const pathname = usePathname();
+  const { isAuthenticated, profile, user } = useAuth();
   const [quantity, setQuantity] = useState(1);
   const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -209,12 +187,19 @@ function ProductDetailPage({
   const [isZooming, setIsZooming] = useState(false);
   const [showStickyBar, setShowStickyBar] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const [consultationOpen, setConsultationOpen] = useState(false);
+  const [consultationSubmitting, setConsultationSubmitting] = useState(false);
+  const [consultationForm, setConsultationForm] = useState({
+    fullName: "",
+    phone: "",
+    slot: "Today (Within 30 mins)",
+    notes: "",
+  });
   const actionsRef = useRef<HTMLDivElement | null>(null);
 
   const tone = useMemo(() => getBrandTone(detail.brandAccent), [detail.brandAccent]);
   const variantGroups = useMemo(() => buildVariantGroups(detail.variants), [detail.variants]);
   const activeImage = detail.gallery[activeImageIndex] ?? product.image;
-  const stockState = useMemo(() => getStockState(product), [product]);
   const isOutOfStock = !product.inStock || (product.stockCount ?? 0) <= 0;
   const compareAtPrice = product.compareAtPrice && product.compareAtPrice > product.price ? product.compareAtPrice : undefined;
   const discountPercent = compareAtPrice ? Math.max(1, Math.round((1 - product.price / compareAtPrice) * 100)) : null;
@@ -244,6 +229,14 @@ function ProductDetailPage({
   useEffect(() => {
     setDescriptionExpanded(false);
   }, [product.id]);
+
+  useEffect(() => {
+    setConsultationForm((current) => ({
+      ...current,
+      fullName: profile?.full_name?.trim() || current.fullName || "",
+      phone: profile?.phone?.trim() || current.phone || "",
+    }));
+  }, [profile?.full_name, profile?.phone, product.id]);
 
   useEffect(() => {
     const target = actionsRef.current;
@@ -287,6 +280,11 @@ function ProductDetailPage({
 
   const handleAddToCart = async () => {
     if (isOutOfStock) {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      router.push(buildLoginRedirectPath(pathname));
       return;
     }
 
@@ -350,21 +348,78 @@ function ProductDetailPage({
     }
   };
 
-  const handleWishlist = () => {
-    toggleWishlist(product.id);
-    toast({
-      title: wishlistHas ? "Removed from wishlist" : "Added to wishlist",
-      description: product.name,
-      variant: "default",
-    });
+  const handleOpenConsultation = () => {
+    if (!isAuthenticated) {
+      router.push(buildLoginRedirectPath(pathname));
+      return;
+    }
+
+    setConsultationOpen(true);
   };
 
-  const productDetails = [
-    { label: "Brand", value: detail.brand },
-    { label: "Category", value: product.category },
-    { label: "SKU", value: product.sku ?? product.id.toUpperCase() },
-    { label: "Stock Status", value: stockState.label },
-  ].filter((item) => Boolean(item.value));
+  const handleSubmitConsultation = async () => {
+    if (!isAuthenticated || !user) {
+      router.push(buildLoginRedirectPath(pathname));
+      return;
+    }
+
+    const fullName = consultationForm.fullName.trim();
+    const phone = consultationForm.phone.trim();
+
+    if (!fullName || !phone) {
+      toast({
+        title: "Complete the consultation form",
+        description: "Your name and phone number are required.",
+        variant: "warning",
+      });
+      return;
+    }
+
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      toast({
+        title: "Supabase unavailable",
+        description: "Cannot submit the consultation right now.",
+        variant: "danger",
+      });
+      return;
+    }
+
+    setConsultationSubmitting(true);
+    try {
+      const { error } = await client.from("consultations").insert([
+        {
+          user_id: user.id,
+          product_id: product.id,
+          full_name: fullName,
+          phone,
+          preferred_slot: consultationForm.slot,
+          notes: consultationForm.notes.trim() || null,
+          status: "pending",
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Consultation requested",
+        description: "Our team will review your request soon.",
+        variant: "success",
+      });
+      setConsultationOpen(false);
+      setConsultationForm((current) => ({ ...current, notes: "" }));
+    } catch (error) {
+      toast({
+        title: "Request failed",
+        description: error instanceof Error ? error.message : "Unable to submit the consultation request.",
+        variant: "danger",
+      });
+    } finally {
+      setConsultationSubmitting(false);
+    }
+  };
 
   const specifications = detail.specifications.filter(
     (item) => item.label.trim().length > 0 && item.value.trim().length > 0,
@@ -426,6 +481,11 @@ function ProductDetailPage({
                     onClick={() => setIsZooming((current) => !current)}
                     aria-pressed={isZooming}
                   />
+                  {discountPercent ? (
+                    <Badge variant="accent" className="absolute right-3 top-3 shadow-[var(--shadow-sm)]">
+                      {discountPercent}% off
+                    </Badge>
+                  ) : null}
                 </div>
               </div>
 
@@ -471,18 +531,6 @@ function ProductDetailPage({
                       </h1>
                       <Rating rating={product.rating ?? 4.6} reviewCount={product.reviewCount ?? 0} />
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      type="button"
-                      onClick={handleWishlist}
-                      aria-label={wishlistHas ? "Remove from wishlist" : "Add to wishlist"}
-                      aria-pressed={wishlistHas}
-                      className="self-start shrink-0 sm:self-auto"
-                    >
-                      <Heart className={cn("h-4 w-4", wishlistHas && "fill-danger text-danger")} />
-                      Wishlist
-                    </Button>
                   </div>
 
                   <div className="flex flex-wrap items-end gap-2.5">
@@ -495,7 +543,6 @@ function ProductDetailPage({
                         )}
                       </div>
                     </div>
-                    {discountPercent && <Badge variant="accent">{discountPercent}% off</Badge>}
                     <Badge variant="neutral" className="inline-flex items-center gap-1">
                       <BadgePercent className="h-3.5 w-3.5" aria-hidden="true" />
                       GST included
@@ -522,7 +569,7 @@ function ProductDetailPage({
                     </Button>
                   </div>
 
-                  {variantGroups.length > 0 && (
+                  {detail.showVariants && variantGroups.length > 0 && (
                     <div className="space-y-3.5">
                       {variantGroups.map((group) => {
                         const selectedValue = selectedVariants[group.label];
@@ -624,39 +671,27 @@ function ProductDetailPage({
                       <ArrowRight className="h-4 w-4" aria-hidden="true" />
                     </Button>
                   </div>
+
+                  <Card className="border-border/70 bg-white/95 p-4 shadow-[var(--shadow-sm)]">
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <p className="text-xs font-bold uppercase tracking-[0.24em] text-accent">Book your free colour consultation</p>
+                        <p className="text-sm font-medium leading-6 text-muted">
+                          Confused about shades? Talk to our expert before you decide.
+                        </p>
+                      </div>
+                      <Button variant="outline" type="button" className="w-full sm:w-auto" onClick={handleOpenConsultation}>
+                        <span>Talk to our experts</span>
+                        <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </Card>
                 </div>
               </Card>
             </section>
           </div>
         </div>
       </motion.section>
-
-      {productDetails.length > 0 && (
-        <motion.section
-          className="border-b border-border bg-background"
-          initial={shouldReduceMotion ? false : "hidden"}
-          whileInView={shouldReduceMotion ? undefined : "visible"}
-          viewport={{ once: true, amount: 0.18 }}
-          variants={SECTION_VARIANTS}
-        >
-          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
-            <div className="mb-4">
-              <p className="text-xs font-bold uppercase tracking-[0.28em] text-accent">Product details</p>
-              <h2 className="mt-2 text-xl font-bold text-text sm:text-2xl">Product Details</h2>
-            </div>
-            <Card>
-              <dl className="grid gap-4 p-5 sm:grid-cols-2 sm:p-6">
-                {productDetails.map((item) => (
-                  <div key={item.label} className="rounded-[1rem] border border-border/60 bg-white/90 p-4">
-                    <dt className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">{item.label}</dt>
-                    <dd className="mt-2 text-sm font-semibold text-text">{item.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </Card>
-          </div>
-        </motion.section>
-      )}
 
       {specifications.length > 0 && (
         <motion.section
@@ -748,6 +783,88 @@ function ProductDetailPage({
           </div>
         </motion.div>
       )}
+
+      <Modal
+        open={consultationOpen}
+        onOpenChange={setConsultationOpen}
+        title="Book Your Free Colour Consultation"
+        description="Share your details and our expert will contact you soon."
+        className="max-w-xl"
+      >
+        <div className="space-y-4">
+          <Card className="border-emerald-100 bg-emerald-50/70 p-4">
+            <p className="text-sm font-bold text-text">Product Context: {product.name}</p>
+            <p className="mt-1 text-xs font-medium text-muted">Your request will be visible in the admin reviews panel.</p>
+          </Card>
+
+          <div className="grid gap-4">
+            <label className="grid gap-2 text-sm font-semibold text-text">
+              <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Your Full Name</span>
+              <input
+                value={consultationForm.fullName}
+                onChange={(event) => setConsultationForm((current) => ({ ...current, fullName: event.target.value }))}
+                placeholder="e.g. Ananya Roy"
+                className="h-12 rounded-[var(--radius-md)] border border-border bg-background px-4 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-text">
+              <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Phone Number for Callback</span>
+              <input
+                value={consultationForm.phone}
+                onChange={(event) => setConsultationForm((current) => ({ ...current, phone: event.target.value }))}
+                placeholder="+91 98765 43210"
+                inputMode="tel"
+                className="h-12 rounded-[var(--radius-md)] border border-border bg-background px-4 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              />
+            </label>
+            <div className="grid gap-2 text-sm font-semibold text-text">
+              <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Preferred Callback Slot</span>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  "Today (Within 30 mins)",
+                  "Today Evening (6 - 8 PM)",
+                  "Tomorrow Morning",
+                  "Weekend Special",
+                ].map((slot) => {
+                  const selected = consultationForm.slot === slot;
+                  return (
+                    <button
+                      key={slot}
+                      type="button"
+                      onClick={() => setConsultationForm((current) => ({ ...current, slot }))}
+                      className={cn(
+                        "rounded-[1rem] border px-4 py-3 text-left text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                        selected ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-border bg-white text-text hover:border-accent/20 hover:bg-sky-50",
+                      )}
+                    >
+                      {slot}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <label className="grid gap-2 text-sm font-semibold text-text">
+              <span className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Notes</span>
+              <textarea
+                value={consultationForm.notes}
+                onChange={(event) => setConsultationForm((current) => ({ ...current, notes: event.target.value }))}
+                placeholder="Tell us about your shade preferences, room type, or wall condition."
+                rows={4}
+                className="min-h-28 rounded-[var(--radius-md)] border border-border bg-background px-4 py-3 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              />
+            </label>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <Button variant="outline" type="button" onClick={() => setConsultationOpen(false)} className="w-full sm:w-auto">
+              Cancel
+            </Button>
+            <Button variant="accent" type="button" loading={consultationSubmitting} onClick={() => void handleSubmitConsultation()} className="w-full sm:w-auto">
+              Request Call
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </main>
   );
 }

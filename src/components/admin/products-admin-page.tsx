@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import Link from "next/link";
 import { useAuth } from "@/components/auth/auth-provider";
 import { uploadCloudinaryImage } from "@/lib/cloudinary";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -23,6 +24,7 @@ import { getQaProductCatalog, isQaBypassEnabled } from "@/lib/qa-mode";
 import {
   ChevronDown,
   Copy,
+  ExternalLink,
   GripVertical,
   LayoutGrid,
   PenSquare,
@@ -186,6 +188,10 @@ type ProductFormState = {
   metaDescription: string;
   keywords: string;
   canonicalUrl: string;
+  showVariants: boolean;
+  returnable: boolean;
+  exclusiveOffer: boolean;
+  exclusiveOfferPercent: string;
   images: ProductImageDraft[];
   variants: ProductVariantDraft[];
   specifications: SpecDraft[];
@@ -280,6 +286,10 @@ const PRODUCT_FORM_INITIAL: ProductFormState = {
   metaDescription: "",
   keywords: "",
   canonicalUrl: "",
+  showVariants: true,
+  returnable: false,
+  exclusiveOffer: false,
+  exclusiveOfferPercent: "",
   images: [],
   variants: [],
   specifications: [],
@@ -309,6 +319,10 @@ function cleanNumberInput(value: string) {
 function parseNumber(value: string) {
   const number = Number.parseFloat(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function getBooleanValue(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function generateFallbackSku(value: string) {
@@ -413,6 +427,7 @@ type PickerMode = "category" | "brand" | null;
 
 function buildProductFormFromSummary(summary: ProductSummary, images: ProductImageRecord[], variants: ProductVariantRecord[], inventories: InventoryRecord[]) {
   const record = summary.record;
+  const attributes = (record.attributes ?? {}) as JsonRecord;
   const productImages = images
     .filter((image) => image.deleted_at === null)
     .sort((left, right) => left.sort_order - right.sort_order)
@@ -442,11 +457,15 @@ function buildProductFormFromSummary(summary: ProductSummary, images: ProductIma
     });
 
   const specs = Object.entries((record.specification ?? {}) as JsonRecord).map(([key, value]) => createSpecDraft({ key, value: String(value ?? "") }));
-  const relatedIds = Array.isArray(record.attributes?.related_product_ids)
-    ? (record.attributes?.related_product_ids as string[])
+  const relatedIds = Array.isArray(attributes.related_product_ids)
+    ? (attributes.related_product_ids as string[])
     : [];
 
-  const shipping = (record.attributes?.shipping as JsonRecord | undefined) ?? {};
+  const shipping = (attributes.shipping as JsonRecord | undefined) ?? {};
+  const showVariants = getBooleanValue(attributes.show_variants ?? attributes.showVariants, true);
+  const returnable = getBooleanValue(attributes.returnable ?? attributes.is_returnable ?? attributes.returnable_product, false);
+  const exclusiveOffer = getBooleanValue(attributes.exclusive_offer ?? attributes.exclusiveOffer ?? attributes.offer_exclusive, false);
+  const exclusiveOfferPercent = String(attributes.exclusive_offer_percent ?? attributes.exclusiveOfferPercent ?? attributes.offer_percent ?? "");
 
   return {
     name: record.name,
@@ -477,6 +496,10 @@ function buildProductFormFromSummary(summary: ProductSummary, images: ProductIma
     metaDescription: record.meta_description ?? "",
     keywords: Array.isArray(record.meta_keywords) ? record.meta_keywords.join(", ") : "",
     canonicalUrl: record.canonical_url ?? "",
+    showVariants,
+    returnable,
+    exclusiveOffer,
+    exclusiveOfferPercent,
     images: productImages.length > 0 ? productImages : [createImageDraft(record.og_image_url ?? "", 0)].filter((item) => item.url),
     variants: variantDrafts.length > 0 ? variantDrafts : [createVariantDraft({ variantName: "Default", sku: record.sku, price: String(record.selling_price), stock: String(inventories[0]?.current_quantity ?? 0), primary: true })],
     specifications: specs.length > 0 ? specs : [createSpecDraft()],
@@ -493,6 +516,8 @@ function buildDuplicateProductForm(summary: ProductSummary, images: ProductImage
     sku: `${form.sku}-copy`,
     status: "draft",
     featured: false,
+    exclusiveOffer: false,
+    exclusiveOfferPercent: "",
   } satisfies ProductFormState;
 }
 
@@ -1186,6 +1211,12 @@ function ProductsAdminPage() {
     if (form.images.length === 0) errors.images = "At least one product image is required";
     if (form.images.length > 4) errors.images = "Maximum 4 images allowed";
     if (stock < 0 || reserved < 0 || threshold < 0) errors.stockQuantity = "Stock values must be zero or higher";
+    if (form.exclusiveOffer) {
+      const percent = parseNumber(form.exclusiveOfferPercent);
+      if (!form.exclusiveOfferPercent.trim() || percent <= 0 || percent > 100) {
+        errors.exclusiveOfferPercent = "Exclusive offer percent must be between 1 and 100";
+      }
+    }
     if (form.canonicalUrl.trim()) {
       try {
         void new URL(form.canonicalUrl.trim());
@@ -1303,6 +1334,10 @@ function ProductsAdminPage() {
         hsn_code: form.hsnCode.trim() || null,
         shipping,
         related_product_ids: form.relatedProductIds,
+        show_variants: form.showVariants,
+        returnable: form.returnable,
+        exclusive_offer: form.exclusiveOffer,
+        exclusive_offer_percent: form.exclusiveOffer ? parseNumber(form.exclusiveOfferPercent) || null : null,
       };
       const discountAmount = Math.max(parseNumber(form.mrp) - parseNumber(form.sellingPrice), 0);
 
@@ -1620,6 +1655,9 @@ function ProductsAdminPage() {
                     <div className="flex flex-col items-end gap-2">
                       <AdminStatusBadge status={formatStatusLabel(summary.record.status, summary.record.deleted_at)} />
                       {summary.record.featured ? <Badge variant="accent">Featured</Badge> : null}
+                      {summary.record.attributes && getBooleanValue((summary.record.attributes as JsonRecord).exclusive_offer ?? (summary.record.attributes as JsonRecord).exclusiveOffer, false) ? (
+                        <Badge variant="danger">Exclusive</Badge>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2 text-xs font-semibold text-muted">
@@ -1679,7 +1717,14 @@ function ProductsAdminPage() {
                     <td className="px-4 py-3 text-sm font-semibold text-text">{formatPrice(parseNumber(String(summary.record.selling_price)))}</td>
                     <td className="px-4 py-3 text-sm font-medium text-text">{summary.stock}</td>
                     <td className="px-4 py-3"><AdminStatusBadge status={formatStatusLabel(summary.record.status, summary.record.deleted_at)} /></td>
-                    <td className="px-4 py-3">{summary.record.featured ? <Badge variant="accent">Featured</Badge> : <Badge variant="neutral">No</Badge>}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        {summary.record.featured ? <Badge variant="accent">Featured</Badge> : <Badge variant="neutral">No</Badge>}
+                        {summary.record.attributes && getBooleanValue((summary.record.attributes as JsonRecord).exclusive_offer ?? (summary.record.attributes as JsonRecord).exclusiveOffer, false) ? (
+                          <Badge variant="danger">Exclusive</Badge>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-sm text-muted">{new Date(summary.record.updated_at).toLocaleDateString()}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
@@ -1792,6 +1837,15 @@ function ProductsAdminPage() {
                 <input type="checkbox" checked={form.featured} onChange={(event) => updateForm({ featured: event.target.checked })} className="h-4 w-4 rounded border-border text-accent focus:ring-accent" />
                 Featured product
               </label>
+              <label className="flex items-center gap-3 rounded-[1.2rem] border border-rose-200 bg-rose-50/80 px-4 py-3 text-sm font-semibold text-text">
+                <input
+                  type="checkbox"
+                  checked={form.exclusiveOffer}
+                  onChange={(event) => updateForm({ exclusiveOffer: event.target.checked })}
+                  className="h-4 w-4 rounded border-border text-rose-500 focus:ring-rose-500"
+                />
+                Exclusive offer
+              </label>
               <Card className="rounded-[1.35rem] border border-white/80 bg-[linear-gradient(180deg,rgba(255,247,237,0.85),rgba(255,255,255,0.95))] p-4 shadow-[var(--shadow-sm)]">
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Live Preview</p>
                 <div className="mt-3 overflow-hidden rounded-[1.2rem] border border-border/70 bg-white/95">
@@ -1810,6 +1864,12 @@ function ProductsAdminPage() {
                       </div>
                       <Badge variant={form.status === "active" ? "accent" : "neutral"}>{form.status}</Badge>
                     </div>
+                    {form.exclusiveOffer ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="danger">Exclusive offer</Badge>
+                        <Badge variant="neutral">{form.exclusiveOfferPercent ? `${form.exclusiveOfferPercent}%` : "Set percent"}</Badge>
+                      </div>
+                    ) : null}
                     <div className="flex items-end justify-between gap-3">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Selling Price</p>
@@ -1928,6 +1988,19 @@ function ProductsAdminPage() {
                   <FormField label="Warehouse" htmlFor="product-warehouse">
                     <Input id="product-warehouse" value={form.warehouseLocation} onChange={(event) => updateForm({ warehouseLocation: event.target.value })} placeholder="Warehouse placeholder" />
                   </FormField>
+                  <div className="rounded-[1.2rem] border border-border/70 bg-white/80 px-4 py-3">
+                    <label className="flex items-center gap-3 text-sm font-semibold text-text">
+                      <input type="checkbox" checked={form.returnable} onChange={(event) => updateForm({ returnable: event.target.checked })} className="h-4 w-4 rounded border-border text-accent focus:ring-accent" />
+                      Returnable product
+                    </label>
+                    <p className="mt-2 text-xs font-medium text-muted">
+                      Mark this on for items customers can return within 5 days of delivery.
+                    </p>
+                    <Link href="/admin/returns" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent transition-colors hover:underline">
+                      Review return requests
+                      <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                    </Link>
+                  </div>
                   <FormField label="Reserved Quantity" htmlFor="product-reserved">
                     <Input id="product-reserved" value={form.reservedQuantity} onChange={(event) => updateForm({ reservedQuantity: cleanNumberInput(event.target.value) })} placeholder="0" />
                   </FormField>
@@ -1936,6 +2009,15 @@ function ProductsAdminPage() {
                   </FormField>
                   <FormField label="Discount %" htmlFor="product-discount">
                     <Input id="product-discount" value={form.mrp && form.sellingPrice ? String(Math.max(((parseNumber(form.mrp) - parseNumber(form.sellingPrice)) / Math.max(parseNumber(form.mrp), 1)) * 100, 0).toFixed(2)) : "0"} readOnly />
+                  </FormField>
+                  <FormField label="Exclusive Offer %" htmlFor="product-exclusive-offer-percent" error={formErrors.exclusiveOfferPercent} hint="Shown on the home page and the offers admin page.">
+                    <Input
+                      id="product-exclusive-offer-percent"
+                      value={form.exclusiveOffer ? form.exclusiveOfferPercent : ""}
+                      onChange={(event) => updateForm({ exclusiveOfferPercent: cleanNumberInput(event.target.value) })}
+                      placeholder="15"
+                      disabled={!form.exclusiveOffer}
+                    />
                   </FormField>
                 </div>
                 <div className="mt-4 grid gap-4">
@@ -1948,52 +2030,70 @@ function ProductsAdminPage() {
                 </div>
               </AdminSectionCard>
 
-              <AdminSectionCard title="Variants" description="Optional variant setup for products that need it.">
-                <div className="space-y-4">
-                  {form.variants.map((variant, index) => (
-                    <div key={variant.id} draggable onDragStart={() => variantImageDragStart(variant.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => variantImageDrop(variant.id, variant.id)} className="rounded-[1.2rem] border border-border/70 bg-white/85 p-4 shadow-[var(--shadow-sm)]">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <GripVertical className="h-4 w-4 text-muted" aria-hidden="true" />
-                          <p className="font-semibold text-text">Variant {index + 1}</p>
+              <div className="rounded-[1.4rem] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-sm)]">
+                <label className="flex items-center justify-between gap-4">
+                  <span>
+                    <span className="block text-sm font-bold uppercase tracking-[0.18em] text-muted">Variants</span>
+                    <span className="mt-1 block text-base font-black text-text">Enable variant options</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={form.showVariants}
+                    onChange={(event) => updateForm({ showVariants: event.target.checked })}
+                    className="h-5 w-5 rounded border-border text-accent focus:ring-accent"
+                  />
+                </label>
+                <p className="mt-2 text-sm font-medium text-muted">Turn this on to show variant options on the product page and in admin editing.</p>
+              </div>
+
+              {form.showVariants ? (
+                <AdminSectionCard title="Variants" description="Optional variant setup for products that need it.">
+                  <div className="space-y-4">
+                    {form.variants.map((variant, index) => (
+                      <div key={variant.id} draggable onDragStart={() => variantImageDragStart(variant.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => variantImageDrop(variant.id, variant.id)} className="rounded-[1.2rem] border border-border/70 bg-white/85 p-4 shadow-[var(--shadow-sm)]">
+                        <div className="mb-3 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <GripVertical className="h-4 w-4 text-muted" aria-hidden="true" />
+                            <p className="font-semibold text-text">Variant {index + 1}</p>
+                          </div>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-text">
+                            <input type="checkbox" checked={variant.primary} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => ({ ...item, primary: item.id === variant.id ? event.target.checked : item.primary && !event.target.checked })) }))} />
+                            Default
+                          </label>
                         </div>
-                        <label className="flex items-center gap-2 text-xs font-semibold text-text">
-                          <input type="checkbox" checked={variant.primary} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => ({ ...item, primary: item.id === variant.id ? event.target.checked : item.primary && !event.target.checked })) }))} />
-                          Default
-                        </label>
+                        <div className="grid gap-3 lg:grid-cols-3">
+                          <Input value={variant.variantName} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, variantName: event.target.value } : item)) }))} placeholder="Variant name" />
+                          <Input value={variant.optionLabel} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, optionLabel: event.target.value } : item)) }))} placeholder="Option label" />
+                          <Input value={variant.optionValue} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, optionValue: event.target.value } : item)) }))} placeholder="Option value" />
+                          <Input value={variant.sku} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, sku: event.target.value } : item)) }))} placeholder="Variant SKU" />
+                          <Input value={variant.price} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, price: cleanNumberInput(event.target.value) } : item)) }))} placeholder="Price" />
+                          <Input value={variant.stock} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, stock: cleanNumberInput(event.target.value) } : item)) }))} placeholder="Stock" />
+                        </div>
+                        <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                          <Input value={variant.imageUrl} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, imageUrl: event.target.value } : item)) }))} placeholder="Variant image URL" />
+                          <label className="inline-flex cursor-pointer items-center justify-center rounded-full border border-border/80 bg-white/85 px-4 py-2 text-sm font-semibold text-text transition-colors hover:border-accent/25 hover:bg-white">
+                            <span>Upload</span>
+                            <input type="file" accept="image/*" className="sr-only" onChange={(event) => void uploadVariantImage(variant.id, event.target.files?.[0] ?? null)} />
+                          </label>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between">
+                          <label className="flex items-center gap-2 text-xs font-semibold text-text">
+                            <input type="checkbox" checked={variant.active} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, active: event.target.checked } : item)) }))} />
+                            Active
+                          </label>
+                          <Button variant="danger" size="sm" onClick={() => setForm((current) => ({ ...current, variants: current.variants.filter((item) => item.id !== variant.id) }))}>
+                            <Trash2 className="h-4 w-4" />
+                            Remove Variant
+                          </Button>
+                        </div>
                       </div>
-                      <div className="grid gap-3 lg:grid-cols-3">
-                        <Input value={variant.variantName} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, variantName: event.target.value } : item)) }))} placeholder="Variant name" />
-                        <Input value={variant.optionLabel} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, optionLabel: event.target.value } : item)) }))} placeholder="Option label" />
-                        <Input value={variant.optionValue} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, optionValue: event.target.value } : item)) }))} placeholder="Option value" />
-                        <Input value={variant.sku} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, sku: event.target.value } : item)) }))} placeholder="Variant SKU" />
-                        <Input value={variant.price} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, price: cleanNumberInput(event.target.value) } : item)) }))} placeholder="Price" />
-                        <Input value={variant.stock} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, stock: cleanNumberInput(event.target.value) } : item)) }))} placeholder="Stock" />
-                      </div>
-                      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-                        <Input value={variant.imageUrl} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, imageUrl: event.target.value } : item)) }))} placeholder="Variant image URL" />
-                        <label className="inline-flex cursor-pointer items-center justify-center rounded-full border border-border/80 bg-white/85 px-4 py-2 text-sm font-semibold text-text transition-colors hover:border-accent/25 hover:bg-white">
-                          <span>Upload</span>
-                          <input type="file" accept="image/*" className="sr-only" onChange={(event) => void uploadVariantImage(variant.id, event.target.files?.[0] ?? null)} />
-                        </label>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between">
-                        <label className="flex items-center gap-2 text-xs font-semibold text-text">
-                          <input type="checkbox" checked={variant.active} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, active: event.target.checked } : item)) }))} />
-                          Active
-                        </label>
-                        <Button variant="danger" size="sm" onClick={() => setForm((current) => ({ ...current, variants: current.variants.filter((item) => item.id !== variant.id) }))}>
-                          <Trash2 className="h-4 w-4" />
-                          Remove Variant
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  <Button variant="outline" size="sm" onClick={addVariant}>
-                    <Plus className="h-4 w-4" />Add Variant
-                  </Button>
-                </div>
-              </AdminSectionCard>
+                    ))}
+                    <Button variant="outline" size="sm" onClick={addVariant}>
+                      <Plus className="h-4 w-4" />Add Variant
+                    </Button>
+                  </div>
+                </AdminSectionCard>
+              ) : null}
 
               <AdminSectionCard title="Specifications" description="Unlimited custom attributes. Leave blank optional fields empty.">
                 <div className="space-y-3">
@@ -2231,4 +2331,3 @@ function ProductsAdminPage() {
 }
 
 export { ProductsAdminPage };
-

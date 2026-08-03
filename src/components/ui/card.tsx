@@ -9,8 +9,8 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
         "relative overflow-hidden rounded-[var(--radius-xl)] border border-white/70 bg-white/90",
         "shadow-[var(--shadow-sm)] backdrop-blur-sm transition-all duration-[var(--duration-base)]",
         "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:content-['']",
-        "before:bg-gradient-to-r before:from-transparent before:via-accent/30 before:to-transparent",
-        "hover:-translate-y-0.5 hover:border-accent/20 hover:shadow-[var(--shadow-lg)]",
+        "before:bg-gradient-to-r before:from-transparent before:via-border/60 before:to-transparent",
+        "hover:-translate-y-0.5 hover:border-border hover:shadow-[var(--shadow-lg)]",
         className,
       )}
       {...props}
