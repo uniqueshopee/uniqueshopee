@@ -66,6 +66,20 @@ type OrderItemRow = {
   discount_amount: number | string;
   gst_rate: number | string;
   total_amount: number | string;
+  shade_id: string | null;
+  shade_code_snapshot: string | null;
+  shade_name_snapshot: string | null;
+  colour_family_snapshot: string | null;
+  hex_color_snapshot: string | null;
+  base_id: string | null;
+  base_name_snapshot: string | null;
+  pack_size_snapshot: string | null;
+  finish_snapshot: string | null;
+  base_price_snapshot: number | string | null;
+  shade_extra_price_snapshot: number | string | null;
+  final_unit_price_snapshot: number | string | null;
+  taxable_value_snapshot: number | string | null;
+  gst_amount_snapshot: number | string | null;
   deleted_at: string | null;
 };
 
@@ -101,6 +115,11 @@ type VariantRow = {
   variant_name: string;
   option_label: string | null;
   option_value: string | null;
+  shade_id: string | null;
+  shade_code_snapshot: string | null;
+  shade_name_snapshot: string | null;
+  color_family_snapshot: string | null;
+  hex_color_snapshot: string | null;
   is_default: boolean;
   deleted_at: string | null;
 };
@@ -355,13 +374,29 @@ function buildOrderItem(
   const price = toNumber(item.unit_price);
   const compareAtPrice = product && toNumber(product.mrp) > price ? toNumber(product.mrp) : undefined;
   const attributes = product?.attributes ?? null;
-  const variantLabel =
-    [variant?.variant_name, variant?.option_label && variant?.option_value ? `${variant.option_label}: ${variant.option_value}` : null]
-      .filter(Boolean)
-      .join(" • ") ||
-    variant?.sku ||
-    item.sku_snapshot ||
-    "Standard";
+  const hasPaintSnapshot = Boolean(
+    item.shade_name_snapshot ||
+      item.shade_code_snapshot ||
+      item.colour_family_snapshot ||
+      item.hex_color_snapshot ||
+      item.finish_snapshot ||
+      item.pack_size_snapshot,
+  );
+  const variantLabel = hasPaintSnapshot
+    ? [
+        item.shade_name_snapshot || "No shade selected",
+        item.shade_code_snapshot,
+        item.finish_snapshot,
+        item.pack_size_snapshot,
+      ]
+        .filter(Boolean)
+        .join(" • ")
+    : [variant?.variant_name, variant?.option_label && variant?.option_value ? `${variant.option_label}: ${variant.option_value}` : null]
+        .filter(Boolean)
+        .join(" • ") ||
+      variant?.sku ||
+      item.sku_snapshot ||
+      "Standard";
 
   return {
     id: item.id,
@@ -377,6 +412,23 @@ function buildOrderItem(
     brand: brandName,
     quantity: toNumber(item.quantity, 1),
     variant: variantLabel,
+    shadeId: item.shade_id ?? undefined,
+    shadeName: item.shade_name_snapshot ?? undefined,
+    shadeCode: item.shade_code_snapshot ?? undefined,
+    shadeFamily: item.colour_family_snapshot ?? undefined,
+    shadeHexColor: item.hex_color_snapshot ?? undefined,
+    sku: item.sku_snapshot ?? undefined,
+    packSize: item.pack_size_snapshot ?? undefined,
+    finish: item.finish_snapshot ?? undefined,
+    baseName: item.base_name_snapshot ?? undefined,
+    basePrice: toNumber(item.base_price_snapshot, price),
+    shadeAdjustment: toNumber(item.shade_extra_price_snapshot, 0),
+    finalUnitPrice: item.final_unit_price_snapshot === null ? null : toNumber(item.final_unit_price_snapshot),
+    gstRate: toNumber(item.gst_rate, 0),
+    taxableValue: item.taxable_value_snapshot === null ? null : toNumber(item.taxable_value_snapshot),
+    gstAmount: item.gst_amount_snapshot === null ? null : toNumber(item.gst_amount_snapshot),
+    lineTotal: toNumber(item.total_amount, price * toNumber(item.quantity, 1)),
+    subtotal: toNumber(item.total_amount, price * toNumber(item.quantity, 1)),
   };
 }
 
@@ -426,7 +478,7 @@ async function loadOrderBundle(client: SupabaseClient, orders: OrderRow[]) {
 
   const { data: itemsData, error: itemsError } = await client
     .from("order_items")
-    .select("id, order_id, product_id, product_variant_id, sku_snapshot, product_name_snapshot, quantity, unit_price, discount_amount, gst_rate, total_amount, deleted_at")
+    .select("id, order_id, product_id, product_variant_id, shade_id, shade_code_snapshot, shade_name_snapshot, colour_family_snapshot, hex_color_snapshot, base_id, base_name_snapshot, pack_size_snapshot, finish_snapshot, base_price_snapshot, shade_extra_price_snapshot, final_unit_price_snapshot, taxable_value_snapshot, gst_amount_snapshot, sku_snapshot, product_name_snapshot, quantity, unit_price, discount_amount, gst_rate, total_amount, deleted_at")
     .in("order_id", orderIds)
     .is("deleted_at", null);
 
@@ -470,7 +522,7 @@ async function loadOrderBundle(client: SupabaseClient, orders: OrderRow[]) {
     variantIds.length > 0
       ? client
           .from("product_variants")
-          .select("id, product_id, sku, variant_name, option_label, option_value, is_default, deleted_at")
+          .select("id, product_id, sku, variant_name, option_label, option_value, shade_id, shade_code_snapshot, shade_name_snapshot, color_family_snapshot, hex_color_snapshot, is_default, deleted_at")
           .in("id", variantIds)
           .is("deleted_at", null)
       : Promise.resolve({ data: [] as VariantRow[] }),

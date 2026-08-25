@@ -3,6 +3,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import type { Product } from "@/types";
 import { getSupabasePublicServerClient } from "@/lib/supabase/public-server";
+import { calculateVariantPrice } from "@/lib/variant-pricing";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -91,10 +92,58 @@ type ProductVariantRow = {
   variant_options: JsonRecord | null;
   mrp_override: number | string | null;
   selling_price_override: number | string | null;
+  shade_id: string | null;
+  pack_size: string | null;
+  unit: string | null;
+  finish: string | null;
+  base_price: number | string | null;
+  shade_extra_price: number | string | null;
+  adjustment_type: string | null;
+  final_price: number | string | null;
+  is_available: boolean | null;
+  shade_code_snapshot: string | null;
+  shade_name_snapshot: string | null;
+  color_family_snapshot: string | null;
+  hex_color_snapshot: string | null;
   barcode: string | null;
   weight: number | string | null;
   is_default: boolean;
   is_active: boolean;
+  deleted_at: string | null;
+};
+
+type ShadeRow = {
+  id: string;
+  brand_id: string | null;
+  shade_code: string;
+  shade_name: string;
+  color_family: string;
+  color_sub_family: string | null;
+  hex_color: string | null;
+  rgb: string | null;
+  image_url: string | null;
+  tone: "warm" | "cool" | "neutral" | null;
+  depth: "light" | "medium" | "dark" | null;
+  base_id: string | null;
+  is_popular: boolean | null;
+  is_featured: boolean | null;
+  hue: number | string | null;
+  saturation: number | string | null;
+  lightness: number | string | null;
+  is_active: boolean | null;
+  sort_order: number | null;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type ProductShadeRow = {
+  id: string;
+  product_id: string;
+  shade_id: string;
+  finish: string | null;
+  is_available: boolean | null;
+  sort_order: number | null;
   deleted_at: string | null;
 };
 
@@ -180,6 +229,26 @@ type CatalogProduct = Product & {
   primaryImageUrl: string;
   gallery: string[];
   isNew: boolean;
+  shadeKeywords: string[];
+};
+
+type CatalogShade = {
+  id: string;
+  brandId: string | null;
+  code: string;
+  name: string;
+  colorFamily: string;
+  colorSubFamily: string | null;
+  hexColor: string | null;
+  rgb: string | null;
+  imageUrl: string | null;
+  tone: "warm" | "cool" | "neutral" | null;
+  depth: "light" | "medium" | "dark" | null;
+  baseId: string | null;
+  isPopular: boolean;
+  isFeatured: boolean;
+  isActive: boolean;
+  sortOrder: number;
 };
 
 type SearchBrand = {
@@ -197,7 +266,23 @@ type SearchCategory = {
   name: string;
   href: string;
   description: string;
-  scene: "living-room" | "house" | "bucket" | "wall" | "roof" | "wood" | "metal" | "tools" | "pipes" | "pipes-cold" | "fittings" | "faucet" | "valve" | "pump" | "tank" | "bathroom";
+  scene:
+    | "living-room"
+    | "house"
+    | "bucket"
+    | "wall"
+    | "roof"
+    | "wood"
+    | "metal"
+    | "tools"
+    | "pipes"
+    | "pipes-cold"
+    | "fittings"
+    | "faucet"
+    | "valve"
+    | "pump"
+    | "tank"
+    | "bathroom";
   keywords: string[];
 };
 
@@ -403,10 +488,27 @@ type DepartmentContent = {
 };
 
 type ProductVariant = {
+  id: string;
   label: string;
   value: string;
   group: string | null;
   isDefault: boolean;
+  shadeId?: string | null;
+  shadeCode?: string | null;
+  shadeName?: string | null;
+  colorFamily?: string | null;
+  colorSubFamily?: string | null;
+  hexColor?: string | null;
+  packSize?: string | null;
+  unit?: string | null;
+  finish?: string | null;
+  basePrice?: number;
+  shadeExtraPrice?: number;
+  finalPrice?: number;
+  mrp?: number;
+  sku?: string;
+  stock?: number;
+  isAvailable?: boolean;
 };
 
 type ProductSpecification = {
@@ -454,6 +556,8 @@ type ProductDetail = {
   relatedProductIds: string[];
   recentProductIds: string[];
   bundleProductIds: string[];
+  shades: CatalogShade[];
+  shadeDisclaimer: string;
 };
 
 type CatalogSnapshot = {
@@ -463,6 +567,8 @@ type CatalogSnapshot = {
   products: CatalogProduct[];
   imagesByProductId: Map<string, ProductImageRow[]>;
   variantsByProductId: Map<string, ProductVariantRow[]>;
+  shadesById: Map<string, ShadeRow>;
+  productShadesByProductId: Map<string, ProductShadeRow[]>;
   inventoriesByVariantId: Map<string, InventoryRow[]>;
   searchBrands: SearchBrand[];
   searchCategories: SearchCategory[];
@@ -505,6 +611,11 @@ function toBoolean(value: unknown, fallback = false) {
 
 function normalize(value: string) {
   return value.trim().toLowerCase();
+}
+
+function normalizeFinish(value: string | null) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : null;
 }
 
 function initialsFrom(value: string) {
@@ -563,20 +674,33 @@ function brandThemeFromDepartment(slug: string): BrandTheme {
 }
 
 function buildProductReviewCount(attributes: JsonRecord | null) {
-  return toNumber(attributes?.review_count ?? attributes?.reviews_count ?? attributes?.reviewCount, 0);
+  return toNumber(
+    attributes?.review_count ?? attributes?.reviews_count ?? attributes?.reviewCount,
+    0,
+  );
 }
 
 function buildProductRating(attributes: JsonRecord | null) {
   const rating = toNumber(attributes?.rating ?? attributes?.average_rating, 0);
-  return rating > 0 ? rating : 4.5;
+  return rating > 0 ? rating : 0;
 }
 
 function buildProductExclusiveOffer(attributes: JsonRecord | null) {
-  return toBoolean(attributes?.exclusive_offer ?? attributes?.exclusiveOffer ?? attributes?.offer_exclusive, false);
+  return toBoolean(
+    attributes?.exclusive_offer ??
+      attributes?.exclusiveOffer ??
+      attributes?.offer_exclusive,
+    false,
+  );
 }
 
 function buildProductOfferPercent(attributes: JsonRecord | null) {
-  const value = toNumber(attributes?.exclusive_offer_percent ?? attributes?.exclusiveOfferPercent ?? attributes?.offer_percent, 0);
+  const value = toNumber(
+    attributes?.exclusive_offer_percent ??
+      attributes?.exclusiveOfferPercent ??
+      attributes?.offer_percent,
+    0,
+  );
   return value > 0 ? value : undefined;
 }
 
@@ -588,6 +712,7 @@ function buildSearchKeywords(product: CatalogProduct) {
     product.categoryName,
     product.departmentName,
     product.slug,
+    ...product.shadeKeywords,
   ];
 }
 
@@ -599,6 +724,8 @@ function buildProductFromRow(
     brandsById: Map<string, BrandRow>;
     imagesByProductId: Map<string, ProductImageRow[]>;
     variantsByProductId: Map<string, ProductVariantRow[]>;
+    shadesById: Map<string, ShadeRow>;
+    productShadesByProductId: Map<string, ProductShadeRow[]>;
     inventoriesByVariantId: Map<string, InventoryRow[]>;
   },
 ): CatalogProduct | null {
@@ -617,21 +744,66 @@ function buildProductFromRow(
   const images = (lookups.imagesByProductId.get(row.id) ?? [])
     .filter((image) => image.deleted_at === null)
     .sort((left, right) => left.sort_order - right.sort_order);
-  const variants = (lookups.variantsByProductId.get(row.id) ?? []).filter((variant) => variant.deleted_at === null);
-  const inventories = variants.flatMap((variant) =>
-    (lookups.inventoriesByVariantId.get(variant.id) ?? []).filter((inventory) => inventory.deleted_at === null),
+  const variants = (lookups.variantsByProductId.get(row.id) ?? []).filter(
+    (variant) => variant.deleted_at === null,
   );
-  const stockCount = inventories.reduce((sum, inventory) => sum + toNumber(inventory.current_quantity), 0);
-  const reservedCount = inventories.reduce((sum, inventory) => sum + toNumber(inventory.reserved_quantity), 0);
-  const lowStockThreshold = inventories.length > 0 ? toNumber(inventories[0]?.low_stock_threshold, 10) : 10;
+  const productShades = (lookups.productShadesByProductId.get(row.id) ?? []).filter(
+    (shade) => shade.deleted_at === null && toBoolean(shade.is_available, true),
+  );
+  const shadeKeywords = productShades
+    .map((productShade) => lookups.shadesById.get(productShade.shade_id))
+    .filter((shade): shade is ShadeRow =>
+      Boolean(shade && shade.deleted_at === null && toBoolean(shade.is_active, true)),
+    )
+    .flatMap((shade) => [
+      shade.shade_code,
+      shade.shade_name,
+      shade.color_family,
+      shade.color_sub_family ?? "",
+      shade.tone ?? "",
+      shade.depth ?? "",
+      shade.brand_id ?? "",
+    ]);
+  const inventories = variants.flatMap((variant) =>
+    (lookups.inventoriesByVariantId.get(variant.id) ?? []).filter(
+      (inventory) => inventory.deleted_at === null,
+    ),
+  );
+  const stockCount = inventories.reduce(
+    (sum, inventory) => sum + toNumber(inventory.current_quantity),
+    0,
+  );
+  const reservedCount = inventories.reduce(
+    (sum, inventory) => sum + toNumber(inventory.reserved_quantity),
+    0,
+  );
+  const lowStockThreshold =
+    inventories.length > 0 ? toNumber(inventories[0]?.low_stock_threshold, 10) : 10;
   const gallery = images.map((image) => image.image_url);
-  const primaryImageUrl = images.find((image) => image.is_primary)?.image_url ?? images[0]?.image_url ?? row.og_image_url ?? DEFAULT_PRODUCT_IMAGE;
-  const price = toNumber(row.selling_price);
+  const primaryImageUrl =
+    images.find((image) => image.is_primary)?.image_url ??
+    images[0]?.image_url ??
+    row.og_image_url ??
+    DEFAULT_PRODUCT_IMAGE;
+  const variantBasePrices = variants
+    .map((variant) =>
+      toNumber(variant.base_price ?? variant.selling_price_override ?? row.selling_price),
+    )
+    .filter((value) => value >= 0);
+  const price =
+    variantBasePrices.length > 0
+      ? Math.min(...variantBasePrices)
+      : toNumber(row.selling_price);
   const mrp = toNumber(row.mrp);
   const compareAtPrice = mrp > price ? mrp : undefined;
-  const isNew = new Date(row.created_at).getTime() > Date.now() - 1000 * 60 * 60 * 24 * 45;
+  const isNew =
+    new Date(row.created_at).getTime() > Date.now() - 1000 * 60 * 60 * 24 * 45;
   const exclusiveOffer = buildProductExclusiveOffer(row.attributes);
   const exclusiveOfferPercent = buildProductOfferPercent(row.attributes);
+  const supportsShades =
+    department.slug === "paints" ||
+    productShades.length > 0 ||
+    variants.some((variant) => Boolean(variant.shade_id));
 
   return {
     id: row.id,
@@ -645,9 +817,18 @@ function buildProductFromRow(
     rating: buildProductRating(row.attributes),
     reviewCount: buildProductReviewCount(row.attributes),
     inStock: stockCount > 0,
-    badge: exclusiveOffer ? "exclusive" : row.featured ? "bestseller" : compareAtPrice && compareAtPrice > price ? "sale" : isNew ? "new" : undefined,
+    badge: exclusiveOffer
+      ? "exclusive"
+      : row.featured
+        ? "bestseller"
+        : compareAtPrice && compareAtPrice > price
+          ? "sale"
+          : isNew
+            ? "new"
+            : undefined,
     exclusiveOffer,
     exclusiveOfferPercent,
+    supportsShades,
     departmentId: department.id,
     departmentSlug: department.slug,
     departmentName: department.name,
@@ -673,6 +854,9 @@ function buildProductFromRow(
     primaryImageUrl,
     gallery: gallery.length > 0 ? gallery : [primaryImageUrl],
     isNew,
+    shadeKeywords: shadeKeywords.filter((value): value is string =>
+      Boolean(value && value.trim().length > 0),
+    ),
   };
 }
 
@@ -695,8 +879,10 @@ const CATEGORY_FALLBACKS: Record<string, CategoryFallbackConfig> = {
     slug: "paints",
     title: "Paints",
     departmentSlug: "paints",
-    description: "Explore interior, exterior, primer, putty, and waterproofing essentials in one paint hub.",
-    subtitle: "Browse premium paint systems and preparation essentials for modern walls and surfaces.",
+    description:
+      "Explore interior, exterior, primer, putty, and waterproofing essentials in one paint hub.",
+    subtitle:
+      "Browse premium paint systems and preparation essentials for modern walls and surfaces.",
     scene: "living-room",
     related: [
       { slug: "interior-paint", name: "Interior Paint", scene: "living-room" },
@@ -753,7 +939,8 @@ const CATEGORY_FALLBACKS: Record<string, CategoryFallbackConfig> = {
     slug: "wall-putty",
     title: "Wall Putty",
     departmentSlug: "paints",
-    description: "Smooth and repair walls before painting with trusted wall putty options.",
+    description:
+      "Smooth and repair walls before painting with trusted wall putty options.",
     subtitle: "Create a cleaner, more polished surface for premium paint finishes.",
     scene: "wall",
     related: [
@@ -767,7 +954,8 @@ const CATEGORY_FALLBACKS: Record<string, CategoryFallbackConfig> = {
     slug: "waterproofing",
     title: "Waterproofing",
     departmentSlug: "paints",
-    description: "Protect roofs and walls from moisture with reliable waterproofing products.",
+    description:
+      "Protect roofs and walls from moisture with reliable waterproofing products.",
     subtitle: "Choose the right coating and protection system for damp-prone areas.",
     scene: "roof",
     related: [
@@ -781,7 +969,8 @@ const CATEGORY_FALLBACKS: Record<string, CategoryFallbackConfig> = {
     slug: "paint-accessories",
     title: "Paint Accessories",
     departmentSlug: "paints",
-    description: "Brushes, rollers, and tools to make every paint job cleaner and faster.",
+    description:
+      "Brushes, rollers, and tools to make every paint job cleaner and faster.",
     subtitle: "Finish the job with the right tools and accessories.",
     scene: "tools",
     related: [
@@ -795,7 +984,8 @@ const CATEGORY_FALLBACKS: Record<string, CategoryFallbackConfig> = {
     slug: "plumbing",
     title: "Plumbing",
     departmentSlug: "plumbing",
-    description: "Browse plumbing, fittings, faucets, valves, and water storage essentials in one place.",
+    description:
+      "Browse plumbing, fittings, faucets, valves, and water storage essentials in one place.",
     subtitle: "Reliable plumbing essentials for modern homes and installations.",
     scene: "pipes",
     related: [
@@ -903,16 +1093,56 @@ function buildFallbackCategoryContent(slug: string): CategoryContent | null {
   const categoryBrands =
     config.departmentSlug === "plumbing"
       ? [
-          { name: "Astral", category: "Plumbing" as const, description: "Durable water systems built for installations.", href: "/brand/astral" },
-          { name: "Supreme", category: "Plumbing" as const, description: "Strong pipe and fitting essentials.", href: "/brand/supreme" },
-          { name: "Finolex", category: "Plumbing" as const, description: "Utility-focused plumbing solutions.", href: "/brand/finolex" },
-          { name: "Jaquar", category: "Plumbing" as const, description: "Premium fixtures with refined styling.", href: "/brand/jaquar" },
+          {
+            name: "Astral",
+            category: "Plumbing" as const,
+            description: "Durable water systems built for installations.",
+            href: "/brand/astral",
+          },
+          {
+            name: "Supreme",
+            category: "Plumbing" as const,
+            description: "Strong pipe and fitting essentials.",
+            href: "/brand/supreme",
+          },
+          {
+            name: "Finolex",
+            category: "Plumbing" as const,
+            description: "Utility-focused plumbing solutions.",
+            href: "/brand/finolex",
+          },
+          {
+            name: "Jaquar",
+            category: "Plumbing" as const,
+            description: "Premium fixtures with refined styling.",
+            href: "/brand/jaquar",
+          },
         ]
       : [
-          { name: "Asian Paints", category: "Paint" as const, description: "Reliable coatings for interiors and exteriors.", href: "/brand/asian-paints" },
-          { name: "Berger", category: "Paint" as const, description: "Finish-first systems for modern spaces.", href: "/brand/berger" },
-          { name: "Nerolac", category: "Paint" as const, description: "Everyday colour with trusted performance.", href: "/brand/nerolac" },
-          { name: "Dr. Fixit", category: "Paint" as const, description: "Waterproofing and repair solutions.", href: "/brand/dr-fixit" },
+          {
+            name: "Asian Paints",
+            category: "Paint" as const,
+            description: "Reliable coatings for interiors and exteriors.",
+            href: "/brand/asian-paints",
+          },
+          {
+            name: "Berger",
+            category: "Paint" as const,
+            description: "Finish-first systems for modern spaces.",
+            href: "/brand/berger",
+          },
+          {
+            name: "Nerolac",
+            category: "Paint" as const,
+            description: "Everyday colour with trusted performance.",
+            href: "/brand/nerolac",
+          },
+          {
+            name: "Dr. Fixit",
+            category: "Paint" as const,
+            description: "Waterproofing and repair solutions.",
+            href: "/brand/dr-fixit",
+          },
         ];
 
   return {
@@ -974,11 +1204,13 @@ function makeFaq(departmentSlug: string, categoryName?: string) {
     return [
       {
         question: "How do I choose the right plumbing accessory?",
-        answer: "Match the material, pressure rating, and compatibility with the existing installation.",
+        answer:
+          "Match the material, pressure rating, and compatibility with the existing installation.",
       },
       {
         question: "What should I check before buying fittings?",
-        answer: "Confirm dimensions, material grade, and the exact application for the fitting or valve.",
+        answer:
+          "Confirm dimensions, material grade, and the exact application for the fitting or valve.",
       },
     ];
   }
@@ -986,11 +1218,13 @@ function makeFaq(departmentSlug: string, categoryName?: string) {
   return [
     {
       question: `Which paint is best for ${categoryName ? categoryName.toLowerCase() : "this space"}?`,
-      answer: "Choose the finish based on traffic, light exposure, and the surface preparation level.",
+      answer:
+        "Choose the finish based on traffic, light exposure, and the surface preparation level.",
     },
     {
       question: "Should I use primer before painting?",
-      answer: "Primer is recommended for better adhesion, smoother finish, and longer product life.",
+      answer:
+        "Primer is recommended for better adhesion, smoother finish, and longer product life.",
     },
   ];
 }
@@ -1014,6 +1248,8 @@ type CatalogSnapshotData = {
   products: ProductRow[];
   productImages: ProductImageRow[];
   productVariants: ProductVariantRow[];
+  shades: ShadeRow[];
+  productShades: ProductShadeRow[];
   inventories: InventoryRow[];
 };
 
@@ -1023,6 +1259,8 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
   const brandsById = new Map(data.brands.map((item) => [item.id, item]));
   const imagesByProductId = new Map<string, ProductImageRow[]>();
   const variantsByProductId = new Map<string, ProductVariantRow[]>();
+  const shadesById = new Map<string, ShadeRow>();
+  const productShadesByProductId = new Map<string, ProductShadeRow[]>();
   const inventoriesByVariantId = new Map<string, InventoryRow[]>();
 
   for (const image of data.productImages) {
@@ -1035,6 +1273,16 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
     const list = variantsByProductId.get(variant.product_id) ?? [];
     list.push(variant);
     variantsByProductId.set(variant.product_id, list);
+  }
+
+  for (const shade of data.shades) {
+    shadesById.set(shade.id, shade);
+  }
+
+  for (const productShade of data.productShades) {
+    const list = productShadesByProductId.get(productShade.product_id) ?? [];
+    list.push(productShade);
+    productShadesByProductId.set(productShade.product_id, list);
   }
 
   for (const inventory of data.inventories) {
@@ -1051,6 +1299,8 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
         brandsById,
         imagesByProductId,
         variantsByProductId,
+        shadesById,
+        productShadesByProductId,
         inventoriesByVariantId,
       }),
     )
@@ -1060,7 +1310,9 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
     .filter((row) => row.deleted_at === null && toBoolean(row.is_active, true))
     .sort((left, right) => toNumber(left.sort_order, 0) - toNumber(right.sort_order, 0))
     .map((row) => {
-      const departmentProducts = products.filter((product) => product.departmentId === row.id);
+      const departmentProducts = products.filter(
+        (product) => product.departmentId === row.id,
+      );
       return {
         id: row.id,
         slug: row.slug,
@@ -1079,9 +1331,16 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
       const department = departmentsById.get(row.department_id);
       const departmentSlug = department?.slug ?? "paints";
       const departmentName = department?.name ?? "Paints";
-      const categoryProducts = products.filter((product) => product.categoryId === row.id);
+      const categoryProducts = products.filter(
+        (product) => product.categoryId === row.id,
+      );
       const categoryBrands = data.brands
-        .filter((brand) => brand.category_id === row.id && brand.deleted_at === null && toBoolean(brand.is_active, true))
+        .filter(
+          (brand) =>
+            brand.category_id === row.id &&
+            brand.deleted_at === null &&
+            toBoolean(brand.is_active, true),
+        )
         .map((brand) => {
           const dept = departmentsById.get(brand.department_id);
           return {
@@ -1094,7 +1353,9 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
             categoryName: row.name,
             name: brand.name,
             slug: brand.slug,
-            description: brand.description ?? makeBrandTagline({ name: brand.name, description: "" }),
+            description:
+              brand.description ??
+              makeBrandTagline({ name: brand.name, description: "" }),
             logoUrl: brand.logo_url,
             websiteUrl: brand.website_url,
             isActive: toBoolean(brand.is_active, true),
@@ -1182,7 +1443,12 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
     href: `/category/${category.slug}`,
     description: category.description,
     scene: categoryScene(category.name, category.departmentSlug),
-    keywords: [category.name, category.description, category.departmentName, category.departmentSlug],
+    keywords: [
+      category.name,
+      category.description,
+      category.departmentName,
+      category.departmentSlug,
+    ],
   }));
 
   return {
@@ -1192,6 +1458,8 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
     products,
     imagesByProductId,
     variantsByProductId,
+    shadesById,
+    productShadesByProductId,
     inventoriesByVariantId,
     searchBrands,
     searchCategories,
@@ -1215,57 +1483,89 @@ const loadCatalogSnapshotData = unstable_cache(
         products: [],
         productImages: [],
         productVariants: [],
+        shades: [],
+        productShades: [],
         inventories: [],
       };
     }
 
-    const [departmentsResult, categoriesResult, brandsResult, productsResult] = await Promise.all([
-      client
-        .from("departments")
-        .select("id, name, slug, description, is_active, deleted_at, sort_order")
-        .is("deleted_at", null)
-        .order("sort_order", { ascending: true }),
-      client
-        .from("categories")
-        .select("id, department_id, name, slug, description, image_url, is_active, deleted_at")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: true }),
-      client
-        .from("brands")
-        .select("id, department_id, category_id, name, slug, description, logo_url, website_url, is_active, is_featured, deleted_at, created_at")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: true }),
-      client
-        .from("products")
-        .select(
-          "id, department_id, category_id, brand_id, slug, sku, name, description, short_description, gst_rate, mrp, selling_price, discount_amount, discount_percent, status, featured, meta_title, meta_description, meta_keywords, canonical_url, og_image_url, specification, attributes, deleted_at, created_at, updated_at",
-        )
-        .is("deleted_at", null)
-        .eq("status", "active")
-        .order("updated_at", { ascending: false }),
-    ]);
+    const [departmentsResult, categoriesResult, brandsResult, productsResult] =
+      await Promise.all([
+        client
+          .from("departments")
+          .select("id, name, slug, description, is_active, deleted_at, sort_order")
+          .is("deleted_at", null)
+          .order("sort_order", { ascending: true }),
+        client
+          .from("categories")
+          .select(
+            "id, department_id, name, slug, description, image_url, is_active, deleted_at",
+          )
+          .is("deleted_at", null)
+          .order("created_at", { ascending: true }),
+        client
+          .from("brands")
+          .select(
+            "id, department_id, category_id, name, slug, description, logo_url, website_url, is_active, is_featured, deleted_at, created_at",
+          )
+          .is("deleted_at", null)
+          .order("created_at", { ascending: true }),
+        client
+          .from("products")
+          .select(
+            "id, department_id, category_id, brand_id, slug, sku, name, description, short_description, gst_rate, mrp, selling_price, discount_amount, discount_percent, status, featured, meta_title, meta_description, meta_keywords, canonical_url, og_image_url, specification, attributes, deleted_at, created_at, updated_at",
+          )
+          .is("deleted_at", null)
+          .eq("status", "active")
+          .order("updated_at", { ascending: false }),
+      ]);
 
     const productIds = (productsResult.data ?? []).map((row) => row.id as string);
     const variantIds: string[] = [];
 
-    const [imagesResult, variantsResult] = await Promise.all([
-      productIds.length > 0
-        ? client
-            .from("product_images")
-            .select("id, product_id, image_url, alt_text, sort_order, is_primary, deleted_at")
-            .in("product_id", productIds)
-            .is("deleted_at", null)
-            .order("sort_order", { ascending: true })
-        : Promise.resolve({ data: [] as ProductImageRow[] }),
-      productIds.length > 0
-        ? client
-            .from("product_variants")
-            .select("id, product_id, sku, variant_name, option_label, option_value, variant_options, mrp_override, selling_price_override, barcode, weight, is_default, is_active, deleted_at")
-            .in("product_id", productIds)
-            .is("deleted_at", null)
-            .order("created_at", { ascending: true })
-        : Promise.resolve({ data: [] as ProductVariantRow[] }),
-    ]);
+    const [imagesResult, variantsResult, shadesResult, productShadesResult] =
+      await Promise.all([
+        productIds.length > 0
+          ? client
+              .from("product_images")
+              .select(
+                "id, product_id, image_url, alt_text, sort_order, is_primary, deleted_at",
+              )
+              .in("product_id", productIds)
+              .is("deleted_at", null)
+              .order("sort_order", { ascending: true })
+          : Promise.resolve({ data: [] as ProductImageRow[] }),
+        productIds.length > 0
+          ? client
+              .from("product_variants")
+              .select(
+                "id, product_id, sku, variant_name, option_label, option_value, variant_options, mrp_override, selling_price_override, shade_id, pack_size, unit, finish, base_price, shade_extra_price, adjustment_type, final_price, is_available, shade_code_snapshot, shade_name_snapshot, color_family_snapshot, hex_color_snapshot, barcode, weight, is_default, is_active, deleted_at",
+              )
+              .in("product_id", productIds)
+              .is("deleted_at", null)
+              .order("created_at", { ascending: true })
+          : Promise.resolve({ data: [] as ProductVariantRow[] }),
+        productIds.length > 0
+          ? client
+              .from("product_shades")
+              .select(
+                "id, product_id, shade_id, finish, is_available, sort_order, deleted_at",
+              )
+              .in("product_id", productIds)
+              .is("deleted_at", null)
+              .order("sort_order", { ascending: true })
+          : Promise.resolve({ data: [] as ProductShadeRow[] }),
+        productIds.length > 0
+          ? client
+              .from("shades")
+              .select(
+                "id, brand_id, shade_code, shade_name, color_family, color_sub_family, hex_color, rgb, image_url, tone, depth, base_id, is_popular, is_featured, hue, saturation, lightness, is_active, sort_order, deleted_at, created_at, updated_at",
+              )
+              .is("deleted_at", null)
+              .eq("is_active", true)
+              .order("sort_order", { ascending: true })
+          : Promise.resolve({ data: [] as ShadeRow[] }),
+      ]);
 
     for (const variant of variantsResult.data ?? []) {
       variantIds.push(variant.id as string);
@@ -1275,7 +1575,9 @@ const loadCatalogSnapshotData = unstable_cache(
       variantIds.length > 0
         ? await client
             .from("inventory")
-            .select("id, product_variant_id, current_quantity, reserved_quantity, low_stock_threshold, stock_status, warehouse_location, deleted_at")
+            .select(
+              "id, product_variant_id, current_quantity, reserved_quantity, low_stock_threshold, stock_status, warehouse_location, deleted_at",
+            )
             .in("product_variant_id", variantIds)
             .is("deleted_at", null)
             .order("created_at", { ascending: true })
@@ -1287,7 +1589,9 @@ const loadCatalogSnapshotData = unstable_cache(
       brands: (brandsResult.data ?? []) as BrandRow[],
       products: (productsResult.data ?? []) as ProductRow[],
       productImages: (imagesResult.data ?? []) as ProductImageRow[],
-      productVariants: (variantsResult.data ?? []) as ProductVariantRow[],
+      productVariants: (variantsResult.data ?? []) as unknown as ProductVariantRow[],
+      shades: (shadesResult.data ?? []) as unknown as ShadeRow[],
+      productShades: (productShadesResult.data ?? []) as unknown as ProductShadeRow[],
       inventories: (inventoriesResult.data ?? []) as InventoryRow[],
     };
   },
@@ -1314,15 +1618,21 @@ export async function getLiveSearchData(): Promise<SearchResults> {
 
 export async function getLiveHomeData() {
   const snapshot = await getCatalogSnapshot();
-  const paints = snapshot.products.filter((product) => product.departmentSlug === "paints");
-  const plumbing = snapshot.products.filter((product) => product.departmentSlug === "plumbing");
+  const paints = snapshot.products.filter(
+    (product) => product.departmentSlug === "paints",
+  );
+  const plumbing = snapshot.products.filter(
+    (product) => product.departmentSlug === "plumbing",
+  );
   const featuredProducts = snapshot.products
     .filter((product) => product.featured)
     .slice(0, 4);
   const exclusiveProducts = snapshot.products
     .filter((product) => product.exclusiveOffer)
     .slice(0, 4);
-  const homeProducts = [paints[0], plumbing[0], paints[1], plumbing[1]].filter(Boolean) as CatalogProduct[];
+  const homeProducts = [paints[0], plumbing[0], paints[1], plumbing[1]].filter(
+    Boolean,
+  ) as CatalogProduct[];
   const brandChips = snapshot.brands.slice(0, 7).map((brand) => ({
     name: brand.name,
     href: `/brand/${brand.slug}`,
@@ -1330,8 +1640,10 @@ export async function getLiveHomeData() {
 
   return {
     products: snapshot.products,
-    featuredProducts: featuredProducts.length > 0 ? featuredProducts : snapshot.products.slice(0, 4),
-    exclusiveProducts: exclusiveProducts.length > 0 ? exclusiveProducts : snapshot.products.slice(0, 4),
+    featuredProducts:
+      featuredProducts.length > 0 ? featuredProducts : snapshot.products.slice(0, 4),
+    exclusiveProducts:
+      exclusiveProducts.length > 0 ? exclusiveProducts : snapshot.products.slice(0, 4),
     homeProducts: homeProducts.length > 0 ? homeProducts : snapshot.products.slice(0, 4),
     brandChips,
   };
@@ -1339,7 +1651,9 @@ export async function getLiveHomeData() {
 
 export async function getLiveProductBySlug(slug: string) {
   const snapshot = await getCatalogSnapshot();
-  const product = snapshot.byProductSlug.get(slug) ?? snapshot.products.find((item) => item.id === slug);
+  const product =
+    snapshot.byProductSlug.get(slug) ??
+    snapshot.products.find((item) => item.id === slug);
 
   if (!product) {
     return null;
@@ -1349,23 +1663,75 @@ export async function getLiveProductBySlug(slug: string) {
   const imageRows = (snapshot.imagesByProductId.get(product.id) ?? [])
     .filter((image) => image.deleted_at === null)
     .sort((left, right) => left.sort_order - right.sort_order);
-  const variantRows = (snapshot.variantsByProductId.get(product.id) ?? []).filter((variant) => variant.deleted_at === null);
+  const variantRows = (snapshot.variantsByProductId.get(product.id) ?? []).filter(
+    (variant) => variant.deleted_at === null,
+  );
+  const productShadeRows = (snapshot.productShadesByProductId.get(product.id) ?? [])
+    .filter(
+      (productShade) =>
+        productShade.deleted_at === null && toBoolean(productShade.is_available, true),
+    )
+    .sort((left, right) => toNumber(left.sort_order, 0) - toNumber(right.sort_order, 0));
+  const shades = productShadeRows
+    .map((productShade) => snapshot.shadesById.get(productShade.shade_id))
+    .filter((shade): shade is ShadeRow =>
+      Boolean(shade && shade.deleted_at === null && toBoolean(shade.is_active, true)),
+    )
+    .sort((left, right) => toNumber(left.sort_order, 0) - toNumber(right.sort_order, 0))
+    .map((shade) => ({
+      id: shade.id,
+      brandId: shade.brand_id,
+      code: shade.shade_code,
+      name: shade.shade_name,
+      colorFamily: shade.color_family,
+      colorSubFamily: shade.color_sub_family,
+      hexColor: shade.hex_color,
+      rgb: shade.rgb,
+      imageUrl: shade.image_url,
+      tone: shade.tone,
+      depth: shade.depth,
+      baseId: shade.base_id,
+      isPopular: toBoolean(shade.is_popular, false),
+      isFeatured: toBoolean(shade.is_featured, false),
+      isActive: toBoolean(shade.is_active, true),
+      sortOrder: toNumber(shade.sort_order, 0),
+    }));
   const relatedProducts = snapshot.products
-    .filter((item) => item.slug !== slug && (item.categorySlug === product.categorySlug || item.brandSlug === product.brandSlug))
+    .filter(
+      (item) =>
+        item.slug !== slug &&
+        (item.categorySlug === product.categorySlug ||
+          item.brandSlug === product.brandSlug),
+    )
     .slice(0, 4);
-  const recentlyViewedProducts = snapshot.products.filter((item) => item.slug !== slug).slice(0, 4);
-  const bundleProducts = relatedProducts.length > 0 ? relatedProducts.slice(0, 2) : recentlyViewedProducts.slice(0, 2);
+  const recentlyViewedProducts = snapshot.products
+    .filter((item) => item.slug !== slug)
+    .slice(0, 4);
+  const bundleProducts =
+    relatedProducts.length > 0
+      ? relatedProducts.slice(0, 2)
+      : recentlyViewedProducts.slice(0, 2);
   const attributes = product.attributes ?? {};
-  const showVariants = toBoolean(attributes.show_variants ?? attributes.showVariants, variantRows.length > 0);
-  const returnable = toBoolean(attributes.returnable ?? attributes.is_returnable ?? attributes.returnable_product, false);
+  const showVariants = toBoolean(
+    attributes.show_variants ?? attributes.showVariants,
+    variantRows.length > 0,
+  );
+  const returnable = toBoolean(
+    attributes.returnable ?? attributes.is_returnable ?? attributes.returnable_product,
+    false,
+  );
   const relatedIds = Array.isArray(product.attributes?.related_product_ids)
     ? (product.attributes?.related_product_ids as string[])
     : relatedProducts.map((item) => item.id);
-  const specifications = Object.entries(product.specification ?? {}).map(([key, value]) => ({
-    label: key,
-    value: String(value ?? ""),
-  }));
-  const hasReturnableSpecification = specifications.some((item) => item.label.trim().toLowerCase() === "returnable");
+  const specifications = Object.entries(product.specification ?? {}).map(
+    ([key, value]) => ({
+      label: key,
+      value: String(value ?? ""),
+    }),
+  );
+  const hasReturnableSpecification = specifications.some(
+    (item) => item.label.trim().toLowerCase() === "returnable",
+  );
 
   return {
     product,
@@ -1373,7 +1739,9 @@ export async function getLiveProductBySlug(slug: string) {
       slug: product.slug,
       brand: brand?.name ?? product.brandName,
       brandAccent: makeBrandAccent(product.departmentSlug),
-      brandDescription: brand?.description ?? `${product.brandName} products for modern projects and reliable everyday use.`,
+      brandDescription:
+        brand?.description ??
+        `${product.brandName} products for modern projects and reliable everyday use.`,
       gallery:
         imageRows.length > 0
           ? imageRows.map((image) => image.image_url)
@@ -1381,24 +1749,88 @@ export async function getLiveProductBySlug(slug: string) {
             ? product.gallery
             : [product.primaryImageUrl],
       showVariants,
-      variants:
-        showVariants
-          ? variantRows.length > 0
-            ? variantRows.map((variant, index) => ({
-                label: variant.option_value || variant.variant_name || `Variant ${index + 1}`,
-                value: variant.option_value || variant.sku || variant.id,
-                group: variant.option_label?.trim() || null,
+      variants: showVariants
+        ? variantRows.length > 0
+          ? variantRows.map((variant, index) => {
+              const price = calculateVariantPrice({
+                basePrice:
+                  variant.base_price ?? variant.selling_price_override ?? product.price,
+                shadeExtraPrice: variant.shade_extra_price ?? 0,
+                adjustmentType:
+                  (variant.adjustment_type as "none" | "fixed" | "percentage" | null) ??
+                  "fixed",
+              });
+              const shade = variant.shade_id
+                ? snapshot.shadesById.get(variant.shade_id)
+                : null;
+              const label =
+                [
+                  shade?.shade_name ?? variant.shade_name_snapshot,
+                  variant.pack_size,
+                  variant.finish,
+                  variant.variant_name,
+                ]
+                  .filter((value): value is string =>
+                    Boolean(value && value.trim().length > 0),
+                  )
+                  .join(" • ") || `Variant ${index + 1}`;
+
+              return {
+                id: variant.id,
+                label,
+                value: variant.id,
+                group: variant.shade_id ? "Shade" : variant.option_label?.trim() || null,
                 isDefault: variant.is_default,
-              }))
-            : [{ label: "Default", value: "default", group: null, isDefault: true }]
-          : [],
+                shadeId: variant.shade_id,
+                shadeCode: shade?.shade_code ?? variant.shade_code_snapshot ?? null,
+                shadeName: shade?.shade_name ?? variant.shade_name_snapshot ?? null,
+                colorFamily: shade?.color_family ?? variant.color_family_snapshot ?? null,
+                colorSubFamily: shade?.color_sub_family ?? null,
+                hexColor: shade?.hex_color ?? variant.hex_color_snapshot ?? null,
+                packSize: variant.pack_size ?? null,
+                unit: variant.unit ?? null,
+                finish: normalizeFinish(variant.finish),
+                basePrice: price.basePrice,
+                shadeExtraPrice: price.shadeExtraPrice,
+                // Resolve the current variant price from the structured base
+                // and adjustment fields so shade/group pricing is reflected
+                // immediately on the customer product page.
+                finalPrice: price.finalPrice,
+                mrp: toNumber(
+                  variant.mrp_override ?? product.compareAtPrice ?? product.price,
+                ),
+                sku: variant.sku,
+                stock: Math.max(
+                  0,
+                  snapshot.inventoriesByVariantId
+                    .get(variant.id)
+                    ?.reduce(
+                      (sum, inventory) => sum + toNumber(inventory.current_quantity),
+                      0,
+                    ) ?? 0,
+                ),
+                isAvailable: toBoolean(variant.is_available, true),
+              } satisfies ProductVariant;
+            })
+          : [
+              {
+                id: "default",
+                label: "Default",
+                value: "default",
+                group: null,
+                isDefault: true,
+              },
+            ]
+        : [],
       description:
         product.shortDescription ||
         product.description ||
         `Premium ${product.categoryName.toLowerCase()} designed for ${product.departmentName.toLowerCase()} applications.`,
       highlights: [
         product.featured ? "Featured catalog pick" : "Live catalog item",
-        product.inStock ? "In stock and ready to ship" : "Check availability before purchase",
+        product.inStock
+          ? "In stock and ready to ship"
+          : "Check availability before purchase",
         `SKU: ${product.sku}`,
         `Category: ${product.categoryName}`,
       ],
@@ -1423,6 +1855,9 @@ export async function getLiveProductBySlug(slug: string) {
       relatedProductIds: relatedIds,
       recentProductIds: recentlyViewedProducts.map((item) => item.id),
       bundleProductIds: bundleProducts.map((item) => item.id),
+      shades,
+      shadeDisclaimer:
+        "Digital shade preview. Actual colour may vary depending on lighting, surface and screen.",
     } satisfies ProductDetail,
   };
 }
@@ -1437,7 +1872,9 @@ export async function getLiveCategoryBySlug(slug: string) {
 
   const departmentToneValue = departmentTone(category.departmentSlug);
   const relatedCategories = snapshot.categories
-    .filter((item) => item.slug !== slug && item.departmentSlug === category.departmentSlug)
+    .filter(
+      (item) => item.slug !== slug && item.departmentSlug === category.departmentSlug,
+    )
     .slice(0, 4)
     .map((item) => ({
       name: item.name,
@@ -1450,7 +1887,10 @@ export async function getLiveCategoryBySlug(slug: string) {
     category.brands.length > 0
       ? category.brands.map((brand) => ({
           name: brand.name,
-          category: brand.departmentSlug === "plumbing" ? ("Plumbing" as const) : ("Paint" as const),
+          category:
+            brand.departmentSlug === "plumbing"
+              ? ("Plumbing" as const)
+              : ("Paint" as const),
           description: brand.description,
           href: `/brand/${brand.slug}`,
           logo: brand.logoUrl ?? undefined,
@@ -1460,7 +1900,10 @@ export async function getLiveCategoryBySlug(slug: string) {
           .slice(0, 6)
           .map((brand) => ({
             name: brand.name,
-            category: brand.departmentSlug === "plumbing" ? ("Plumbing" as const) : ("Paint" as const),
+            category:
+              brand.departmentSlug === "plumbing"
+                ? ("Plumbing" as const)
+                : ("Paint" as const),
             description: brand.description,
             href: `/brand/${brand.slug}`,
             logo: brand.logoUrl ?? undefined,
@@ -1476,7 +1919,8 @@ export async function getLiveCategoryBySlug(slug: string) {
   return {
     slug: category.slug,
     title: category.name,
-    eyebrow: category.departmentSlug === "plumbing" ? "Flow systems" : "Surface solutions",
+    eyebrow:
+      category.departmentSlug === "plumbing" ? "Flow systems" : "Surface solutions",
     description: category.description,
     subtitle:
       category.departmentSlug === "plumbing"
@@ -1506,11 +1950,17 @@ export async function getLiveBrandBySlug(slug: string) {
   }
 
   const theme = brandThemeFromDepartment(brand.departmentSlug);
-  const heroScene = categoryScene(brand.categoryName ?? brand.departmentName, brand.departmentSlug);
+  const heroScene = categoryScene(
+    brand.categoryName ?? brand.departmentName,
+    brand.departmentSlug,
+  );
   const relatedBrands = snapshot.brands
     .filter((item) => item.slug !== slug && item.departmentSlug === brand.departmentSlug)
     .slice(0, 3);
-  const featuredProductIds = brand.products.filter((product) => product.featured).slice(0, 2).map((product) => product.id);
+  const featuredProductIds = brand.products
+    .filter((product) => product.featured)
+    .slice(0, 2)
+    .map((product) => product.id);
   const recentProductIds = brand.products.slice(0, 3).map((product) => product.id);
 
   return {
@@ -1521,7 +1971,9 @@ export async function getLiveBrandBySlug(slug: string) {
     heroScene,
     heroImagePlaceholder: `${brand.name} signature experience`,
     description: brand.description,
-    founded: new Date(brand.createdAt ?? brand.products[0]?.createdAt ?? Date.now()).getFullYear(),
+    founded: new Date(
+      brand.createdAt ?? brand.products[0]?.createdAt ?? Date.now(),
+    ).getFullYear(),
     headquarters: brand.departmentName === "Plumbing" ? "India" : "India",
     theme,
     categories: snapshot.categories
@@ -1563,24 +2015,31 @@ export async function getLiveBrandBySlug(slug: string) {
         ? [
             {
               question: "How do I choose between PVC and CPVC?",
-              answer: "Use PVC for standard drainage and CPVC where temperature and pressure requirements are higher.",
+              answer:
+                "Use PVC for standard drainage and CPVC where temperature and pressure requirements are higher.",
             },
             {
               question: "What matters most when selecting faucets?",
-              answer: "Finish quality, cartridge reliability, and compatibility with the sink or basin matter most.",
+              answer:
+                "Finish quality, cartridge reliability, and compatibility with the sink or basin matter most.",
             },
           ]
         : [
             {
               question: "Which brand collection should I choose for living spaces?",
-              answer: "Pick interior finishes with washable, smooth or silk-like surfaces for a premium everyday look.",
+              answer:
+                "Pick interior finishes with washable, smooth or silk-like surfaces for a premium everyday look.",
             },
             {
               question: "Do I need primer before painting?",
-              answer: "Primer is recommended for better adhesion, smoother finish, and longer product life.",
+              answer:
+                "Primer is recommended for better adhesion, smoother finish, and longer product life.",
             },
           ],
-    buyingGuide: makeBuyingGuide(brand.departmentSlug, brand.categoryName ?? brand.departmentName),
+    buyingGuide: makeBuyingGuide(
+      brand.departmentSlug,
+      brand.categoryName ?? brand.departmentName,
+    ),
     relatedBrandSlugs: relatedBrands.map((item) => item.slug),
     history: [
       {
@@ -1591,12 +2050,14 @@ export async function getLiveBrandBySlug(slug: string) {
       {
         year: "Recently",
         title: "Expanded collections",
-        description: "The catalog grew with more active products and curated category coverage.",
+        description:
+          "The catalog grew with more active products and curated category coverage.",
       },
       {
         year: "Today",
         title: "Premium storefront",
-        description: "Customers can explore this brand across the live UniqueShopee storefront.",
+        description:
+          "Customers can explore this brand across the live UniqueShopee storefront.",
       },
     ],
     strengths: [
@@ -1609,16 +2070,43 @@ export async function getLiveBrandBySlug(slug: string) {
     trustPillars:
       brand.departmentSlug === "plumbing"
         ? [
-            { title: "Reliable flow", description: "Built for smooth, consistent performance in daily use." },
-            { title: "Installation ready", description: "Designed to work cleanly with common residential setups." },
-            { title: "Long service life", description: "Materials and construction focused on durability." },
-            { title: "Trusted by contractors", description: "Frequently chosen for professional plumbing projects." },
+            {
+              title: "Reliable flow",
+              description: "Built for smooth, consistent performance in daily use.",
+            },
+            {
+              title: "Installation ready",
+              description: "Designed to work cleanly with common residential setups.",
+            },
+            {
+              title: "Long service life",
+              description: "Materials and construction focused on durability.",
+            },
+            {
+              title: "Trusted by contractors",
+              description: "Frequently chosen for professional plumbing projects.",
+            },
           ]
         : [
-            { title: "Premium quality", description: "Trusted finishes designed for consistent colour and surface performance." },
-            { title: "Wide dealer network", description: "Easy availability through a strong project and retail reach." },
-            { title: "Warranty support", description: "Assurance that helps professionals and homeowners buy with confidence." },
-            { title: "Trusted professionals", description: "Specified by painters, contractors, and interior specialists." },
+            {
+              title: "Premium quality",
+              description:
+                "Trusted finishes designed for consistent colour and surface performance.",
+            },
+            {
+              title: "Wide dealer network",
+              description: "Easy availability through a strong project and retail reach.",
+            },
+            {
+              title: "Warranty support",
+              description:
+                "Assurance that helps professionals and homeowners buy with confidence.",
+            },
+            {
+              title: "Trusted professionals",
+              description:
+                "Specified by painters, contractors, and interior specialists.",
+            },
           ],
   } satisfies BrandContent;
 }
@@ -1682,21 +2170,40 @@ export function getCatalogSearchResults(snapshot: SearchResults, query: string) 
   const products = snapshot.products
     .filter((product) => {
       if (!term) return true;
-      return scoreMatch([product.name, product.category, product.brand, ...product.keywords]) > 0;
+      return (
+        scoreMatch([product.name, product.category, product.brand, ...product.keywords]) >
+        0
+      );
     })
-    .map((product) => ({ product, score: scoreMatch([product.name, product.category, product.brand, ...product.keywords]) }))
+    .map((product) => ({
+      product,
+      score: scoreMatch([
+        product.name,
+        product.category,
+        product.brand,
+        ...product.keywords,
+      ]),
+    }))
     .sort((left, right) => {
       if (!term) {
-        return Number(right.product.isFeatured) - Number(left.product.isFeatured) || Number(right.product.isNew) - Number(left.product.isNew);
+        return (
+          Number(right.product.isFeatured) - Number(left.product.isFeatured) ||
+          Number(right.product.isNew) - Number(left.product.isNew)
+        );
       }
-      return right.score - left.score || (right.product.rating ?? 0) - (left.product.rating ?? 0);
+      return (
+        right.score - left.score ||
+        (right.product.rating ?? 0) - (left.product.rating ?? 0)
+      );
     })
     .map((entry) => entry.product);
 
   const brands = snapshot.brands
     .filter((brand) => {
       if (!term) return true;
-      return scoreMatch([brand.name, brand.category, brand.tagline, ...brand.keywords]) > 0;
+      return (
+        scoreMatch([brand.name, brand.category, brand.tagline, ...brand.keywords]) > 0
+      );
     })
     .sort((left, right) => {
       if (!term) return left.name.localeCompare(right.name);
@@ -1734,7 +2241,10 @@ export async function getLiveSearchResults(query: string) {
 
 export async function getLiveHomeBrands() {
   const snapshot = await getCatalogSnapshot();
-  return snapshot.brands.map((brand) => ({ name: brand.name, href: `/brand/${brand.slug}` }));
+  return snapshot.brands.map((brand) => ({
+    name: brand.name,
+    href: `/brand/${brand.slug}`,
+  }));
 }
 
 export type {

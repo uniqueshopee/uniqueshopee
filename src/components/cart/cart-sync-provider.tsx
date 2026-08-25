@@ -20,6 +20,7 @@ import { getQaCartItems, isQaBypassEnabled } from "@/lib/qa-mode";
 import type { CartItem } from "@/types";
 import { toast } from "@/hooks/use-toast";
 import { UI_MESSAGES, getFriendlyErrorMessage } from "@/lib/messages";
+import { buildCartItemKey } from "@/lib/variant-pricing";
 
 type CartMode = "guest" | "authenticated";
 
@@ -32,6 +33,7 @@ type CartSyncContextValue = {
   dismissGuestMerge: () => void;
   syncError: string | null;
   retrySync: () => void;
+  flushSync: () => Promise<boolean>;
 };
 
 const CartSyncContext = createContext<CartSyncContextValue | null>(null);
@@ -40,18 +42,9 @@ function mergeItems(base: CartItem[], addition: CartItem[]) {
   const merged = [...base.map((item) => ({ ...item }))];
 
   for (const item of addition) {
-    const existing = merged.find((entry) => entry.productId === item.productId);
+    const existing = merged.find((entry) => buildCartItemKey(entry) === buildCartItemKey(item));
     if (existing) {
-      existing.quantity += item.quantity;
-      existing.price = item.price || existing.price;
-      existing.image = item.image || existing.image;
-      existing.slug = item.slug ?? existing.slug;
-      existing.category = item.category ?? existing.category;
-      existing.compareAtPrice = item.compareAtPrice ?? existing.compareAtPrice;
-      existing.inStock = item.inStock ?? existing.inStock;
-      existing.stockCount = item.stockCount ?? existing.stockCount;
-      existing.reservedCount = item.reservedCount ?? existing.reservedCount;
-      existing.lowStockThreshold = item.lowStockThreshold ?? existing.lowStockThreshold;
+      Object.assign(existing, item, { quantity: existing.quantity + item.quantity });
     } else {
       merged.push({ ...item });
     }
@@ -79,6 +72,45 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
   const guestItemsRef = useRef<CartItem[]>([]);
   const lastSyncedSignatureRef = useRef<string>("");
 
+  const flushSync = useCallback(async () => {
+    if (!loaded || hydratingRef.current) {
+      return false;
+    }
+
+    if (mode === "guest") {
+      const currentItems = useCartStore.getState().items;
+      writeGuestCart({ items: currentItems, couponCode });
+      lastSyncedSignatureRef.current = JSON.stringify({
+        mode: "guest",
+        items: currentItems.map((item) => [buildCartItemKey(item), item.quantity, item.shadeName, item.shadeCode, item.shadeFamily, item.shadeHexColor]).sort(),
+        couponCode: couponCode ?? "",
+      });
+      return true;
+    }
+
+    if (isQaBypassEnabled()) {
+      return true;
+    }
+
+    if (!user || !resolvedProfileId) {
+      return false;
+    }
+
+    const currentItems = useCartStore.getState().items;
+    const result = await replaceRemoteCartItems(resolvedProfileId, currentItems);
+    if (result.error) {
+      setSyncError(result.error);
+      return false;
+    }
+
+    setSyncError(null);
+    lastSyncedSignatureRef.current = JSON.stringify({
+      mode: "authenticated",
+      items: currentItems.map((item) => [buildCartItemKey(item), item.quantity, item.shadeName, item.shadeCode, item.shadeFamily, item.shadeHexColor]).sort(),
+    });
+    return true;
+  }, [couponCode, loaded, mode, resolvedProfileId, user]);
+
   useEffect(() => {
     if (loading) {
       return;
@@ -103,7 +135,10 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
         setMergeAvailable(false);
         setGuestItemCount(0);
         setLoaded(true);
-        lastSyncedSignatureRef.current = JSON.stringify({ mode: "qa", items: qaItems.map((item) => [item.productId, item.quantity]).sort() });
+        lastSyncedSignatureRef.current = JSON.stringify({
+          mode: "qa",
+          items: qaItems.map((item) => [item.productId, item.quantity]).sort(),
+        });
         hydratingRef.current = false;
         return;
       }
@@ -115,12 +150,17 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
         setMergeAvailable(false);
         setGuestItemCount(guest.items.length);
         setLoaded(true);
-        lastSyncedSignatureRef.current = JSON.stringify({ mode: "guest", items: guest.items.map((item) => [item.productId, item.quantity]).sort(), couponCode: guest.couponCode ?? "" });
+        lastSyncedSignatureRef.current = JSON.stringify({
+          mode: "guest",
+          items: guest.items.map((item) => [buildCartItemKey(item), item.quantity, item.shadeName, item.shadeCode, item.shadeFamily, item.shadeHexColor]).sort(),
+          couponCode: guest.couponCode ?? "",
+        });
         hydratingRef.current = false;
         return;
       }
 
-      const resolvedProfile = profile ?? (client ? await ensureCurrentUserProfile(client) : null);
+      const resolvedProfile =
+        profile ?? (client ? await ensureCurrentUserProfile(client) : null);
       if (!resolvedProfile) {
         setMode("guest");
         setResolvedProfileId(null);
@@ -129,12 +169,18 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
         setGuestItemCount(guest.items.length);
         setSyncError("Your account is still syncing. Tap retry in a moment.");
         setLoaded(true);
-        lastSyncedSignatureRef.current = JSON.stringify({ mode: "guest", items: guest.items.map((item) => [item.productId, item.quantity]).sort(), couponCode: guest.couponCode ?? "" });
+        lastSyncedSignatureRef.current = JSON.stringify({
+          mode: "guest",
+          items: guest.items.map((item) => [buildCartItemKey(item), item.quantity, item.shadeName, item.shadeCode, item.shadeFamily, item.shadeHexColor]).sort(),
+          couponCode: guest.couponCode ?? "",
+        });
         hydratingRef.current = false;
         return;
       }
 
-      const remoteItems = await loadRemoteCartItems(resolvedProfile.id, client, { profileId: resolvedProfile.id });
+      const remoteItems = await loadRemoteCartItems(resolvedProfile.id, client, {
+        profileId: resolvedProfile.id,
+      });
       if (!hydratingRef.current) {
         return;
       }
@@ -147,7 +193,7 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
       setLoaded(true);
       lastSyncedSignatureRef.current = JSON.stringify({
         mode: "authenticated",
-        items: remoteItems.map((item) => [item.productId, item.quantity]).sort(),
+        items: remoteItems.map((item) => [buildCartItemKey(item), item.quantity, item.shadeName, item.shadeCode, item.shadeFamily, item.shadeHexColor]).sort(),
       });
       hydratingRef.current = false;
     };
@@ -163,7 +209,7 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
     if (mode === "guest") {
       const signature = JSON.stringify({
         mode: "guest",
-        items: items.map((item) => [item.productId, item.quantity]).sort(),
+        items: items.map((item) => [buildCartItemKey(item), item.quantity, item.shadeName, item.shadeCode, item.shadeFamily, item.shadeHexColor]).sort(),
         couponCode: couponCode ?? "",
       });
 
@@ -190,7 +236,7 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
 
     const signature = JSON.stringify({
       mode: "authenticated",
-      items: items.map((item) => [item.productId, item.quantity]).sort(),
+      items: items.map((item) => [buildCartItemKey(item), item.quantity, item.shadeName, item.shadeCode, item.shadeFamily, item.shadeHexColor]).sort(),
     });
 
     if (signature === lastSyncedSignatureRef.current) {
@@ -199,17 +245,15 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
 
     syncTimerRef.current = window.setTimeout(() => {
       void (async () => {
-        const result = await replaceRemoteCartItems(resolvedProfileId, items);
-        if (result.error) {
-          setSyncError(result.error);
+        const synced = await flushSync();
+        if (!synced) {
           toast({
             title: "Cart sync failed",
-            description: getFriendlyErrorMessage(result.error, UI_MESSAGES.generic.server),
+            description: "Your cart could not be saved. Please retry before checkout.",
             variant: "danger",
           });
         } else {
           setSyncError(null);
-          lastSyncedSignatureRef.current = signature;
         }
       })();
     }, 250);
@@ -219,16 +263,23 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
         window.clearTimeout(syncTimerRef.current);
       }
     };
-  }, [couponCode, items, loaded, mode, resolvedProfileId, user]);
+  }, [couponCode, flushSync, items, loaded, mode, resolvedProfileId, user]);
 
   const mergeGuestCart = useCallback(async () => {
     const client = getSupabaseBrowserClient();
-    const resolvedProfile = profile ?? (resolvedProfileId ? { id: resolvedProfileId } : client ? await ensureCurrentUserProfile(client) : null);
+    const resolvedProfile =
+      profile ??
+      (resolvedProfileId
+        ? { id: resolvedProfileId }
+        : client
+          ? await ensureCurrentUserProfile(client)
+          : null);
     if (!user || !resolvedProfile) {
       return;
     }
 
-    const guest = guestItemsRef.current.length > 0 ? guestItemsRef.current : readGuestCart().items;
+    const guest =
+      guestItemsRef.current.length > 0 ? guestItemsRef.current : readGuestCart().items;
     if (guest.length === 0) {
       setMergeAvailable(false);
       return;
@@ -276,8 +327,19 @@ function CartSyncProvider({ children }: { children: ReactNode }) {
       dismissGuestMerge,
       syncError,
       retrySync,
+      flushSync,
     }),
-    [dismissGuestMerge, guestItemCount, loaded, mergeGuestCart, mergeAvailable, mode, retrySync, syncError],
+    [
+      dismissGuestMerge,
+      flushSync,
+      guestItemCount,
+      loaded,
+      mergeGuestCart,
+      mergeAvailable,
+      mode,
+      retrySync,
+      syncError,
+    ],
   );
 
   return <CartSyncContext.Provider value={value}>{children}</CartSyncContext.Provider>;

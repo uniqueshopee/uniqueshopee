@@ -220,10 +220,10 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
                 <p className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[0.22em] text-muted">
                   {product.subtitle}
                 </p>
-                <div className="flex shrink-0 items-center gap-1 text-sm font-bold text-emerald-600">
+                {product.rating && product.rating > 0 ? <div className="flex shrink-0 items-center gap-1 text-sm font-bold text-emerald-600">
                   <Star className="h-4 w-4 fill-emerald-600 text-emerald-600" />
-                  <span>{product.rating?.toFixed(1) ?? "4.6"}</span>
-                </div>
+                  <span>{product.rating.toFixed(1)}</span>
+                </div> : null}
               </div>
               <h3 className="line-clamp-2 text-[1.05rem] font-black leading-[1.05] text-text">{product.title}</h3>
 

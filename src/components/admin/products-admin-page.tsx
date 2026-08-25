@@ -21,6 +21,7 @@ import {
   PageHeader,
 } from "@/components/admin/admin-kit";
 import { getQaProductCatalog, isQaBypassEnabled } from "@/lib/qa-mode";
+import { calculatePricingLine } from "@/lib/pricing-engine";
 import {
   ChevronDown,
   Copy,
@@ -113,6 +114,12 @@ type ProductVariantRecord = {
   option_label: string | null;
   option_value: string | null;
   variant_options: JsonRecord | null;
+  pack_size: string | null;
+  unit: string | null;
+  finish: string | null;
+  base_price: number | string | null;
+  final_price: number | string | null;
+  is_available: boolean;
   mrp_override: number | string | null;
   selling_price_override: number | string | null;
   barcode: string | null;
@@ -151,6 +158,10 @@ type ProductVariantDraft = {
   imageUrl: string;
   active: boolean;
   primary: boolean;
+  finish: string;
+  packSize: string;
+  unit: string;
+  basePrice: string;
 };
 
 type SpecDraft = {
@@ -209,7 +220,13 @@ type ProductSummary = {
 };
 
 const PRODUCT_PAGE_SIZE = 6;
-const productStatuses = ["draft", "active", "inactive", "out_of_stock", "archived"] as const;
+const productStatuses = [
+  "draft",
+  "active",
+  "inactive",
+  "out_of_stock",
+  "archived",
+] as const;
 const CORE_DEPARTMENTS = [
   { name: "Paints", slug: "paints" },
   { name: "Plumbing", slug: "plumbing" },
@@ -236,7 +253,10 @@ const CORE_CATEGORY_SEEDS: Record<string, Array<{ name: string; slug: string }>>
     { name: "Sealants", slug: "sealants" },
   ],
 };
-const DEPARTMENT_FIELD_PRESETS: Record<string, Array<{ key: string; label: string; placeholder: string }>> = {
+const DEPARTMENT_FIELD_PRESETS: Record<
+  string,
+  Array<{ key: string; label: string; placeholder: string }>
+> = {
   paints: [
     { key: "paint_type", label: "Paint Type", placeholder: "Emulsion, enamel, primer" },
     { key: "finish", label: "Finish", placeholder: "Matte, glossy, satin" },
@@ -244,13 +264,21 @@ const DEPARTMENT_FIELD_PRESETS: Record<string, Array<{ key: string; label: strin
     { key: "shade_code", label: "Shade Code", placeholder: "PS-1024" },
     { key: "coverage", label: "Coverage", placeholder: "120 sq ft / litre" },
     { key: "dry_time", label: "Dry Time", placeholder: "30 minutes" },
-    { key: "surface_type", label: "Surface Type", placeholder: "Interior wall, wood, metal" },
+    {
+      key: "surface_type",
+      label: "Surface Type",
+      placeholder: "Interior wall, wood, metal",
+    },
   ],
   plumbing: [
     { key: "material", label: "Material", placeholder: "Brass, PVC, steel" },
     { key: "pipe_size", label: "Pipe Size", placeholder: "1/2 inch" },
     { key: "size", label: "Size", placeholder: "20 mm" },
-    { key: "connection_type", label: "Connection Type", placeholder: "Threaded, compression" },
+    {
+      key: "connection_type",
+      label: "Connection Type",
+      placeholder: "Threaded, compression",
+    },
     { key: "pressure_rating", label: "Pressure Rating", placeholder: "12 bar" },
     { key: "finish", label: "Finish", placeholder: "Chrome, matte, polished" },
     { key: "colour", label: "Colour", placeholder: "Silver, black, white" },
@@ -326,7 +354,8 @@ function getBooleanValue(value: unknown, fallback: boolean) {
 }
 
 function generateFallbackSku(value: string) {
-  const base = slugifyProduct(value).replace(/-/g, "").slice(0, 8).toUpperCase() || "PROD";
+  const base =
+    slugifyProduct(value).replace(/-/g, "").slice(0, 8).toUpperCase() || "PROD";
   return `${base}-${Date.now().toString(36).toUpperCase()}`;
 }
 
@@ -335,7 +364,11 @@ function formatStatusLabel(status: string, deletedAt?: string | null) {
   return status;
 }
 
-function stockStatusFromValues(currentQuantity: number, reservedQuantity: number, threshold: number) {
+function stockStatusFromValues(
+  currentQuantity: number,
+  reservedQuantity: number,
+  threshold: number,
+) {
   const available = Math.max(currentQuantity - reservedQuantity, 0);
   if (available <= 0) return "out_of_stock";
   if (available <= threshold) return "low_stock";
@@ -343,12 +376,18 @@ function stockStatusFromValues(currentQuantity: number, reservedQuantity: number
 }
 
 function makeId() {
-  if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.randomUUID === "function") {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.randomUUID === "function"
+  ) {
     return globalThis.crypto.randomUUID();
   }
 
   const bytes = new Uint8Array(16);
-  if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.getRandomValues === "function") {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.getRandomValues === "function"
+  ) {
     globalThis.crypto.getRandomValues(bytes);
   } else {
     for (let index = 0; index < bytes.length; index += 1) {
@@ -390,6 +429,10 @@ function createVariantDraft(seed?: Partial<ProductVariantDraft>): ProductVariant
     imageUrl: seed?.imageUrl ?? "",
     active: seed?.active ?? true,
     primary: seed?.primary ?? false,
+    finish: seed?.finish ?? "",
+    packSize: seed?.packSize ?? "",
+    unit: seed?.unit ?? "L",
+    basePrice: seed?.basePrice ?? seed?.price ?? "",
   };
 }
 
@@ -425,7 +468,12 @@ function buildEmptyProductForm(): ProductFormState {
 
 type PickerMode = "category" | "brand" | null;
 
-function buildProductFormFromSummary(summary: ProductSummary, images: ProductImageRecord[], variants: ProductVariantRecord[], inventories: InventoryRecord[]) {
+function buildProductFormFromSummary(
+  summary: ProductSummary,
+  images: ProductImageRecord[],
+  variants: ProductVariantRecord[],
+  inventories: InventoryRecord[],
+) {
   const record = summary.record;
   const attributes = (record.attributes ?? {}) as JsonRecord;
   const productImages = images
@@ -441,7 +489,9 @@ function buildProductFormFromSummary(summary: ProductSummary, images: ProductIma
   const variantDrafts = variants
     .filter((variant) => variant.deleted_at === null)
     .map((variant) => {
-      const inventory = inventories.find((item) => item.product_variant_id === variant.id && item.deleted_at === null);
+      const inventory = inventories.find(
+        (item) => item.product_variant_id === variant.id && item.deleted_at === null,
+      );
       return {
         id: variant.id,
         variantName: variant.variant_name,
@@ -450,22 +500,45 @@ function buildProductFormFromSummary(summary: ProductSummary, images: ProductIma
         sku: variant.sku,
         price: String(variant.selling_price_override ?? ""),
         stock: String(inventory?.current_quantity ?? 0),
-        imageUrl: "",
+        imageUrl:
+          typeof variant.variant_options?.image_url === "string"
+            ? variant.variant_options.image_url
+            : "",
         active: variant.is_active,
         primary: variant.is_default,
+        finish: variant.finish ?? "",
+        packSize: variant.pack_size ?? "",
+        unit: variant.unit ?? "L",
+        basePrice: String(variant.base_price ?? variant.selling_price_override ?? ""),
       };
     });
 
-  const specs = Object.entries((record.specification ?? {}) as JsonRecord).map(([key, value]) => createSpecDraft({ key, value: String(value ?? "") }));
+  const specs = Object.entries((record.specification ?? {}) as JsonRecord).map(
+    ([key, value]) => createSpecDraft({ key, value: String(value ?? "") }),
+  );
   const relatedIds = Array.isArray(attributes.related_product_ids)
     ? (attributes.related_product_ids as string[])
     : [];
 
   const shipping = (attributes.shipping as JsonRecord | undefined) ?? {};
-  const showVariants = getBooleanValue(attributes.show_variants ?? attributes.showVariants, true);
-  const returnable = getBooleanValue(attributes.returnable ?? attributes.is_returnable ?? attributes.returnable_product, false);
-  const exclusiveOffer = getBooleanValue(attributes.exclusive_offer ?? attributes.exclusiveOffer ?? attributes.offer_exclusive, false);
-  const exclusiveOfferPercent = String(attributes.exclusive_offer_percent ?? attributes.exclusiveOfferPercent ?? attributes.offer_percent ?? "");
+  const showVariants = getBooleanValue(
+    attributes.show_variants ?? attributes.showVariants,
+    true,
+  );
+  const returnable = getBooleanValue(
+    attributes.returnable ?? attributes.is_returnable ?? attributes.returnable_product,
+    false,
+  );
+  const exclusiveOffer = getBooleanValue(
+    attributes.exclusive_offer ?? attributes.exclusiveOffer ?? attributes.offer_exclusive,
+    false,
+  );
+  const exclusiveOfferPercent = String(
+    attributes.exclusive_offer_percent ??
+      attributes.exclusiveOfferPercent ??
+      attributes.offer_percent ??
+      "",
+  );
 
   return {
     name: record.name,
@@ -500,14 +573,34 @@ function buildProductFormFromSummary(summary: ProductSummary, images: ProductIma
     returnable,
     exclusiveOffer,
     exclusiveOfferPercent,
-    images: productImages.length > 0 ? productImages : [createImageDraft(record.og_image_url ?? "", 0)].filter((item) => item.url),
-    variants: variantDrafts.length > 0 ? variantDrafts : [createVariantDraft({ variantName: "Default", sku: record.sku, price: String(record.selling_price), stock: String(inventories[0]?.current_quantity ?? 0), primary: true })],
+    images:
+      productImages.length > 0
+        ? productImages
+        : [createImageDraft(record.og_image_url ?? "", 0)].filter((item) => item.url),
+    variants:
+      variantDrafts.length > 0
+        ? variantDrafts
+        : [
+            createVariantDraft({
+              variantName: "Default",
+              sku: record.sku,
+              price: String(record.selling_price),
+              basePrice: String(record.selling_price),
+              stock: String(inventories[0]?.current_quantity ?? 0),
+              primary: true,
+            }),
+          ],
     specifications: specs.length > 0 ? specs : [createSpecDraft()],
     relatedProductIds: relatedIds,
   } satisfies ProductFormState;
 }
 
-function buildDuplicateProductForm(summary: ProductSummary, images: ProductImageRecord[], variants: ProductVariantRecord[], inventories: InventoryRecord[]) {
+function buildDuplicateProductForm(
+  summary: ProductSummary,
+  images: ProductImageRecord[],
+  variants: ProductVariantRecord[],
+  inventories: InventoryRecord[],
+) {
   const form = buildProductFormFromSummary(summary, images, variants, inventories);
   return {
     ...form,
@@ -521,15 +614,24 @@ function buildDuplicateProductForm(summary: ProductSummary, images: ProductImage
   } satisfies ProductFormState;
 }
 
-async function ensureCoreCatalogData(client: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>) {
+async function ensureCoreCatalogData(
+  client: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+) {
   const { data: departmentRows, error: departmentError } = await client
     .from("departments")
     .select("id, slug, name")
-    .in("slug", CORE_DEPARTMENTS.map((department) => department.slug));
+    .in(
+      "slug",
+      CORE_DEPARTMENTS.map((department) => department.slug),
+    );
   if (departmentError) throw departmentError;
 
-  const existingDepartmentSlugs = new Set((departmentRows ?? []).map((department) => department.slug));
-  const departmentsToSeed = CORE_DEPARTMENTS.filter((department) => !existingDepartmentSlugs.has(department.slug)).map((department, index) => ({
+  const existingDepartmentSlugs = new Set(
+    (departmentRows ?? []).map((department) => department.slug),
+  );
+  const departmentsToSeed = CORE_DEPARTMENTS.filter(
+    (department) => !existingDepartmentSlugs.has(department.slug),
+  ).map((department, index) => ({
     slug: department.slug,
     name: department.name,
     sort_order: index,
@@ -537,41 +639,60 @@ async function ensureCoreCatalogData(client: NonNullable<ReturnType<typeof getSu
   }));
 
   if (departmentsToSeed.length > 0) {
-    const { error } = await client.from("departments").upsert(departmentsToSeed, { onConflict: "slug" });
+    const { error } = await client
+      .from("departments")
+      .upsert(departmentsToSeed, { onConflict: "slug" });
     if (error) throw error;
   }
 
   const { data: seededDepartments, error: seededDepartmentError } = await client
     .from("departments")
     .select("id, slug")
-    .in("slug", CORE_DEPARTMENTS.map((department) => department.slug));
+    .in(
+      "slug",
+      CORE_DEPARTMENTS.map((department) => department.slug),
+    );
   if (seededDepartmentError) throw seededDepartmentError;
 
-  const departmentIdBySlug = new Map((seededDepartments ?? []).map((department) => [department.slug, department.id]));
-  const categoryPayloads = Object.entries(CORE_CATEGORY_SEEDS).flatMap(([departmentSlug, categoriesForDepartment]) => {
-    const departmentId = departmentIdBySlug.get(departmentSlug);
-    if (!departmentId) return [];
+  const departmentIdBySlug = new Map(
+    (seededDepartments ?? []).map((department) => [department.slug, department.id]),
+  );
+  const categoryPayloads = Object.entries(CORE_CATEGORY_SEEDS).flatMap(
+    ([departmentSlug, categoriesForDepartment]) => {
+      const departmentId = departmentIdBySlug.get(departmentSlug);
+      if (!departmentId) return [];
 
-    return categoriesForDepartment.map((category, index) => ({
-      department_id: departmentId,
-      slug: category.slug,
-      name: category.name,
-      description: null,
-      image_url: null,
-      sort_order: index,
-      is_active: true,
-    }));
-  });
+      return categoriesForDepartment.map((category, index) => ({
+        department_id: departmentId,
+        slug: category.slug,
+        name: category.name,
+        description: null,
+        image_url: null,
+        sort_order: index,
+        is_active: true,
+      }));
+    },
+  );
 
   if (categoryPayloads.length > 0) {
-    const { error } = await client.from("categories").upsert(categoryPayloads, { onConflict: "slug" });
+    const { error } = await client
+      .from("categories")
+      .upsert(categoryPayloads, { onConflict: "slug" });
     if (error) throw error;
   }
 }
 
-function ProductImagePreview({ url, alt, label }: { url: string | null; alt: string; label: string }) {
+function ProductImagePreview({
+  url,
+  alt,
+  label,
+}: {
+  url: string | null;
+  alt: string;
+  label: string;
+}) {
   return (
-    <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-[1rem] border border-border/70 bg-background-secondary/40">
+    <div className="border-border/70 bg-background-secondary/40 flex h-full w-full items-center justify-center overflow-hidden rounded-[1rem] border">
       {url ? (
         <div
           className="h-full w-full bg-cover bg-center"
@@ -580,7 +701,7 @@ function ProductImagePreview({ url, alt, label }: { url: string | null; alt: str
           aria-label={alt || label}
         />
       ) : (
-        <LayoutGrid className="h-5 w-5 text-accent" aria-hidden="true" />
+        <LayoutGrid className="text-accent h-5 w-5" aria-hidden="true" />
       )}
     </div>
   );
@@ -596,9 +717,13 @@ function ProductsAdminPage() {
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [brandFilter, setBrandFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [featuredFilter, setFeaturedFilter] = useState<"all" | "featured" | "standard">("all");
+  const [featuredFilter, setFeaturedFilter] = useState<"all" | "featured" | "standard">(
+    "all",
+  );
   const [relatedSearchTerm, setRelatedSearchTerm] = useState("");
-  const [sortBy, setSortBy] = useState<"updated_at" | "created_at" | "name" | "price" | "stock" | "status">("updated_at");
+  const [sortBy, setSortBy] = useState<
+    "updated_at" | "created_at" | "name" | "price" | "stock" | "status"
+  >("updated_at");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -617,6 +742,17 @@ function ProductsAdminPage() {
   const [inventories, setInventories] = useState<InventoryRecord[]>([]);
   const [form, setForm] = useState<ProductFormState>(buildEmptyProductForm());
   const [formErrors, setFormErrors] = useState<Partial<Record<string, string>>>({});
+  const adminPreviewLine = useMemo(() => {
+    const variant = form.variants[0];
+    return calculatePricingLine({
+      mrp: form.mrp,
+      sellingPrice: variant?.basePrice || variant?.price || form.sellingPrice,
+      shadeExtraPrice: 0,
+      adjustmentType: "none",
+      gstRate: form.gstRate,
+      quantity: 1,
+    });
+  }, [form.gstRate, form.mrp, form.sellingPrice, form.variants]);
   const [slugTouched, setSlugTouched] = useState(false);
   const [pickerMode, setPickerMode] = useState<PickerMode>(null);
   const [pickerQuery, setPickerQuery] = useState("");
@@ -625,15 +761,36 @@ function ProductsAdminPage() {
   const [focusProductName, setFocusProductName] = useState(false);
   const productNameRef = useRef<HTMLInputElement>(null);
 
-  const departmentNameById = useMemo(() => new Map(departments.map((item) => [item.id, item.name])), [departments]);
-  const departmentSlugById = useMemo(() => new Map(departments.map((item) => [item.id, item.slug])), [departments]);
-  const categoryById = useMemo(() => new Map(categories.map((item) => [item.id, item])), [categories]);
-  const brandById = useMemo(() => new Map(brands.map((item) => [item.id, item])), [brands]);
+  const departmentNameById = useMemo(
+    () => new Map(departments.map((item) => [item.id, item.name])),
+    [departments],
+  );
+  const departmentSlugById = useMemo(
+    () => new Map(departments.map((item) => [item.id, item.slug])),
+    [departments],
+  );
+  const categoryById = useMemo(
+    () => new Map(categories.map((item) => [item.id, item])),
+    [categories],
+  );
+  const brandById = useMemo(
+    () => new Map(brands.map((item) => [item.id, item])),
+    [brands],
+  );
   const selectedDepartmentSlug = departmentSlugById.get(form.departmentId) ?? "";
-  const departmentFieldPresets = useMemo(() => DEPARTMENT_FIELD_PRESETS[selectedDepartmentSlug] ?? [], [selectedDepartmentSlug]);
+  const departmentFieldPresets = useMemo(
+    () => DEPARTMENT_FIELD_PRESETS[selectedDepartmentSlug] ?? [],
+    [selectedDepartmentSlug],
+  );
 
   const availableCategories = useMemo(
-    () => categories.filter((category) => category.department_id === form.departmentId && category.deleted_at === null && category.is_active),
+    () =>
+      categories.filter(
+        (category) =>
+          category.department_id === form.departmentId &&
+          category.deleted_at === null &&
+          category.is_active,
+      ),
     [categories, form.departmentId],
   );
   const availableBrands = useMemo(
@@ -643,52 +800,94 @@ function ProductsAdminPage() {
           brand.deleted_at === null &&
           brand.is_active &&
           (!form.departmentId || brand.department_id === form.departmentId) &&
-          (!form.categoryId || brand.category_id === null || brand.category_id === form.categoryId),
+          (!form.categoryId ||
+            brand.category_id === null ||
+            brand.category_id === form.categoryId),
       ),
     [brands, form.categoryId, form.departmentId],
   );
   const filteredCategories = useMemo(() => {
     const term = pickerQuery.trim().toLowerCase();
     if (!term) return availableCategories;
-    return availableCategories.filter((category) => [category.name, category.slug].join(" ").toLowerCase().includes(term));
+    return availableCategories.filter((category) =>
+      [category.name, category.slug].join(" ").toLowerCase().includes(term),
+    );
   }, [availableCategories, pickerQuery]);
   const filteredBrands = useMemo(() => {
     const term = pickerQuery.trim().toLowerCase();
     if (!term) return availableBrands;
-    return availableBrands.filter((brand) => [brand.name, brand.slug].join(" ").toLowerCase().includes(term));
+    return availableBrands.filter((brand) =>
+      [brand.name, brand.slug].join(" ").toLowerCase().includes(term),
+    );
   }, [availableBrands, pickerQuery]);
-  const departmentCategorySuggestions = useMemo(() => CORE_CATEGORY_SEEDS[selectedDepartmentSlug] ?? [], [selectedDepartmentSlug]);
+  const departmentCategorySuggestions = useMemo(
+    () => CORE_CATEGORY_SEEDS[selectedDepartmentSlug] ?? [],
+    [selectedDepartmentSlug],
+  );
   const relatedSearchProducts = useMemo(
-    () => products.filter((product) => !product.deleted_at && product.name.toLowerCase().includes(relatedSearchTerm.toLowerCase())),
+    () =>
+      products.filter(
+        (product) =>
+          !product.deleted_at &&
+          product.name.toLowerCase().includes(relatedSearchTerm.toLowerCase()),
+      ),
     [products, relatedSearchTerm],
   );
-  const selectedDepartment = departments.find((department) => department.id === form.departmentId) ?? null;
-  const selectedCategory = categories.find((category) => category.id === form.categoryId) ?? null;
+  const selectedDepartment =
+    departments.find((department) => department.id === form.departmentId) ?? null;
+  const selectedCategory =
+    categories.find((category) => category.id === form.categoryId) ?? null;
   const selectedBrand = brands.find((brand) => brand.id === form.brandId) ?? null;
   const categoryCreationCandidate = pickerQuery.trim() || categoryCreationName.trim();
   const brandCreationCandidate = pickerQuery.trim() || brandCreationName.trim();
-  const existingCategoryNames = new Set(availableCategories.map((category) => category.name.trim().toLowerCase()));
-  const filteredCategorySuggestions = departmentCategorySuggestions.filter((category) => !existingCategoryNames.has(category.name.trim().toLowerCase()));
-  const canCreateBrandNow = pickerMode === "brand" && Boolean(form.departmentId && form.categoryId && brandCreationCandidate);
-  const canCreateCategoryNow = pickerMode === "category" && Boolean(form.departmentId && categoryCreationCandidate);
+  const existingCategoryNames = new Set(
+    availableCategories.map((category) => category.name.trim().toLowerCase()),
+  );
+  const filteredCategorySuggestions = departmentCategorySuggestions.filter(
+    (category) => !existingCategoryNames.has(category.name.trim().toLowerCase()),
+  );
+  const canCreateBrandNow =
+    pickerMode === "brand" &&
+    Boolean(form.departmentId && form.categoryId && brandCreationCandidate);
+  const canCreateCategoryNow =
+    pickerMode === "category" && Boolean(form.departmentId && categoryCreationCandidate);
 
   const productSummaries = useMemo(() => {
     return products.map((product) => {
-      const departmentName = departmentNameById.get(product.department_id) ?? "Unknown department";
-      const categoryName = categoryById.get(product.category_id)?.name ?? "Unknown category";
+      const departmentName =
+        departmentNameById.get(product.department_id) ?? "Unknown department";
+      const categoryName =
+        categoryById.get(product.category_id)?.name ?? "Unknown category";
       const brandName = brandById.get(product.brand_id)?.name ?? "Unknown brand";
-      const primaryImage = productImages
-        .filter((image) => image.product_id === product.id && image.deleted_at === null)
-        .sort((left, right) => left.sort_order - right.sort_order)
-        .find((image) => image.is_primary)?.image_url
-        ?? product.og_image_url
-        ?? null;
+      const primaryImage =
+        productImages
+          .filter((image) => image.product_id === product.id && image.deleted_at === null)
+          .sort((left, right) => left.sort_order - right.sort_order)
+          .find((image) => image.is_primary)?.image_url ??
+        product.og_image_url ??
+        null;
       const inventoryRows = productVariants
-        .filter((variant) => variant.product_id === product.id && variant.deleted_at === null)
-        .flatMap((variant) => inventories.filter((inventory) => inventory.product_variant_id === variant.id && inventory.deleted_at === null));
-      const stock = inventoryRows.reduce((sum, inventory) => sum + parseNumber(String(inventory.current_quantity)), 0);
-      const reserved = inventoryRows.reduce((sum, inventory) => sum + parseNumber(String(inventory.reserved_quantity)), 0);
-      const threshold = inventoryRows[0] ? parseNumber(String(inventoryRows[0].low_stock_threshold)) : 10;
+        .filter(
+          (variant) => variant.product_id === product.id && variant.deleted_at === null,
+        )
+        .flatMap((variant) =>
+          inventories.filter(
+            (inventory) =>
+              inventory.product_variant_id === variant.id &&
+              inventory.deleted_at === null,
+          ),
+        );
+      const stock = inventoryRows.reduce(
+        (sum, inventory) => sum + parseNumber(String(inventory.current_quantity)),
+        0,
+      );
+      const reserved = inventoryRows.reduce(
+        (sum, inventory) => sum + parseNumber(String(inventory.reserved_quantity)),
+        0,
+      );
+      const threshold = inventoryRows[0]
+        ? parseNumber(String(inventoryRows[0].low_stock_threshold))
+        : 10;
       const stockStatus = stockStatusFromValues(stock, reserved, threshold);
 
       return {
@@ -701,7 +900,15 @@ function ProductsAdminPage() {
         primaryImage,
       } satisfies ProductSummary;
     });
-  }, [brandById, departmentNameById, inventories, productImages, productVariants, products, categoryById]);
+  }, [
+    brandById,
+    departmentNameById,
+    inventories,
+    productImages,
+    productVariants,
+    products,
+    categoryById,
+  ]);
 
   const filteredSummaries = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -712,11 +919,14 @@ function ProductsAdminPage() {
       if (statusFilter !== "all") {
         if (statusFilter === "deleted" && !isDeleted) return false;
         if (statusFilter !== "deleted" && isDeleted) return false;
-        if (statusFilter !== "deleted" && summary.record.status !== statusFilter) return false;
+        if (statusFilter !== "deleted" && summary.record.status !== statusFilter)
+          return false;
       }
-      if (departmentFilter !== "all" && summary.record.department_id !== departmentFilter) return false;
+      if (departmentFilter !== "all" && summary.record.department_id !== departmentFilter)
+        return false;
       if (brandFilter !== "all" && summary.record.brand_id !== brandFilter) return false;
-      if (categoryFilter !== "all" && summary.record.category_id !== categoryFilter) return false;
+      if (categoryFilter !== "all" && summary.record.category_id !== categoryFilter)
+        return false;
       if (featuredFilter === "featured" && !summary.record.featured) return false;
       if (featuredFilter === "standard" && summary.record.featured) return false;
       if (!term) return true;
@@ -735,29 +945,79 @@ function ProductsAdminPage() {
     });
 
     const compareValues = {
-      name: (left: ProductSummary, right: ProductSummary) => left.record.name.localeCompare(right.record.name),
-      created_at: (left: ProductSummary, right: ProductSummary) => new Date(left.record.created_at).getTime() - new Date(right.record.created_at).getTime(),
-      updated_at: (left: ProductSummary, right: ProductSummary) => new Date(left.record.updated_at).getTime() - new Date(right.record.updated_at).getTime(),
-      price: (left: ProductSummary, right: ProductSummary) => parseNumber(String(left.record.selling_price)) - parseNumber(String(right.record.selling_price)),
+      name: (left: ProductSummary, right: ProductSummary) =>
+        left.record.name.localeCompare(right.record.name),
+      created_at: (left: ProductSummary, right: ProductSummary) =>
+        new Date(left.record.created_at).getTime() -
+        new Date(right.record.created_at).getTime(),
+      updated_at: (left: ProductSummary, right: ProductSummary) =>
+        new Date(left.record.updated_at).getTime() -
+        new Date(right.record.updated_at).getTime(),
+      price: (left: ProductSummary, right: ProductSummary) =>
+        parseNumber(String(left.record.selling_price)) -
+        parseNumber(String(right.record.selling_price)),
       stock: (left: ProductSummary, right: ProductSummary) => left.stock - right.stock,
-      status: (left: ProductSummary, right: ProductSummary) => left.record.status.localeCompare(right.record.status),
-    } satisfies Record<typeof sortBy, (left: ProductSummary, right: ProductSummary) => number>;
+      status: (left: ProductSummary, right: ProductSummary) =>
+        left.record.status.localeCompare(right.record.status),
+    } satisfies Record<
+      typeof sortBy,
+      (left: ProductSummary, right: ProductSummary) => number
+    >;
 
     return [...rows].sort((left, right) => {
       const result = compareValues[sortBy](left, right);
       return sortDirection === "asc" ? result : -result;
     });
-  }, [categoryFilter, departmentFilter, featuredFilter, productSummaries, brandFilter, search, sortBy, sortDirection, statusFilter]);
+  }, [
+    categoryFilter,
+    departmentFilter,
+    featuredFilter,
+    productSummaries,
+    brandFilter,
+    search,
+    sortBy,
+    sortDirection,
+    statusFilter,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filteredSummaries.length / PRODUCT_PAGE_SIZE));
   const visiblePage = Math.min(page, totalPages);
-  const visibleSummaries = filteredSummaries.slice((visiblePage - 1) * PRODUCT_PAGE_SIZE, visiblePage * PRODUCT_PAGE_SIZE);
+  const visibleSummaries = filteredSummaries.slice(
+    (visiblePage - 1) * PRODUCT_PAGE_SIZE,
+    visiblePage * PRODUCT_PAGE_SIZE,
+  );
 
   const stats = [
-    { label: "Total Products", value: String(products.length), delta: `${filteredSummaries.length} visible`, note: "Supabase catalog", tone: "accent" as const },
-    { label: "Active", value: String(products.filter((item) => !item.deleted_at && item.status === "active").length), delta: "Live items", note: "Ready to sell", tone: "success" as const },
-    { label: "Featured", value: String(products.filter((item) => !item.deleted_at && item.featured).length), delta: "Homepage ready", note: "Promoted products", tone: "neutral" as const },
-    { label: "Deleted", value: String(products.filter((item) => Boolean(item.deleted_at)).length), delta: "Restore supported", note: "Soft deleted only", tone: "warning" as const },
+    {
+      label: "Total Products",
+      value: String(products.length),
+      delta: `${filteredSummaries.length} visible`,
+      note: "Supabase catalog",
+      tone: "accent" as const,
+    },
+    {
+      label: "Active",
+      value: String(
+        products.filter((item) => !item.deleted_at && item.status === "active").length,
+      ),
+      delta: "Live items",
+      note: "Ready to sell",
+      tone: "success" as const,
+    },
+    {
+      label: "Featured",
+      value: String(products.filter((item) => !item.deleted_at && item.featured).length),
+      delta: "Homepage ready",
+      note: "Promoted products",
+      tone: "neutral" as const,
+    },
+    {
+      label: "Deleted",
+      value: String(products.filter((item) => Boolean(item.deleted_at)).length),
+      delta: "Restore supported",
+      note: "Soft deleted only",
+      tone: "warning" as const,
+    },
   ];
 
   const loadProducts = useCallback(async () => {
@@ -788,9 +1048,22 @@ function ProductsAdminPage() {
 
       const fetchCatalogData = async () => {
         const [departmentsResult, categoriesResult, brandsResult] = await Promise.all([
-          client.from("departments").select("id, name, slug, is_active, deleted_at").is("deleted_at", null).order("sort_order", { ascending: true }),
-          client.from("categories").select("id, department_id, name, slug, is_active, deleted_at").is("deleted_at", null).order("sort_order", { ascending: true }),
-          client.from("brands").select("id, department_id, category_id, name, slug, logo_url, is_active, deleted_at").order("created_at", { ascending: false }),
+          client
+            .from("departments")
+            .select("id, name, slug, is_active, deleted_at")
+            .is("deleted_at", null)
+            .order("sort_order", { ascending: true }),
+          client
+            .from("categories")
+            .select("id, department_id, name, slug, is_active, deleted_at")
+            .is("deleted_at", null)
+            .order("sort_order", { ascending: true }),
+          client
+            .from("brands")
+            .select(
+              "id, department_id, category_id, name, slug, logo_url, is_active, deleted_at",
+            )
+            .order("created_at", { ascending: false }),
         ]);
 
         return { departmentsResult, categoriesResult, brandsResult };
@@ -808,7 +1081,10 @@ function ProductsAdminPage() {
 
       let { departmentsResult, categoriesResult, brandsResult } = catalogData;
 
-      if ((departmentsResult.data ?? []).length === 0 || (categoriesResult.data ?? []).length === 0) {
+      if (
+        (departmentsResult.data ?? []).length === 0 ||
+        (categoriesResult.data ?? []).length === 0
+      ) {
         await ensureCoreCatalogData(client);
         const refreshedCatalog = await fetchCatalogData();
         departmentsResult = refreshedCatalog.departmentsResult;
@@ -828,8 +1104,22 @@ function ProductsAdminPage() {
       const productIds = (productResult.data ?? []).map((item) => item.id);
       if (productIds.length > 0 && !productResult.error) {
         const [imagesResult, variantsResult] = await Promise.all([
-          client.from("product_images").select("id, product_id, image_url, alt_text, sort_order, is_primary, deleted_at").in("product_id", productIds).is("deleted_at", null).order("sort_order", { ascending: true }),
-          client.from("product_variants").select("id, product_id, sku, variant_name, option_label, option_value, variant_options, mrp_override, selling_price_override, barcode, weight, is_default, is_active, deleted_at").in("product_id", productIds).is("deleted_at", null).order("created_at", { ascending: true }),
+          client
+            .from("product_images")
+            .select(
+              "id, product_id, image_url, alt_text, sort_order, is_primary, deleted_at",
+            )
+            .in("product_id", productIds)
+            .is("deleted_at", null)
+            .order("sort_order", { ascending: true }),
+          client
+            .from("product_variants")
+            .select(
+              "id, product_id, sku, variant_name, option_label, option_value, variant_options, mrp_override, selling_price_override, pack_size, unit, finish, base_price, final_price, is_available, barcode, weight, is_default, is_active, deleted_at",
+            )
+            .in("product_id", productIds)
+            .is("deleted_at", null)
+            .order("created_at", { ascending: true }),
         ]);
 
         if (imagesResult.error) setLoadError(imagesResult.error.message);
@@ -841,7 +1131,14 @@ function ProductsAdminPage() {
           setProductVariants(loadedVariants);
           const variantIds = loadedVariants.map((variant) => variant.id);
           if (variantIds.length > 0) {
-            const inventoryResult = await client.from("inventory").select("id, product_variant_id, current_quantity, reserved_quantity, low_stock_threshold, stock_status, warehouse_location, deleted_at").in("product_variant_id", variantIds).is("deleted_at", null).order("created_at", { ascending: true });
+            const inventoryResult = await client
+              .from("inventory")
+              .select(
+                "id, product_variant_id, current_quantity, reserved_quantity, low_stock_threshold, stock_status, warehouse_location, deleted_at",
+              )
+              .in("product_variant_id", variantIds)
+              .is("deleted_at", null)
+              .order("created_at", { ascending: true });
             if (inventoryResult.error) setLoadError(inventoryResult.error.message);
             else setInventories((inventoryResult.data ?? []) as InventoryRecord[]);
           } else {
@@ -866,10 +1163,22 @@ function ProductsAdminPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, departmentFilter, brandFilter, categoryFilter, featuredFilter, sortBy, sortDirection]);
+  }, [
+    search,
+    statusFilter,
+    departmentFilter,
+    brandFilter,
+    categoryFilter,
+    featuredFilter,
+    sortBy,
+    sortDirection,
+  ]);
 
   useEffect(() => {
-    if (form.departmentId && !availableCategories.some((category) => category.id === form.categoryId)) {
+    if (
+      form.departmentId &&
+      !availableCategories.some((category) => category.id === form.categoryId)
+    ) {
       setForm((current) => ({ ...current, categoryId: "" }));
     }
   }, [availableCategories, form.categoryId, form.departmentId]);
@@ -883,11 +1192,15 @@ function ProductsAdminPage() {
   useEffect(() => {
     if (!form.departmentId || departmentFieldPresets.length === 0) return;
     setForm((current) => {
-      const hasMeaningfulSpec = current.specifications.some((spec) => spec.key.trim() || spec.value.trim());
+      const hasMeaningfulSpec = current.specifications.some(
+        (spec) => spec.key.trim() || spec.value.trim(),
+      );
       if (hasMeaningfulSpec) return current;
       return {
         ...current,
-        specifications: departmentFieldPresets.map((field) => createSpecDraft({ key: field.key, value: "" })),
+        specifications: departmentFieldPresets.map((field) =>
+          createSpecDraft({ key: field.key, value: "" }),
+        ),
       };
     });
   }, [departmentFieldPresets, form.departmentId]);
@@ -931,7 +1244,9 @@ function ProductsAdminPage() {
     const product = summary.record;
     const images = productImages.filter((item) => item.product_id === product.id);
     const variants = productVariants.filter((item) => item.product_id === product.id);
-    const inventoryRows = inventories.filter((item) => variants.some((variant) => variant.id === item.product_variant_id));
+    const inventoryRows = inventories.filter((item) =>
+      variants.some((variant) => variant.id === item.product_variant_id),
+    );
     setEditingProductId(product.id);
     setForm(buildProductFormFromSummary(summary, images, variants, inventoryRows));
     setSlugTouched(true);
@@ -943,7 +1258,9 @@ function ProductsAdminPage() {
     const product = summary.record;
     const images = productImages.filter((item) => item.product_id === product.id);
     const variants = productVariants.filter((item) => item.product_id === product.id);
-    const inventoryRows = inventories.filter((item) => variants.some((variant) => variant.id === item.product_variant_id));
+    const inventoryRows = inventories.filter((item) =>
+      variants.some((variant) => variant.id === item.product_variant_id),
+    );
     setEditingProductId(null);
     setForm(buildDuplicateProductForm(summary, images, variants, inventoryRows));
     setSlugTouched(true);
@@ -973,13 +1290,31 @@ function ProductsAdminPage() {
     const nextDepartmentSlug = departmentSlugById.get(departmentId) ?? "";
     const nextPresets = DEPARTMENT_FIELD_PRESETS[nextDepartmentSlug] ?? [];
     setForm((current) => {
-      const hasMeaningfulSpec = current.specifications.some((spec) => spec.key.trim() || spec.value.trim());
+      const hasMeaningfulSpec = current.specifications.some(
+        (spec) => spec.key.trim() || spec.value.trim(),
+      );
       return {
         ...current,
         departmentId,
         categoryId: "",
         brandId: "",
-        specifications: !hasMeaningfulSpec && nextPresets.length > 0 ? nextPresets.map((field) => createSpecDraft({ key: field.key, value: "" })) : current.specifications,
+        variants:
+          nextDepartmentSlug === "paints" && current.variants.length === 0
+            ? [
+                createVariantDraft({
+                  variantName: "Default",
+                  sku: current.sku,
+                  price: current.sellingPrice,
+                  basePrice: current.sellingPrice,
+                  stock: current.stockQuantity,
+                  primary: true,
+                }),
+              ]
+            : current.variants,
+        specifications:
+          !hasMeaningfulSpec && nextPresets.length > 0
+            ? nextPresets.map((field) => createSpecDraft({ key: field.key, value: "" }))
+            : current.specifications,
       };
     });
   };
@@ -993,7 +1328,11 @@ function ProductsAdminPage() {
 
   const openCategoryPicker = () => {
     if (!form.departmentId) {
-      toast({ title: "Select a department first", description: "Department is required before choosing a category.", variant: "warning" });
+      toast({
+        title: "Select a department first",
+        description: "Department is required before choosing a category.",
+        variant: "warning",
+      });
       return;
     }
     setPickerMode("category");
@@ -1003,11 +1342,19 @@ function ProductsAdminPage() {
 
   const openBrandPicker = () => {
     if (!form.departmentId) {
-      toast({ title: "Select a department first", description: "Department is required before choosing a brand.", variant: "warning" });
+      toast({
+        title: "Select a department first",
+        description: "Department is required before choosing a brand.",
+        variant: "warning",
+      });
       return;
     }
     if (!form.categoryId) {
-      toast({ title: "Select a category first", description: "Brand selection opens after category selection.", variant: "warning" });
+      toast({
+        title: "Select a category first",
+        description: "Brand selection opens after category selection.",
+        variant: "warning",
+      });
       return;
     }
     setPickerMode("brand");
@@ -1032,22 +1379,33 @@ function ProductsAdminPage() {
     const normalizedName = categoryName.trim();
     if (!normalizedName || !form.departmentId) return;
 
-    const existingCategory = availableCategories.find((category) => category.name.trim().toLowerCase() === normalizedName.toLowerCase());
+    const existingCategory = availableCategories.find(
+      (category) => category.name.trim().toLowerCase() === normalizedName.toLowerCase(),
+    );
     if (existingCategory) {
       selectCategory(existingCategory.id);
-      toast({ title: "Category selected", description: `${existingCategory.name} already exists for this department.`, variant: "success" });
+      toast({
+        title: "Category selected",
+        description: `${existingCategory.name} already exists for this department.`,
+        variant: "success",
+      });
       return;
     }
 
     const client = getSupabaseBrowserClient();
     if (!client) {
-      toast({ title: "Supabase unavailable", description: "Cannot create a category right now.", variant: "danger" });
+      toast({
+        title: "Supabase unavailable",
+        description: "Cannot create a category right now.",
+        variant: "danger",
+      });
       return;
     }
 
     setUploading(true);
     try {
-      const slug = slugifyCategory(normalizedName) || `category-${Date.now().toString(36)}`;
+      const slug =
+        slugifyCategory(normalizedName) || `category-${Date.now().toString(36)}`;
       const payload = {
         department_id: form.departmentId,
         slug,
@@ -1057,16 +1415,29 @@ function ProductsAdminPage() {
         sort_order: 0,
         is_active: true,
       };
-      const { data, error } = await client.from("categories").insert([payload]).select("id, department_id, name, slug, is_active, deleted_at").single();
+      const { data, error } = await client
+        .from("categories")
+        .insert([payload])
+        .select("id, department_id, name, slug, is_active, deleted_at")
+        .single();
       if (error) throw error;
       const createdCategory = data as CategoryRecord;
       setCategories((current) => [createdCategory, ...current]);
       setForm((current) => ({ ...current, categoryId: createdCategory.id, brandId: "" }));
       closePicker();
       setFocusProductName(true);
-      toast({ title: "Category created", description: `${createdCategory.name} was added instantly.`, variant: "success" });
+      toast({
+        title: "Category created",
+        description: `${createdCategory.name} was added instantly.`,
+        variant: "success",
+      });
     } catch (error) {
-      toast({ title: "Category creation failed", description: error instanceof Error ? error.message : "Unable to create the category.", variant: "danger" });
+      toast({
+        title: "Category creation failed",
+        description:
+          error instanceof Error ? error.message : "Unable to create the category.",
+        variant: "danger",
+      });
     } finally {
       setUploading(false);
     }
@@ -1081,16 +1452,26 @@ function ProductsAdminPage() {
   const createBrandFromPicker = async (brandName: string) => {
     const normalizedName = brandName.trim();
     if (!normalizedName || !form.departmentId) return;
-    const existingBrand = availableBrands.find((brand) => brand.name.trim().toLowerCase() === normalizedName.toLowerCase());
+    const existingBrand = availableBrands.find(
+      (brand) => brand.name.trim().toLowerCase() === normalizedName.toLowerCase(),
+    );
     if (existingBrand) {
       selectBrand(existingBrand.id);
-      toast({ title: "Brand selected", description: `${existingBrand.name} already exists for this department.`, variant: "success" });
+      toast({
+        title: "Brand selected",
+        description: `${existingBrand.name} already exists for this department.`,
+        variant: "success",
+      });
       return;
     }
 
     const client = getSupabaseBrowserClient();
     if (!client) {
-      toast({ title: "Supabase unavailable", description: "Cannot create a brand right now.", variant: "danger" });
+      toast({
+        title: "Supabase unavailable",
+        description: "Cannot create a brand right now.",
+        variant: "danger",
+      });
       return;
     }
 
@@ -1107,16 +1488,31 @@ function ProductsAdminPage() {
         is_featured: false,
         is_active: true,
       };
-      const { data, error } = await client.from("brands").insert([payload]).select("id, department_id, category_id, name, slug, logo_url, is_active, deleted_at").single();
+      const { data, error } = await client
+        .from("brands")
+        .insert([payload])
+        .select(
+          "id, department_id, category_id, name, slug, logo_url, is_active, deleted_at",
+        )
+        .single();
       if (error) throw error;
       const createdBrand = data as BrandRecord;
       setBrands((current) => [createdBrand, ...current]);
       setForm((current) => ({ ...current, brandId: createdBrand.id }));
       closePicker();
       setFocusProductName(true);
-      toast({ title: "Brand created", description: `${createdBrand.name} was added instantly.`, variant: "success" });
+      toast({
+        title: "Brand created",
+        description: `${createdBrand.name} was added instantly.`,
+        variant: "success",
+      });
     } catch (error) {
-      toast({ title: "Brand creation failed", description: error instanceof Error ? error.message : "Unable to create the brand.", variant: "danger" });
+      toast({
+        title: "Brand creation failed",
+        description:
+          error instanceof Error ? error.message : "Unable to create the brand.",
+        variant: "danger",
+      });
     } finally {
       setUploading(false);
     }
@@ -1137,7 +1533,11 @@ function ProductsAdminPage() {
       }
       const result = await uploadCloudinaryImage(file);
       if (result.error) {
-        toast({ title: "Image upload failed", description: result.error, variant: "danger" });
+        toast({
+          title: "Image upload failed",
+          description: result.error,
+          variant: "danger",
+        });
         continue;
       }
       nextImages.push(createImageDraft(result.url ?? "", nextImages.length));
@@ -1151,7 +1551,11 @@ function ProductsAdminPage() {
       })),
     }));
     if (nextImages.length > 0) {
-      toast({ title: "Images uploaded", description: "Cloudinary URLs are ready to save.", variant: "success" });
+      toast({
+        title: "Images uploaded",
+        description: "Cloudinary URLs are ready to save.",
+        variant: "success",
+      });
     }
   };
 
@@ -1166,12 +1570,18 @@ function ProductsAdminPage() {
     const result = await uploadCloudinaryImage(file);
     setUploading(false);
     if (result.error) {
-      toast({ title: "Image upload failed", description: result.error, variant: "danger" });
+      toast({
+        title: "Image upload failed",
+        description: result.error,
+        variant: "danger",
+      });
       return;
     }
     setForm((current) => ({
       ...current,
-      variants: current.variants.map((variant) => (variant.id === variantId ? { ...variant, imageUrl: result.url ?? "" } : variant)),
+      variants: current.variants.map((variant) =>
+        variant.id === variantId ? { ...variant, imageUrl: result.url ?? "" } : variant,
+      ),
     }));
   };
 
@@ -1186,7 +1596,10 @@ function ProductsAdminPage() {
       next.splice(toIndex, 0, item);
       return {
         ...current,
-        images: next.map((image, index) => ({ ...image, primary: index === 0 || image.primary })),
+        images: next.map((image, index) => ({
+          ...image,
+          primary: index === 0 || image.primary,
+        })),
       };
     });
   };
@@ -1200,6 +1613,7 @@ function ProductsAdminPage() {
     const stock = parseNumber(form.stockQuantity);
     const reserved = parseNumber(form.reservedQuantity);
     const threshold = parseNumber(form.lowStockThreshold);
+    const isPaintProduct = selectedDepartmentSlug === "paints";
 
     if (!form.name.trim()) errors.name = "Product name is required";
     if (!form.departmentId) errors.departmentId = "Department is required";
@@ -1207,14 +1621,58 @@ function ProductsAdminPage() {
     if (!form.brandId) errors.brandId = "Brand is required";
     if (selling <= 0) errors.sellingPrice = "Selling price must be greater than 0";
     if (!form.status.trim()) errors.status = "Product status is required";
-    if (form.mrp.trim() && mrp < selling) errors.mrp = "MRP must be greater than or equal to selling price";
-    if (form.images.length === 0) errors.images = "At least one product image is required";
+    if (form.mrp.trim() && mrp < selling)
+      errors.mrp = "MRP must be greater than or equal to selling price";
+    if (form.images.length === 0)
+      errors.images = "At least one product image is required";
     if (form.images.length > 4) errors.images = "Maximum 4 images allowed";
-    if (stock < 0 || reserved < 0 || threshold < 0) errors.stockQuantity = "Stock values must be zero or higher";
+    if (stock < 0 || reserved < 0 || threshold < 0)
+      errors.stockQuantity = "Stock values must be zero or higher";
+    if (isPaintProduct && form.showVariants) {
+      const variants =
+        form.variants.length > 0
+          ? form.variants
+          : [
+              createVariantDraft({
+                sku: normalizedSku,
+                price: form.sellingPrice,
+                basePrice: form.sellingPrice,
+                stock: form.stockQuantity,
+                primary: true,
+              }),
+            ];
+      const seen = new Set<string>();
+      let defaultCount = 0;
+      variants.forEach((variant, index) => {
+        const finish = variant.finish.trim().toLowerCase();
+        const unit = variant.unit.trim();
+        const packSize = parseNumber(variant.packSize);
+        const basePrice = parseNumber(variant.basePrice || variant.price);
+        const variantStock = parseNumber(variant.stock);
+        if (!finish) errors[`variant_${index}_finish`] = "Finish is required";
+        if (!variant.packSize.trim() || packSize <= 0)
+          errors[`variant_${index}_packSize`] = "Pack size must be greater than 0";
+        if (!["L", "ml", "kg", "g"].includes(unit))
+          errors[`variant_${index}_unit`] = "Choose L, ml, kg, or g";
+        if (basePrice < 0)
+          errors[`variant_${index}_basePrice`] = "Base price must be zero or higher";
+        if (variantStock < 0)
+          errors[`variant_${index}_stock`] = "Stock must be zero or higher";
+        const key = `${finish}|${variant.packSize.trim()}|${unit}`;
+        if (seen.has(key))
+          errors.variants =
+            "Paint variants cannot repeat the same finish, pack size, and unit";
+        seen.add(key);
+        if (variant.primary) defaultCount += 1;
+      });
+      if (defaultCount !== 1)
+        errors.variants = "Select exactly one default paint variant";
+    }
     if (form.exclusiveOffer) {
       const percent = parseNumber(form.exclusiveOfferPercent);
       if (!form.exclusiveOfferPercent.trim() || percent <= 0 || percent > 100) {
-        errors.exclusiveOfferPercent = "Exclusive offer percent must be between 1 and 100";
+        errors.exclusiveOfferPercent =
+          "Exclusive offer percent must be between 1 and 100";
       }
     }
     if (form.canonicalUrl.trim()) {
@@ -1240,13 +1698,24 @@ function ProductsAdminPage() {
     normalizedSlug: string,
     normalizedSku: string,
   ) => {
-    const slugQuery = client.from("products").select("id").is("deleted_at", null).eq("slug", normalizedSlug);
-    const skuQuery = client.from("products").select("id").is("deleted_at", null).eq("sku", normalizedSku);
+    const slugQuery = client
+      .from("products")
+      .select("id")
+      .is("deleted_at", null)
+      .eq("slug", normalizedSlug);
+    const skuQuery = client
+      .from("products")
+      .select("id")
+      .is("deleted_at", null)
+      .eq("sku", normalizedSku);
     if (editingProductId) {
       slugQuery.neq("id", editingProductId);
       skuQuery.neq("id", editingProductId);
     }
-    const [slugResult, skuResult] = await Promise.all([slugQuery.limit(1), skuQuery.limit(1)]);
+    const [slugResult, skuResult] = await Promise.all([
+      slugQuery.limit(1),
+      skuQuery.limit(1),
+    ]);
     if (slugResult.error) throw slugResult.error;
     if (skuResult.error) throw skuResult.error;
     return {
@@ -1256,14 +1725,32 @@ function ProductsAdminPage() {
   };
 
   const buildVariantPayloads = (productId: string, productSku: string) => {
-    const variants = form.variants.length > 0 ? form.variants : [createVariantDraft({ sku: productSku, price: form.sellingPrice, stock: form.stockQuantity, primary: true })];
+    const variants =
+      form.variants.length > 0
+        ? form.variants
+        : [
+            createVariantDraft({
+              sku: productSku,
+              price: form.sellingPrice,
+              stock: form.stockQuantity,
+              primary: true,
+            }),
+          ];
+    const isPaintProduct = selectedDepartmentSlug === "paints";
+    const defaultIndex = variants.findIndex((variant) => variant.primary);
     const normalizedVariants = variants.map((variant, index) => {
       const sku = variant.sku.trim() || `${productSku}-${index + 1}`;
+      const basePrice = isPaintProduct
+        ? parseNumber(variant.basePrice || variant.price)
+        : parseNumber(variant.price || form.sellingPrice);
+      const variantOptions = variant.imageUrl.trim()
+        ? { image_url: variant.imageUrl.trim() }
+        : {};
       return {
         draft: {
           ...variant,
           sku,
-          primary: index === 0 || variant.primary,
+          primary: index === (defaultIndex >= 0 ? defaultIndex : 0),
         },
         payload: {
           product_id: productId,
@@ -1271,12 +1758,20 @@ function ProductsAdminPage() {
           variant_name: variant.variantName.trim() || `Variant ${index + 1}`,
           option_label: variant.optionLabel.trim() || null,
           option_value: variant.optionValue.trim() || null,
-          variant_options: {},
+          variant_options: variantOptions,
           mrp_override: null,
-          selling_price_override: variant.price ? parseNumber(variant.price) : parseNumber(form.sellingPrice),
+          selling_price_override: basePrice,
+          pack_size: isPaintProduct ? variant.packSize.trim() || null : null,
+          unit: isPaintProduct ? variant.unit.trim() || null : null,
+          finish: isPaintProduct ? variant.finish.trim() || null : null,
+          base_price: isPaintProduct ? basePrice : null,
+          shade_extra_price: 0,
+          adjustment_type: "fixed",
+          final_price: isPaintProduct ? basePrice : null,
+          is_available: variant.active,
           barcode: null,
           weight: null,
-          is_default: index === 0 || variant.primary,
+          is_default: index === (defaultIndex >= 0 ? defaultIndex : 0),
           is_active: variant.active,
         },
       };
@@ -1286,42 +1781,72 @@ function ProductsAdminPage() {
 
   const saveProduct = async () => {
     if (!canManage) {
-      toast({ title: "Permission denied", description: "Only admins and managers can manage products.", variant: "danger" });
+      toast({
+        title: "Permission denied",
+        description: "Only admins and managers can manage products.",
+        variant: "danger",
+      });
       return;
     }
     if (saving || uploading) return;
 
     const validation = validateForm();
     if (!validation.valid) {
-      toast({ title: "Fix the highlighted fields", description: "Product name, department, category, brand, selling price, images, and status are required.", variant: "warning" });
+      toast({
+        title: "Fix the highlighted fields",
+        description:
+          "Product name, department, category, brand, selling price, images, and status are required.",
+        variant: "warning",
+      });
       return;
     }
 
     const client = getSupabaseBrowserClient();
     if (!client) {
-      toast({ title: "Supabase unavailable", description: "Add Supabase environment variables to enable product management.", variant: "danger" });
+      toast({
+        title: "Supabase unavailable",
+        description: "Add Supabase environment variables to enable product management.",
+        variant: "danger",
+      });
       return;
     }
 
     setSaving(true);
 
     try {
-      const duplicates = await hasDuplicateProductSlugOrSku(client, validation.normalizedSlug, validation.normalizedSku);
+      const duplicates = await hasDuplicateProductSlugOrSku(
+        client,
+        validation.normalizedSlug,
+        validation.normalizedSku,
+      );
       if (duplicates.slugExists) {
         setFormErrors((current) => ({ ...current, slug: "Slug must be unique" }));
-        toast({ title: "Duplicate slug", description: "Choose a different product slug.", variant: "warning" });
+        toast({
+          title: "Duplicate slug",
+          description: "Choose a different product slug.",
+          variant: "warning",
+        });
         setSaving(false);
         return;
       }
       if (duplicates.skuExists) {
         setFormErrors((current) => ({ ...current, sku: "SKU must be unique" }));
-        toast({ title: "Duplicate SKU", description: "Choose a different SKU.", variant: "warning" });
+        toast({
+          title: "Duplicate SKU",
+          description: "Choose a different SKU.",
+          variant: "warning",
+        });
         setSaving(false);
         return;
       }
 
-      const primaryImage = form.images.find((image) => image.primary)?.url ?? form.images[0]?.url ?? null;
-      const specification = Object.fromEntries(form.specifications.filter((spec) => spec.key.trim()).map((spec) => [spec.key.trim(), spec.value.trim()]));
+      const primaryImage =
+        form.images.find((image) => image.primary)?.url ?? form.images[0]?.url ?? null;
+      const specification = Object.fromEntries(
+        form.specifications
+          .filter((spec) => spec.key.trim())
+          .map((spec) => [spec.key.trim(), spec.value.trim()]),
+      );
       const shipping = {
         weight: form.weight ? parseNumber(form.weight) : null,
         length: form.length ? parseNumber(form.length) : null,
@@ -1337,9 +1862,14 @@ function ProductsAdminPage() {
         show_variants: form.showVariants,
         returnable: form.returnable,
         exclusive_offer: form.exclusiveOffer,
-        exclusive_offer_percent: form.exclusiveOffer ? parseNumber(form.exclusiveOfferPercent) || null : null,
+        exclusive_offer_percent: form.exclusiveOffer
+          ? parseNumber(form.exclusiveOfferPercent) || null
+          : null,
       };
-      const discountAmount = Math.max(parseNumber(form.mrp) - parseNumber(form.sellingPrice), 0);
+      const discountAmount = Math.max(
+        parseNumber(form.mrp) - parseNumber(form.sellingPrice),
+        0,
+      );
 
       const payload = {
         department_id: form.departmentId,
@@ -1354,12 +1884,18 @@ function ProductsAdminPage() {
         mrp: parseNumber(form.mrp),
         selling_price: parseNumber(form.sellingPrice),
         discount_amount: discountAmount,
-        discount_percent: parseNumber(form.mrp) > 0 ? Number(((discountAmount / parseNumber(form.mrp)) * 100).toFixed(2)) : 0,
+        discount_percent:
+          parseNumber(form.mrp) > 0
+            ? Number(((discountAmount / parseNumber(form.mrp)) * 100).toFixed(2))
+            : 0,
         status: form.status,
         featured: form.featured,
         meta_title: form.seoTitle.trim() || null,
         meta_description: form.metaDescription.trim() || null,
-        meta_keywords: form.keywords.split(",").map((item) => item.trim()).filter(Boolean),
+        meta_keywords: form.keywords
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
         canonical_url: form.canonicalUrl.trim() || null,
         og_image_url: primaryImage,
         specification,
@@ -1368,19 +1904,28 @@ function ProductsAdminPage() {
 
       let productId = editingProductId;
       if (editingProductId) {
-        const { error } = await client.from("products").update(payload).eq("id", editingProductId);
+        const { error } = await client
+          .from("products")
+          .update(payload)
+          .eq("id", editingProductId);
         if (error) throw error;
         await Promise.all([
           client.from("product_images").delete().eq("product_id", editingProductId),
           client.from("product_variants").delete().eq("product_id", editingProductId),
         ]);
-        const existingVariants = productVariants.filter((variant) => variant.product_id === editingProductId);
+        const existingVariants = productVariants.filter(
+          (variant) => variant.product_id === editingProductId,
+        );
         if (existingVariants.length > 0) {
           const variantIds = existingVariants.map((variant) => variant.id);
           await client.from("inventory").delete().in("product_variant_id", variantIds);
         }
       } else {
-        const { data, error } = await client.from("products").insert([payload]).select("id").single();
+        const { data, error } = await client
+          .from("products")
+          .insert([payload])
+          .select("id")
+          .single();
         if (error) throw error;
         productId = (data as { id?: string } | null)?.id ?? null;
       }
@@ -1402,20 +1947,34 @@ function ProductsAdminPage() {
       }
 
       const variantsToInsert = buildVariantPayloads(productId, validation.normalizedSku);
-      const { data: createdVariants, error: variantError } = await client.from("product_variants").insert(variantsToInsert.map((item) => item.payload)).select("id, sku");
+      const { data: createdVariants, error: variantError } = await client
+        .from("product_variants")
+        .insert(variantsToInsert.map((item) => item.payload))
+        .select("id, sku");
       if (variantError) throw variantError;
 
       const inventoryPayload = (createdVariants ?? []).map((variant, index) => {
         const sourceDraft = variantsToInsert[index]?.draft;
         const isPrimaryVariant = Boolean(sourceDraft?.primary) || index === 0;
+        const isPaintProduct = selectedDepartmentSlug === "paints";
+        const currentQuantity = isPaintProduct
+          ? parseNumber(sourceDraft?.stock || form.stockQuantity)
+          : isPrimaryVariant
+            ? parseNumber(form.stockQuantity)
+            : parseNumber(sourceDraft?.stock ?? "0");
+        const reservedQuantity = isPaintProduct
+          ? 0
+          : isPrimaryVariant
+            ? parseNumber(form.reservedQuantity)
+            : 0;
         return {
           product_variant_id: variant.id,
-          current_quantity: isPrimaryVariant ? parseNumber(form.stockQuantity) : parseNumber(sourceDraft?.stock ?? "0"),
-          reserved_quantity: isPrimaryVariant ? parseNumber(form.reservedQuantity) : 0,
+          current_quantity: currentQuantity,
+          reserved_quantity: reservedQuantity,
           low_stock_threshold: parseNumber(form.lowStockThreshold),
           stock_status: stockStatusFromValues(
-            isPrimaryVariant ? parseNumber(form.stockQuantity) : parseNumber(sourceDraft?.stock ?? "0"),
-            isPrimaryVariant ? parseNumber(form.reservedQuantity) : 0,
+            currentQuantity,
+            reservedQuantity,
             parseNumber(form.lowStockThreshold),
           ),
           warehouse_location: form.warehouseLocation.trim() || null,
@@ -1438,7 +1997,10 @@ function ProductsAdminPage() {
     } catch (error) {
       toast({
         title: editingProductId ? "Update failed" : "Create failed",
-        description: error instanceof Error ? error.message : "Something went wrong while saving the product.",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Something went wrong while saving the product.",
         variant: "danger",
       });
     } finally {
@@ -1450,16 +2012,27 @@ function ProductsAdminPage() {
     if (!deleteTargetId) return;
     const client = getSupabaseBrowserClient();
     if (!client) {
-      toast({ title: "Supabase unavailable", description: "Cannot delete this product right now.", variant: "danger" });
+      toast({
+        title: "Supabase unavailable",
+        description: "Cannot delete this product right now.",
+        variant: "danger",
+      });
       return;
     }
 
-    const { error } = await client.from("products").update({ deleted_at: new Date().toISOString(), status: "archived" }).eq("id", deleteTargetId);
+    const { error } = await client
+      .from("products")
+      .update({ deleted_at: new Date().toISOString(), status: "archived" })
+      .eq("id", deleteTargetId);
     if (error) {
       toast({ title: "Delete failed", description: error.message, variant: "danger" });
       return;
     }
-    toast({ title: "Product deleted", description: "The product has been archived safely.", variant: "success" });
+    toast({
+      title: "Product deleted",
+      description: "The product has been archived safely.",
+      variant: "success",
+    });
     setDeleteTargetId(null);
     await loadProducts();
   };
@@ -1467,47 +2040,88 @@ function ProductsAdminPage() {
   const restoreProduct = async (summary: ProductSummary) => {
     const client = getSupabaseBrowserClient();
     if (!client) {
-      toast({ title: "Supabase unavailable", description: "Cannot restore this product right now.", variant: "danger" });
+      toast({
+        title: "Supabase unavailable",
+        description: "Cannot restore this product right now.",
+        variant: "danger",
+      });
       return;
     }
 
-    const { error } = await client.from("products").update({ deleted_at: null, status: "active" }).eq("id", summary.record.id);
+    const { error } = await client
+      .from("products")
+      .update({ deleted_at: null, status: "active" })
+      .eq("id", summary.record.id);
     if (error) {
       toast({ title: "Restore failed", description: error.message, variant: "danger" });
       return;
     }
-    toast({ title: "Product restored", description: summary.record.name, variant: "success" });
+    toast({
+      title: "Product restored",
+      description: summary.record.name,
+      variant: "success",
+    });
     await loadProducts();
   };
 
   const toggleActive = async (summary: ProductSummary) => {
     const client = getSupabaseBrowserClient();
     if (!client) {
-      toast({ title: "Supabase unavailable", description: "Cannot update product status right now.", variant: "danger" });
+      toast({
+        title: "Supabase unavailable",
+        description: "Cannot update product status right now.",
+        variant: "danger",
+      });
       return;
     }
     const nextStatus = summary.record.status === "active" ? "inactive" : "active";
-    const { error } = await client.from("products").update({ status: nextStatus }).eq("id", summary.record.id);
+    const { error } = await client
+      .from("products")
+      .update({ status: nextStatus })
+      .eq("id", summary.record.id);
     if (error) {
-      toast({ title: "Status update failed", description: error.message, variant: "danger" });
+      toast({
+        title: "Status update failed",
+        description: error.message,
+        variant: "danger",
+      });
       return;
     }
-    toast({ title: nextStatus === "active" ? "Product activated" : "Product deactivated", description: summary.record.name, variant: "success" });
+    toast({
+      title: nextStatus === "active" ? "Product activated" : "Product deactivated",
+      description: summary.record.name,
+      variant: "success",
+    });
     await loadProducts();
   };
 
   const toggleFeatured = async (summary: ProductSummary) => {
     const client = getSupabaseBrowserClient();
     if (!client) {
-      toast({ title: "Supabase unavailable", description: "Cannot update featured state right now.", variant: "danger" });
+      toast({
+        title: "Supabase unavailable",
+        description: "Cannot update featured state right now.",
+        variant: "danger",
+      });
       return;
     }
-    const { error } = await client.from("products").update({ featured: !summary.record.featured }).eq("id", summary.record.id);
+    const { error } = await client
+      .from("products")
+      .update({ featured: !summary.record.featured })
+      .eq("id", summary.record.id);
     if (error) {
-      toast({ title: "Featured update failed", description: error.message, variant: "danger" });
+      toast({
+        title: "Featured update failed",
+        description: error.message,
+        variant: "danger",
+      });
       return;
     }
-    toast({ title: summary.record.featured ? "Featured removed" : "Product featured", description: summary.record.name, variant: "success" });
+    toast({
+      title: summary.record.featured ? "Featured removed" : "Product featured",
+      description: summary.record.name,
+      variant: "success",
+    });
     await loadProducts();
   };
 
@@ -1538,8 +2152,16 @@ function ProductsAdminPage() {
     setDragVariantImageId(null);
   };
 
-  const addVariant = () => setForm((current) => ({ ...current, variants: [...current.variants, createVariantDraft()] }));
-  const addSpec = () => setForm((current) => ({ ...current, specifications: [...current.specifications, createSpecDraft()] }));
+  const addVariant = () =>
+    setForm((current) => ({
+      ...current,
+      variants: [...current.variants, createVariantDraft()],
+    }));
+  const addSpec = () =>
+    setForm((current) => ({
+      ...current,
+      specifications: [...current.specifications, createSpecDraft()],
+    }));
 
   const selectedProductCount = form.relatedProductIds.length;
 
@@ -1551,11 +2173,24 @@ function ProductsAdminPage() {
         subtitle="Manage a live product catalog with Supabase, Cloudinary images, variants, inventory, and SEO fields."
         actions={
           <>
-            <AdminActionButton onClick={() => toast({ title: "Bulk actions", description: "Bulk product actions will remain frontend-only for now.", variant: "success" })}>
+            <AdminActionButton
+              onClick={() =>
+                toast({
+                  title: "Bulk actions",
+                  description: "Bulk product actions will remain frontend-only for now.",
+                  variant: "success",
+                })
+              }
+            >
               <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
               Bulk Actions
             </AdminActionButton>
-            <Button variant="accent" size="md" onClick={() => openCreateProduct()} disabled={!canManage}>
+            <Button
+              variant="accent"
+              size="md"
+              onClick={() => openCreateProduct()}
+              disabled={!canManage}
+            >
               <Plus className="h-4 w-4" aria-hidden="true" />
               Add Product
             </Button>
@@ -1574,18 +2209,39 @@ function ProductsAdminPage() {
         description="Filter products by department, category, brand, status, and featured state."
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setSortDirection((current) => (current === "asc" ? "desc" : "asc"))}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setSortDirection((current) => (current === "asc" ? "desc" : "asc"))
+              }
+            >
               {sortDirection === "asc" ? "Ascending" : "Descending"}
             </Button>
-            <Button variant="outline" size="sm" onClick={loadProducts} loading={isLoading}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadProducts}
+              loading={isLoading}
+            >
               Retry
             </Button>
           </div>
         }
       >
         <div className="grid gap-3 xl:grid-cols-6">
-          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search products" aria-label="Search products" />
-          <select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)} className="h-11 rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" aria-label="Sort products">
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search products"
+            aria-label="Search products"
+          />
+          <select
+            value={sortBy}
+            onChange={(event) => setSortBy(event.target.value as typeof sortBy)}
+            className="border-border bg-background text-text focus-visible:ring-accent h-11 rounded-[var(--radius-md)] border px-3.5 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+            aria-label="Sort products"
+          >
             <option value="updated_at">Recently Updated</option>
             <option value="created_at">Newest</option>
             <option value="name">Name</option>
@@ -1593,24 +2249,67 @@ function ProductsAdminPage() {
             <option value="stock">Stock</option>
             <option value="status">Status</option>
           </select>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-11 rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" aria-label="Status filter">
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="border-border bg-background text-text focus-visible:ring-accent h-11 rounded-[var(--radius-md)] border px-3.5 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+            aria-label="Status filter"
+          >
             <option value="all">All Status</option>
-            {productStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+            {productStatuses.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
             <option value="deleted">Deleted</option>
           </select>
-          <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" aria-label="Department filter">
+          <select
+            value={departmentFilter}
+            onChange={(event) => setDepartmentFilter(event.target.value)}
+            className="border-border bg-background text-text focus-visible:ring-accent h-11 rounded-[var(--radius-md)] border px-3.5 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+            aria-label="Department filter"
+          >
             <option value="all">All Departments</option>
-            {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+            {departments.map((department) => (
+              <option key={department.id} value={department.id}>
+                {department.name}
+              </option>
+            ))}
           </select>
-          <select value={brandFilter} onChange={(event) => setBrandFilter(event.target.value)} className="h-11 rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" aria-label="Brand filter">
+          <select
+            value={brandFilter}
+            onChange={(event) => setBrandFilter(event.target.value)}
+            className="border-border bg-background text-text focus-visible:ring-accent h-11 rounded-[var(--radius-md)] border px-3.5 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+            aria-label="Brand filter"
+          >
             <option value="all">All Brands</option>
-            {brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+            {brands.map((brand) => (
+              <option key={brand.id} value={brand.id}>
+                {brand.name}
+              </option>
+            ))}
           </select>
-          <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="h-11 rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" aria-label="Category filter">
+          <select
+            value={categoryFilter}
+            onChange={(event) => setCategoryFilter(event.target.value)}
+            className="border-border bg-background text-text focus-visible:ring-accent h-11 rounded-[var(--radius-md)] border px-3.5 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+            aria-label="Category filter"
+          >
             <option value="all">All Categories</option>
-            {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
           </select>
-          <select value={featuredFilter} onChange={(event) => setFeaturedFilter(event.target.value as typeof featuredFilter)} className="h-11 rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" aria-label="Featured filter">
+          <select
+            value={featuredFilter}
+            onChange={(event) =>
+              setFeaturedFilter(event.target.value as typeof featuredFilter)
+            }
+            className="border-border bg-background text-text focus-visible:ring-accent h-11 rounded-[var(--radius-md)] border px-3.5 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+            aria-label="Featured filter"
+          >
             <option value="all">All</option>
             <option value="featured">Featured</option>
             <option value="standard">Standard</option>
@@ -1619,11 +2318,11 @@ function ProductsAdminPage() {
       </AdminSectionCard>
 
       {loadError ? (
-        <Card className="rounded-[1.6rem] border-danger/20 bg-danger/5 p-5 shadow-[var(--shadow-sm)]">
+        <Card className="border-danger/20 bg-danger/5 rounded-[1.6rem] p-5 shadow-[var(--shadow-sm)]">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-base font-bold text-text">Unable to load products</p>
-              <p className="mt-1 text-sm font-medium text-muted">{loadError}</p>
+              <p className="text-text text-base font-bold">Unable to load products</p>
+              <p className="text-muted mt-1 text-sm font-medium">{loadError}</p>
             </div>
             <Button variant="outline" size="md" onClick={loadProducts}>
               Retry
@@ -1642,49 +2341,127 @@ function ProductsAdminPage() {
         <>
           <div className="grid gap-4 md:hidden">
             {visibleSummaries.map((summary) => (
-              <Card key={summary.record.id} className="overflow-hidden rounded-[1.4rem] border-white/80 bg-white/92 shadow-[var(--shadow-sm)]">
-                <div className="aspect-[16/10] bg-background-secondary/40">
-                  <ProductImagePreview url={summary.primaryImage} alt={summary.record.name} label={summary.record.name} />
+              <Card
+                key={summary.record.id}
+                className="overflow-hidden rounded-[1.4rem] border-white/80 bg-white/92 shadow-[var(--shadow-sm)]"
+              >
+                <div className="bg-background-secondary/40 aspect-[16/10]">
+                  <ProductImagePreview
+                    url={summary.primaryImage}
+                    alt={summary.record.name}
+                    label={summary.record.name}
+                  />
                 </div>
                 <div className="space-y-3 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-base font-black text-text">{summary.record.name}</p>
-                      <p className="text-xs font-medium text-muted">{summary.brandName}</p>
+                      <p className="text-text text-base font-black">
+                        {summary.record.name}
+                      </p>
+                      <p className="text-muted text-xs font-medium">
+                        {summary.brandName}
+                      </p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <AdminStatusBadge status={formatStatusLabel(summary.record.status, summary.record.deleted_at)} />
-                      {summary.record.featured ? <Badge variant="accent">Featured</Badge> : null}
-                      {summary.record.attributes && getBooleanValue((summary.record.attributes as JsonRecord).exclusive_offer ?? (summary.record.attributes as JsonRecord).exclusiveOffer, false) ? (
+                      <AdminStatusBadge
+                        status={formatStatusLabel(
+                          summary.record.status,
+                          summary.record.deleted_at,
+                        )}
+                      />
+                      {summary.record.featured ? (
+                        <Badge variant="accent">Featured</Badge>
+                      ) : null}
+                      {summary.record.attributes &&
+                      getBooleanValue(
+                        (summary.record.attributes as JsonRecord).exclusive_offer ??
+                          (summary.record.attributes as JsonRecord).exclusiveOffer,
+                        false,
+                      ) ? (
                         <Badge variant="danger">Exclusive</Badge>
                       ) : null}
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 text-xs font-semibold text-muted">
+                  <div className="text-muted flex flex-wrap gap-2 text-xs font-semibold">
                     <Badge variant="neutral">{summary.categoryName}</Badge>
                     <Badge variant="neutral">{summary.departmentName}</Badge>
-                    <Badge variant="neutral">{summary.stockStatus.replace(/_/g, " ")}</Badge>
+                    <Badge variant="neutral">
+                      {summary.stockStatus.replace(/_/g, " ")}
+                    </Badge>
                   </div>
-                  <div className="grid gap-2 text-sm text-muted">
-                    <div className="flex items-center justify-between"><span>Price</span><span className="font-semibold text-text">{formatPrice(parseNumber(String(summary.record.selling_price)))}</span></div>
-                    <div className="flex items-center justify-between"><span>Stock</span><span className="font-semibold text-text">{summary.stock}</span></div>
-                    <div className="flex items-center justify-between"><span>Updated</span><span className="font-semibold text-text">{new Date(summary.record.updated_at).toLocaleDateString()}</span></div>
+                  <div className="text-muted grid gap-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span>Price</span>
+                      <span className="text-text font-semibold">
+                        {formatPrice(parseNumber(String(summary.record.selling_price)))}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Stock</span>
+                      <span className="text-text font-semibold">{summary.stock}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Updated</span>
+                      <span className="text-text font-semibold">
+                        {new Date(summary.record.updated_at).toLocaleDateString()}
+                      </span>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <Button variant="outline" size="sm" onClick={() => openEditProduct(summary)} disabled={!canManage || Boolean(summary.record.deleted_at)}><PenSquare className="h-4 w-4" />Edit</Button>
-                    <Button variant="outline" size="sm" onClick={() => void duplicateProduct(summary)} disabled={!canManage}><Copy className="h-4 w-4" />Duplicate</Button>
-                    <Button variant={summary.record.deleted_at ? "outline" : "accent"} size="sm" onClick={() => void (summary.record.deleted_at ? restoreProduct(summary) : toggleActive(summary))} disabled={!canManage}><ShieldCheck className="h-4 w-4" />{summary.record.deleted_at ? "Restore" : summary.record.status === "active" ? "Deactivate" : "Activate"}</Button>
-                    <Button variant="danger" size="sm" onClick={() => setDeleteTargetId(summary.record.id)} disabled={!canManage || Boolean(summary.record.deleted_at)}><Trash2 className="h-4 w-4" />Delete</Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openEditProduct(summary)}
+                      disabled={!canManage || Boolean(summary.record.deleted_at)}
+                    >
+                      <PenSquare className="h-4 w-4" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void duplicateProduct(summary)}
+                      disabled={!canManage}
+                    >
+                      <Copy className="h-4 w-4" />
+                      Duplicate
+                    </Button>
+                    <Button
+                      variant={summary.record.deleted_at ? "outline" : "accent"}
+                      size="sm"
+                      onClick={() =>
+                        void (summary.record.deleted_at
+                          ? restoreProduct(summary)
+                          : toggleActive(summary))
+                      }
+                      disabled={!canManage}
+                    >
+                      <ShieldCheck className="h-4 w-4" />
+                      {summary.record.deleted_at
+                        ? "Restore"
+                        : summary.record.status === "active"
+                          ? "Deactivate"
+                          : "Activate"}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => setDeleteTargetId(summary.record.id)}
+                      disabled={!canManage || Boolean(summary.record.deleted_at)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </Button>
                   </div>
                 </div>
               </Card>
             ))}
           </div>
 
-          <div className="hidden overflow-hidden rounded-[1.4rem] border border-border/70 bg-white/90 shadow-[var(--shadow-sm)] md:block">
-            <table className="min-w-full divide-y divide-border/70">
+          <div className="border-border/70 hidden overflow-hidden rounded-[1.4rem] border bg-white/90 shadow-[var(--shadow-sm)] md:block">
+            <table className="divide-border/70 min-w-full divide-y">
               <thead className="bg-background-secondary/35">
-                <tr className="text-left text-xs font-bold uppercase tracking-[0.18em] text-muted">
+                <tr className="text-muted text-left text-xs font-bold tracking-[0.18em] uppercase">
                   <th className="px-4 py-3">Product</th>
                   <th className="px-4 py-3">Brand</th>
                   <th className="px-4 py-3">Category</th>
@@ -1697,42 +2474,120 @@ function ProductsAdminPage() {
                   <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/70 bg-white/80">
+              <tbody className="divide-border/70 divide-y bg-white/80">
                 {visibleSummaries.map((summary) => (
                   <tr key={summary.record.id}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[1rem] border border-border/70 bg-background-secondary/40">
-                          <ProductImagePreview url={summary.primaryImage} alt={summary.record.name} label={summary.record.name} />
+                        <div className="border-border/70 bg-background-secondary/40 flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[1rem] border">
+                          <ProductImagePreview
+                            url={summary.primaryImage}
+                            alt={summary.record.name}
+                            label={summary.record.name}
+                          />
                         </div>
                         <div>
-                          <p className="font-semibold text-text">{summary.record.name}</p>
-                          <p className="text-xs text-muted">SKU: {summary.record.sku}</p>
+                          <p className="text-text font-semibold">{summary.record.name}</p>
+                          <p className="text-muted text-xs">SKU: {summary.record.sku}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-muted">{summary.brandName}</td>
-                    <td className="px-4 py-3 text-sm text-muted">{summary.categoryName}</td>
-                    <td className="px-4 py-3 text-sm text-muted">{summary.departmentName}</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-text">{formatPrice(parseNumber(String(summary.record.selling_price)))}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-text">{summary.stock}</td>
-                    <td className="px-4 py-3"><AdminStatusBadge status={formatStatusLabel(summary.record.status, summary.record.deleted_at)} /></td>
+                    <td className="text-muted px-4 py-3 text-sm">{summary.brandName}</td>
+                    <td className="text-muted px-4 py-3 text-sm">
+                      {summary.categoryName}
+                    </td>
+                    <td className="text-muted px-4 py-3 text-sm">
+                      {summary.departmentName}
+                    </td>
+                    <td className="text-text px-4 py-3 text-sm font-semibold">
+                      {formatPrice(parseNumber(String(summary.record.selling_price)))}
+                    </td>
+                    <td className="text-text px-4 py-3 text-sm font-medium">
+                      {summary.stock}
+                    </td>
+                    <td className="px-4 py-3">
+                      <AdminStatusBadge
+                        status={formatStatusLabel(
+                          summary.record.status,
+                          summary.record.deleted_at,
+                        )}
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
-                        {summary.record.featured ? <Badge variant="accent">Featured</Badge> : <Badge variant="neutral">No</Badge>}
-                        {summary.record.attributes && getBooleanValue((summary.record.attributes as JsonRecord).exclusive_offer ?? (summary.record.attributes as JsonRecord).exclusiveOffer, false) ? (
+                        {summary.record.featured ? (
+                          <Badge variant="accent">Featured</Badge>
+                        ) : (
+                          <Badge variant="neutral">No</Badge>
+                        )}
+                        {summary.record.attributes &&
+                        getBooleanValue(
+                          (summary.record.attributes as JsonRecord).exclusive_offer ??
+                            (summary.record.attributes as JsonRecord).exclusiveOffer,
+                          false,
+                        ) ? (
                           <Badge variant="danger">Exclusive</Badge>
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-muted">{new Date(summary.record.updated_at).toLocaleDateString()}</td>
+                    <td className="text-muted px-4 py-3 text-sm">
+                      {new Date(summary.record.updated_at).toLocaleDateString()}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" onClick={() => openEditProduct(summary)} disabled={!canManage || Boolean(summary.record.deleted_at)}><PenSquare className="h-4 w-4" />Edit</Button>
-                        <Button variant="outline" size="sm" onClick={() => void duplicateProduct(summary)} disabled={!canManage}><Copy className="h-4 w-4" />Duplicate</Button>
-                        <Button variant={summary.record.deleted_at ? "outline" : "accent"} size="sm" onClick={() => void (summary.record.deleted_at ? restoreProduct(summary) : toggleActive(summary))} disabled={!canManage}><ShieldCheck className="h-4 w-4" />{summary.record.deleted_at ? "Restore" : summary.record.status === "active" ? "Deactivate" : "Activate"}</Button>
-                        <Button variant="danger" size="sm" onClick={() => setDeleteTargetId(summary.record.id)} disabled={!canManage || Boolean(summary.record.deleted_at)}><Trash2 className="h-4 w-4" />Delete</Button>
-                        <Button variant="outline" size="sm" onClick={() => void toggleFeatured(summary)} disabled={!canManage}><Store className="h-4 w-4" />{summary.record.featured ? "Unfeature" : "Feature"}</Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditProduct(summary)}
+                          disabled={!canManage || Boolean(summary.record.deleted_at)}
+                        >
+                          <PenSquare className="h-4 w-4" />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void duplicateProduct(summary)}
+                          disabled={!canManage}
+                        >
+                          <Copy className="h-4 w-4" />
+                          Duplicate
+                        </Button>
+                        <Button
+                          variant={summary.record.deleted_at ? "outline" : "accent"}
+                          size="sm"
+                          onClick={() =>
+                            void (summary.record.deleted_at
+                              ? restoreProduct(summary)
+                              : toggleActive(summary))
+                          }
+                          disabled={!canManage}
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                          {summary.record.deleted_at
+                            ? "Restore"
+                            : summary.record.status === "active"
+                              ? "Deactivate"
+                              : "Activate"}
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => setDeleteTargetId(summary.record.id)}
+                          disabled={!canManage || Boolean(summary.record.deleted_at)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void toggleFeatured(summary)}
+                          disabled={!canManage}
+                        >
+                          <Store className="h-4 w-4" />
+                          {summary.record.featured ? "Unfeature" : "Feature"}
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -1741,25 +2596,49 @@ function ProductsAdminPage() {
             </table>
           </div>
 
-          <div className="flex flex-col gap-3 rounded-[1.4rem] border border-border/70 bg-white/90 p-4 shadow-[var(--shadow-sm)] sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm font-medium text-muted">
+          <div className="border-border/70 flex flex-col gap-3 rounded-[1.4rem] border bg-white/90 p-4 shadow-[var(--shadow-sm)] sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-muted text-sm font-medium">
               Showing {visibleSummaries.length} of {filteredSummaries.length} products
             </p>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={visiblePage === 1}>Prev</Button>
-              <Badge variant="neutral">Page {visiblePage} of {totalPages}</Badge>
-              <Button variant="outline" size="sm" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={visiblePage >= totalPages}>Next</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={visiblePage === 1}
+              >
+                Prev
+              </Button>
+              <Badge variant="neutral">
+                Page {visiblePage} of {totalPages}
+              </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={visiblePage >= totalPages}
+              >
+                Next
+              </Button>
             </div>
           </div>
         </>
       ) : (
         <Card className="rounded-[1.6rem] border-white/80 bg-white/92 p-8 text-center shadow-[var(--shadow-sm)]">
-          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-accent/10 text-accent">
+          <div className="bg-accent/10 text-accent mx-auto flex h-20 w-20 items-center justify-center rounded-full">
             <LayoutGrid className="h-9 w-9" aria-hidden="true" />
           </div>
-          <h3 className="mt-5 text-2xl font-black text-text">No Products Yet</h3>
-          <p className="mt-2 text-sm font-medium text-muted">Create the first product to start managing catalog data in Supabase.</p>
-          <Button variant="accent" size="md" className="mt-6" onClick={() => openCreateProduct()} disabled={!canManage}>
+          <h3 className="text-text mt-5 text-2xl font-black">No Products Yet</h3>
+          <p className="text-muted mt-2 text-sm font-medium">
+            Create the first product to start managing catalog data in Supabase.
+          </p>
+          <Button
+            variant="accent"
+            size="md"
+            className="mt-6"
+            onClick={() => openCreateProduct()}
+            disabled={!canManage}
+          >
             <Plus className="h-4 w-4" aria-hidden="true" />
             Add Product
           </Button>
@@ -1778,19 +2657,43 @@ function ProductsAdminPage() {
       >
         <div className="max-h-[80dvh] space-y-6 overflow-y-auto pr-1">
           <div className="rounded-[1.4rem] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-sm)]">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Section 1</p>
-            <h3 className="mt-1 text-lg font-black text-text">Quick Setup</h3>
-            <p className="mt-1 text-sm font-medium text-muted">Create a product in under 30 seconds with only the essentials.</p>
+            <p className="text-muted text-xs font-bold tracking-[0.18em] uppercase">
+              Section 1
+            </p>
+            <h3 className="text-text mt-1 text-lg font-black">Quick Setup</h3>
+            <p className="text-muted mt-1 text-sm font-medium">
+              Create a product in under 30 seconds with only the essentials.
+            </p>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
             <div className="space-y-4">
-              <FormField label="Product Name" htmlFor="product-name" error={formErrors.name}>
-                <Input ref={productNameRef} id="product-name" value={form.name} onChange={(event) => handleNameChange(event.target.value)} placeholder="Product name" autoComplete="off" />
+              <FormField
+                label="Product Name"
+                htmlFor="product-name"
+                error={formErrors.name}
+              >
+                <Input
+                  ref={productNameRef}
+                  id="product-name"
+                  value={form.name}
+                  onChange={(event) => handleNameChange(event.target.value)}
+                  placeholder="Product name"
+                  autoComplete="off"
+                />
               </FormField>
               <div className="grid gap-4 sm:grid-cols-2">
-                <FormField label="Department" htmlFor="product-department" error={formErrors.departmentId}>
-                  <select id="product-department" value={form.departmentId} onChange={(event) => handleDepartmentChange(event.target.value)} className="h-11 w-full rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                <FormField
+                  label="Department"
+                  htmlFor="product-department"
+                  error={formErrors.departmentId}
+                >
+                  <select
+                    id="product-department"
+                    value={form.departmentId}
+                    onChange={(event) => handleDepartmentChange(event.target.value)}
+                    className="border-border bg-background text-text focus-visible:ring-accent h-11 w-full rounded-[var(--radius-md)] border px-3.5 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+                  >
                     <option value="">Select department</option>
                     {departments.map((department) => (
                       <option key={department.id} value={department.id}>
@@ -1799,59 +2702,138 @@ function ProductsAdminPage() {
                     ))}
                   </select>
                 </FormField>
-                <FormField label="Category" htmlFor="product-category" error={formErrors.categoryId}>
-                  <Button type="button" variant="outline" className="h-11 w-full justify-between px-3.5" onClick={openCategoryPicker} disabled={!form.departmentId}>
+                <FormField
+                  label="Category"
+                  htmlFor="product-category"
+                  error={formErrors.categoryId}
+                >
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11 w-full justify-between px-3.5"
+                    onClick={openCategoryPicker}
+                    disabled={!form.departmentId}
+                  >
                     <span className="truncate text-left">
-                      {selectedCategory?.name ?? (form.departmentId ? "Select category" : "Select Department First")}
+                      {selectedCategory?.name ??
+                        (form.departmentId
+                          ? "Select category"
+                          : "Select Department First")}
                     </span>
                     <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
                   </Button>
                 </FormField>
-                <FormField label="Brand" htmlFor="product-brand" error={formErrors.brandId}>
-                  <Button type="button" variant="outline" className="h-11 w-full justify-between px-3.5" onClick={openBrandPicker} disabled={!form.departmentId || !form.categoryId}>
+                <FormField
+                  label="Brand"
+                  htmlFor="product-brand"
+                  error={formErrors.brandId}
+                >
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11 w-full justify-between px-3.5"
+                    onClick={openBrandPicker}
+                    disabled={!form.departmentId || !form.categoryId}
+                  >
                     <span className="truncate text-left">
-                      {selectedBrand?.name ?? (form.categoryId ? "Select brand" : "Select Category First")}
+                      {selectedBrand?.name ??
+                        (form.categoryId ? "Select brand" : "Select Category First")}
                     </span>
                     <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
                   </Button>
                 </FormField>
-                <FormField label="Selling Price" htmlFor="product-selling-price" error={formErrors.sellingPrice}>
-                  <Input id="product-selling-price" value={form.sellingPrice} onChange={(event) => updateForm({ sellingPrice: cleanNumberInput(event.target.value) })} placeholder="0" />
+                <FormField
+                  label="Selling Price"
+                  htmlFor="product-selling-price"
+                  error={formErrors.sellingPrice}
+                >
+                  <Input
+                    id="product-selling-price"
+                    value={form.sellingPrice}
+                    onChange={(event) =>
+                      updateForm({ sellingPrice: cleanNumberInput(event.target.value) })
+                    }
+                    placeholder="0"
+                  />
                 </FormField>
                 <FormField label="MRP" htmlFor="product-mrp" hint="Optional">
-                  <Input id="product-mrp" value={form.mrp} onChange={(event) => updateForm({ mrp: cleanNumberInput(event.target.value) })} placeholder="0" />
+                  <Input
+                    id="product-mrp"
+                    value={form.mrp}
+                    onChange={(event) =>
+                      updateForm({ mrp: cleanNumberInput(event.target.value) })
+                    }
+                    placeholder="0"
+                  />
                 </FormField>
-                <FormField label="Stock Quantity" htmlFor="product-stock" error={formErrors.stockQuantity}>
-                  <Input id="product-stock" value={form.stockQuantity} onChange={(event) => updateForm({ stockQuantity: cleanNumberInput(event.target.value) })} placeholder="0" />
+                <FormField
+                  label="Stock Quantity"
+                  htmlFor="product-stock"
+                  error={formErrors.stockQuantity}
+                >
+                  <Input
+                    id="product-stock"
+                    value={form.stockQuantity}
+                    onChange={(event) =>
+                      updateForm({ stockQuantity: cleanNumberInput(event.target.value) })
+                    }
+                    placeholder="0"
+                  />
                 </FormField>
               </div>
             </div>
 
             <div className="space-y-4">
-              <FormField label="Product Status" htmlFor="product-status" error={formErrors.status}>
-                <select id="product-status" value={form.status} onChange={(event) => updateForm({ status: event.target.value })} className="h-11 w-full rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                  {productStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+              <FormField
+                label="Product Status"
+                htmlFor="product-status"
+                error={formErrors.status}
+              >
+                <select
+                  id="product-status"
+                  value={form.status}
+                  onChange={(event) => updateForm({ status: event.target.value })}
+                  className="border-border bg-background text-text focus-visible:ring-accent h-11 w-full rounded-[var(--radius-md)] border px-3.5 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+                >
+                  {productStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
                 </select>
               </FormField>
-              <label className="flex items-center gap-3 rounded-[1.2rem] border border-border/70 bg-white/80 px-4 py-3 text-sm font-semibold text-text">
-                <input type="checkbox" checked={form.featured} onChange={(event) => updateForm({ featured: event.target.checked })} className="h-4 w-4 rounded border-border text-accent focus:ring-accent" />
+              <label className="border-border/70 text-text flex items-center gap-3 rounded-[1.2rem] border bg-white/80 px-4 py-3 text-sm font-semibold">
+                <input
+                  type="checkbox"
+                  checked={form.featured}
+                  onChange={(event) => updateForm({ featured: event.target.checked })}
+                  className="border-border text-accent focus:ring-accent h-4 w-4 rounded"
+                />
                 Featured product
               </label>
-              <label className="flex items-center gap-3 rounded-[1.2rem] border border-rose-200 bg-rose-50/80 px-4 py-3 text-sm font-semibold text-text">
+              <label className="text-text flex items-center gap-3 rounded-[1.2rem] border border-rose-200 bg-rose-50/80 px-4 py-3 text-sm font-semibold">
                 <input
                   type="checkbox"
                   checked={form.exclusiveOffer}
-                  onChange={(event) => updateForm({ exclusiveOffer: event.target.checked })}
-                  className="h-4 w-4 rounded border-border text-rose-500 focus:ring-rose-500"
+                  onChange={(event) =>
+                    updateForm({ exclusiveOffer: event.target.checked })
+                  }
+                  className="border-border h-4 w-4 rounded text-rose-500 focus:ring-rose-500"
                 />
                 Exclusive offer
               </label>
               <Card className="rounded-[1.35rem] border border-white/80 bg-[linear-gradient(180deg,rgba(255,247,237,0.85),rgba(255,255,255,0.95))] p-4 shadow-[var(--shadow-sm)]">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Live Preview</p>
-                <div className="mt-3 overflow-hidden rounded-[1.2rem] border border-border/70 bg-white/95">
-                  <div className="aspect-[4/3] bg-background-secondary/40">
+                <p className="text-muted text-xs font-bold tracking-[0.18em] uppercase">
+                  Live Preview
+                </p>
+                <div className="border-border/70 mt-3 overflow-hidden rounded-[1.2rem] border bg-white/95">
+                  <div className="bg-background-secondary/40 aspect-[4/3]">
                     <ProductImagePreview
-                      url={form.images.find((image) => image.primary)?.url ?? form.images[0]?.url ?? null}
+                      url={
+                        form.images.find((image) => image.primary)?.url ??
+                        form.images[0]?.url ??
+                        null
+                      }
                       alt={form.name || "Product preview"}
                       label={form.name || "Product preview"}
                     />
@@ -1859,25 +2841,49 @@ function ProductsAdminPage() {
                   <div className="space-y-3 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate text-lg font-black text-text">{form.name || "Product name preview"}</p>
-                        <p className="text-xs font-medium text-muted">{selectedBrand?.name ?? "Brand"} - {selectedCategory?.name ?? "Category"}</p>
+                        <p className="text-text truncate text-lg font-black">
+                          {form.name || "Product name preview"}
+                        </p>
+                        <p className="text-muted text-xs font-medium">
+                          {selectedBrand?.name ?? "Brand"} -{" "}
+                          {selectedCategory?.name ?? "Category"}
+                        </p>
                       </div>
-                      <Badge variant={form.status === "active" ? "accent" : "neutral"}>{form.status}</Badge>
+                      <Badge variant={form.status === "active" ? "accent" : "neutral"}>
+                        {form.status}
+                      </Badge>
                     </div>
                     {form.exclusiveOffer ? (
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="danger">Exclusive offer</Badge>
-                        <Badge variant="neutral">{form.exclusiveOfferPercent ? `${form.exclusiveOfferPercent}%` : "Set percent"}</Badge>
+                        <Badge variant="neutral">
+                          {form.exclusiveOfferPercent
+                            ? `${form.exclusiveOfferPercent}%`
+                            : "Set percent"}
+                        </Badge>
                       </div>
                     ) : null}
                     <div className="flex items-end justify-between gap-3">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Selling Price</p>
-                        <p className="text-2xl font-black text-text">{form.sellingPrice ? formatPrice(parseNumber(form.sellingPrice)) : "Rs 0"}</p>
+                        <p className="text-muted text-xs font-semibold tracking-[0.18em] uppercase">
+                          Canonical price preview
+                        </p>
+                        <p className="text-text text-2xl font-black">
+                          {formatPrice(adminPreviewLine.lineTotal)}
+                        </p>
+                        <p className="text-muted text-xs font-medium">
+                          SP {formatPrice(adminPreviewLine.sellingPrice)} · GST{" "}
+                          {formatPrice(adminPreviewLine.gstAmount)}
+                        </p>
                       </div>
-                      <p className="text-xs font-semibold text-muted">{form.stockQuantity || "0"} in stock</p>
+                      <p className="text-muted text-xs font-semibold">
+                        {form.stockQuantity || "0"} in stock
+                      </p>
                     </div>
-                    <p className="line-clamp-3 text-sm font-medium leading-6 text-muted">{form.shortDescription || "Product preview appears here before saving."}</p>
+                    <p className="text-muted line-clamp-3 text-sm leading-6 font-medium">
+                      {form.shortDescription ||
+                        "Product preview appears here before saving."}
+                    </p>
                   </div>
                 </div>
               </Card>
@@ -1885,13 +2891,17 @@ function ProductsAdminPage() {
           </div>
 
           <div className="rounded-[1.4rem] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-sm)]">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Section 2</p>
-            <h3 className="mt-1 text-lg font-black text-text">Product Images</h3>
-            <p className="mt-1 text-sm font-medium text-muted">Drag and drop images, reorder them, and choose a primary image.</p>
+            <p className="text-muted text-xs font-bold tracking-[0.18em] uppercase">
+              Section 2
+            </p>
+            <h3 className="text-text mt-1 text-lg font-black">Product Images</h3>
+            <p className="text-muted mt-1 text-sm font-medium">
+              Drag and drop images, reorder them, and choose a primary image.
+            </p>
           </div>
           <div className="space-y-4">
             <label
-              className="group block cursor-pointer rounded-[1.5rem] border-2 border-dashed border-border/80 bg-white/85 p-5 shadow-[var(--shadow-sm)] transition-colors hover:border-accent/30 hover:bg-white"
+              className="group border-border/80 hover:border-accent/30 block cursor-pointer rounded-[1.5rem] border-2 border-dashed bg-white/85 p-5 shadow-[var(--shadow-sm)] transition-colors hover:bg-white"
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => void handleImageDrop(event)}
             >
@@ -1905,41 +2915,126 @@ function ProductsAdminPage() {
                 disabled={form.images.length >= 4}
               />
               <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-accent/10 text-accent">
+                <div className="bg-accent/10 text-accent flex h-16 w-16 items-center justify-center rounded-full">
                   <Plus className="h-7 w-7" aria-hidden="true" />
                 </div>
                 <div>
-                  <p className="text-base font-bold text-text">{uploading ? "Uploading images..." : form.images.length >= 4 ? "Maximum 4 images reached" : "Drop images here or click to upload"}</p>
-                  <p className="mt-1 text-sm font-medium text-muted">Multiple images, thumbnail preview, primary image, reorder, and delete.</p>
+                  <p className="text-text text-base font-bold">
+                    {uploading
+                      ? "Uploading images..."
+                      : form.images.length >= 4
+                        ? "Maximum 4 images reached"
+                        : "Drop images here or click to upload"}
+                  </p>
+                  <p className="text-muted mt-1 text-sm font-medium">
+                    Multiple images, thumbnail preview, primary image, reorder, and
+                    delete.
+                  </p>
                 </div>
-                <Badge variant="neutral">{form.images.length > 0 ? `${form.images.length} image${form.images.length === 1 ? "" : "s"} selected` : "At least one image required"}</Badge>
+                <Badge variant="neutral">
+                  {form.images.length > 0
+                    ? `${form.images.length} image${form.images.length === 1 ? "" : "s"} selected`
+                    : "At least one image required"}
+                </Badge>
               </div>
             </label>
-            {formErrors.images ? <p className="text-xs font-medium text-danger">{formErrors.images}</p> : null}
+            {formErrors.images ? (
+              <p className="text-danger text-xs font-medium">{formErrors.images}</p>
+            ) : null}
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {form.images.slice(0, 4).map((image, index) => (
-                <div key={image.id} draggable onDragStart={() => imageDragStart(image.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => imageDrop(image.id)} className={cn("rounded-[1.2rem] border border-border/70 bg-white/85 p-3 shadow-[var(--shadow-sm)]", image.primary && "ring-2 ring-accent")}>
+                <div
+                  key={image.id}
+                  draggable
+                  onDragStart={() => imageDragStart(image.id)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => imageDrop(image.id)}
+                  className={cn(
+                    "border-border/70 rounded-[1.2rem] border bg-white/85 p-3 shadow-[var(--shadow-sm)]",
+                    image.primary && "ring-accent ring-2",
+                  )}
+                >
                   <div className="aspect-[4/3] overflow-hidden rounded-[1rem]">
-                    <ProductImagePreview url={image.url} alt={image.alt || form.name} label={form.name} />
+                    <ProductImagePreview
+                      url={image.url}
+                      alt={image.alt || form.name}
+                      label={form.name}
+                    />
                   </div>
                   <div className="mt-3 space-y-2">
-                    <Input value={image.alt} onChange={(event) => setForm((current) => ({ ...current, images: current.images.map((item) => (item.id === image.id ? { ...item, alt: event.target.value } : item)) }))} placeholder="Alt text" />
+                    <Input
+                      value={image.alt}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          images: current.images.map((item) =>
+                            item.id === image.id
+                              ? { ...item, alt: event.target.value }
+                              : item,
+                          ),
+                        }))
+                      }
+                      placeholder="Alt text"
+                    />
                     <div className="flex items-center justify-between gap-2">
-                      <label className="flex items-center gap-2 text-xs font-semibold text-text">
-                        <input type="radio" checked={image.primary} onChange={() => setForm((current) => ({ ...current, images: current.images.map((item) => ({ ...item, primary: item.id === image.id })) }))} />
+                      <label className="text-text flex items-center gap-2 text-xs font-semibold">
+                        <input
+                          type="radio"
+                          checked={image.primary}
+                          onChange={() =>
+                            setForm((current) => ({
+                              ...current,
+                              images: current.images.map((item) => ({
+                                ...item,
+                                primary: item.id === image.id,
+                              })),
+                            }))
+                          }
+                        />
                         Primary
                       </label>
                       <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => setForm((current) => ({ ...current, images: current.images.filter((item) => item.id !== image.id) }))}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              images: current.images.filter(
+                                (item) => item.id !== image.id,
+                              ),
+                            }))
+                          }
+                        >
                           <X className="h-4 w-4" />
                         </Button>
-                        <GripVertical className="h-4 w-4 text-muted" aria-hidden="true" />
+                        <GripVertical className="text-muted h-4 w-4" aria-hidden="true" />
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      {index > 0 ? <Button variant="outline" size="sm" onClick={() => reorderImage(image.id, form.images[index - 1]!.id)}>Up</Button> : null}
-                      {index < form.images.length - 1 ? <Button variant="outline" size="sm" onClick={() => reorderImage(image.id, form.images[index + 1]!.id)}>Down</Button> : null}
+                      {index > 0 ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            reorderImage(image.id, form.images[index - 1]!.id)
+                          }
+                        >
+                          Up
+                        </Button>
+                      ) : null}
+                      {index < form.images.length - 1 ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            reorderImage(image.id, form.images[index + 1]!.id)
+                          }
+                        >
+                          Down
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -1948,84 +3043,213 @@ function ProductsAdminPage() {
           </div>
 
           <details className="rounded-[1.4rem] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-sm)]">
-            <summary className="cursor-pointer list-none text-xs font-bold uppercase tracking-[0.18em] text-muted outline-none">
+            <summary className="text-muted cursor-pointer list-none text-xs font-bold tracking-[0.18em] uppercase outline-none">
               Advanced Options
             </summary>
             <div className="mt-5 space-y-6">
-              <AdminSectionCard title="Department-Specific Fields" description="Optional fields that change based on the selected department.">
+              <AdminSectionCard
+                title="Department-Specific Fields"
+                description="Optional fields that change based on the selected department."
+              >
                 {departmentFieldPresets.length > 0 ? (
                   <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {departmentFieldPresets.map((field) => (
-                      <FormField key={field.key} label={field.label} htmlFor={`department-field-${field.key}`}>
+                      <FormField
+                        key={field.key}
+                        label={field.label}
+                        htmlFor={`department-field-${field.key}`}
+                      >
                         <Input
                           id={`department-field-${field.key}`}
-                          value={getSpecValue(form.specifications, field.key) || getSpecValue(form.specifications, field.label)}
-                          onChange={(event) => handleDepartmentFieldChange(field.key, event.target.value)}
+                          value={
+                            getSpecValue(form.specifications, field.key) ||
+                            getSpecValue(form.specifications, field.label)
+                          }
+                          onChange={(event) =>
+                            handleDepartmentFieldChange(field.key, event.target.value)
+                          }
                           placeholder={field.placeholder}
                         />
                       </FormField>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm font-medium text-muted">Select a department to reveal optional fields for that product type.</p>
+                  <p className="text-muted text-sm font-medium">
+                    Select a department to reveal optional fields for that product type.
+                  </p>
                 )}
               </AdminSectionCard>
 
-              <AdminSectionCard title="Optional Details" description="Slug, SKU, descriptions, tax and inventory helpers.">
+              <AdminSectionCard
+                title="Optional Details"
+                description="Slug, SKU, descriptions, tax and inventory helpers."
+              >
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField label="Slug" htmlFor="product-slug" hint="Optional. Auto-generated from the product name if left blank." error={formErrors.slug}>
-                    <Input id="product-slug" value={form.slug} onChange={(event) => handleSlugChange(event.target.value)} placeholder="product-slug" />
+                  <FormField
+                    label="Slug"
+                    htmlFor="product-slug"
+                    hint="Optional. Auto-generated from the product name if left blank."
+                    error={formErrors.slug}
+                  >
+                    <Input
+                      id="product-slug"
+                      value={form.slug}
+                      onChange={(event) => handleSlugChange(event.target.value)}
+                      placeholder="product-slug"
+                    />
                   </FormField>
-                  <FormField label="SKU" htmlFor="product-sku" hint="Optional. A unique SKU is generated if you leave this empty." error={formErrors.sku}>
-                    <Input id="product-sku" value={form.sku} onChange={(event) => updateForm({ sku: event.target.value })} placeholder="SKU" />
+                  <FormField
+                    label="SKU"
+                    htmlFor="product-sku"
+                    hint="Optional. A unique SKU is generated if you leave this empty."
+                    error={formErrors.sku}
+                  >
+                    <Input
+                      id="product-sku"
+                      value={form.sku}
+                      onChange={(event) => updateForm({ sku: event.target.value })}
+                      placeholder="SKU"
+                    />
                   </FormField>
                   <FormField label="GST %" htmlFor="product-gst">
-                    <Input id="product-gst" value={form.gstRate} onChange={(event) => updateForm({ gstRate: cleanNumberInput(event.target.value) })} placeholder="18" />
+                    <Input
+                      id="product-gst"
+                      value={form.gstRate}
+                      onChange={(event) =>
+                        updateForm({ gstRate: cleanNumberInput(event.target.value) })
+                      }
+                      placeholder="18"
+                    />
                   </FormField>
                   <FormField label="HSN Code" htmlFor="product-hsn">
-                    <Input id="product-hsn" value={form.hsnCode} onChange={(event) => updateForm({ hsnCode: event.target.value })} placeholder="HSN" />
+                    <Input
+                      id="product-hsn"
+                      value={form.hsnCode}
+                      onChange={(event) => updateForm({ hsnCode: event.target.value })}
+                      placeholder="HSN"
+                    />
                   </FormField>
                   <FormField label="Warehouse" htmlFor="product-warehouse">
-                    <Input id="product-warehouse" value={form.warehouseLocation} onChange={(event) => updateForm({ warehouseLocation: event.target.value })} placeholder="Warehouse placeholder" />
+                    <Input
+                      id="product-warehouse"
+                      value={form.warehouseLocation}
+                      onChange={(event) =>
+                        updateForm({ warehouseLocation: event.target.value })
+                      }
+                      placeholder="Warehouse placeholder"
+                    />
                   </FormField>
-                  <div className="rounded-[1.2rem] border border-border/70 bg-white/80 px-4 py-3">
-                    <label className="flex items-center gap-3 text-sm font-semibold text-text">
-                      <input type="checkbox" checked={form.returnable} onChange={(event) => updateForm({ returnable: event.target.checked })} className="h-4 w-4 rounded border-border text-accent focus:ring-accent" />
+                  <div className="border-border/70 rounded-[1.2rem] border bg-white/80 px-4 py-3">
+                    <label className="text-text flex items-center gap-3 text-sm font-semibold">
+                      <input
+                        type="checkbox"
+                        checked={form.returnable}
+                        onChange={(event) =>
+                          updateForm({ returnable: event.target.checked })
+                        }
+                        className="border-border text-accent focus:ring-accent h-4 w-4 rounded"
+                      />
                       Returnable product
                     </label>
-                    <p className="mt-2 text-xs font-medium text-muted">
-                      Mark this on for items customers can return within 5 days of delivery.
+                    <p className="text-muted mt-2 text-xs font-medium">
+                      Mark this on for items customers can return within 5 days of
+                      delivery.
                     </p>
-                    <Link href="/admin/returns" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent transition-colors hover:underline">
+                    <Link
+                      href="/admin/returns"
+                      className="text-accent mt-2 inline-flex items-center gap-1 text-xs font-semibold transition-colors hover:underline"
+                    >
                       Review return requests
                       <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                     </Link>
                   </div>
                   <FormField label="Reserved Quantity" htmlFor="product-reserved">
-                    <Input id="product-reserved" value={form.reservedQuantity} onChange={(event) => updateForm({ reservedQuantity: cleanNumberInput(event.target.value) })} placeholder="0" />
+                    <Input
+                      id="product-reserved"
+                      value={form.reservedQuantity}
+                      onChange={(event) =>
+                        updateForm({
+                          reservedQuantity: cleanNumberInput(event.target.value),
+                        })
+                      }
+                      placeholder="0"
+                    />
                   </FormField>
                   <FormField label="Low Stock Threshold" htmlFor="product-threshold">
-                    <Input id="product-threshold" value={form.lowStockThreshold} onChange={(event) => updateForm({ lowStockThreshold: cleanNumberInput(event.target.value) })} placeholder="10" />
+                    <Input
+                      id="product-threshold"
+                      value={form.lowStockThreshold}
+                      onChange={(event) =>
+                        updateForm({
+                          lowStockThreshold: cleanNumberInput(event.target.value),
+                        })
+                      }
+                      placeholder="10"
+                    />
                   </FormField>
                   <FormField label="Discount %" htmlFor="product-discount">
-                    <Input id="product-discount" value={form.mrp && form.sellingPrice ? String(Math.max(((parseNumber(form.mrp) - parseNumber(form.sellingPrice)) / Math.max(parseNumber(form.mrp), 1)) * 100, 0).toFixed(2)) : "0"} readOnly />
+                    <Input
+                      id="product-discount"
+                      value={
+                        form.mrp && form.sellingPrice
+                          ? String(
+                              Math.max(
+                                ((parseNumber(form.mrp) -
+                                  parseNumber(form.sellingPrice)) /
+                                  Math.max(parseNumber(form.mrp), 1)) *
+                                  100,
+                                0,
+                              ).toFixed(2),
+                            )
+                          : "0"
+                      }
+                      readOnly
+                    />
                   </FormField>
-                  <FormField label="Exclusive Offer %" htmlFor="product-exclusive-offer-percent" error={formErrors.exclusiveOfferPercent} hint="Shown on the home page and the offers admin page.">
+                  <FormField
+                    label="Exclusive Offer %"
+                    htmlFor="product-exclusive-offer-percent"
+                    error={formErrors.exclusiveOfferPercent}
+                    hint="Shown on the home page and the offers admin page."
+                  >
                     <Input
                       id="product-exclusive-offer-percent"
                       value={form.exclusiveOffer ? form.exclusiveOfferPercent : ""}
-                      onChange={(event) => updateForm({ exclusiveOfferPercent: cleanNumberInput(event.target.value) })}
+                      onChange={(event) =>
+                        updateForm({
+                          exclusiveOfferPercent: cleanNumberInput(event.target.value),
+                        })
+                      }
                       placeholder="15"
                       disabled={!form.exclusiveOffer}
                     />
                   </FormField>
                 </div>
                 <div className="mt-4 grid gap-4">
-                  <FormField label="Short Description" htmlFor="product-short-description">
-                    <textarea id="product-short-description" value={form.shortDescription} onChange={(event) => updateForm({ shortDescription: event.target.value })} rows={3} className="min-h-24 w-full rounded-[var(--radius-md)] border border-border bg-background px-3.5 py-3 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" />
+                  <FormField
+                    label="Short Description"
+                    htmlFor="product-short-description"
+                  >
+                    <textarea
+                      id="product-short-description"
+                      value={form.shortDescription}
+                      onChange={(event) =>
+                        updateForm({ shortDescription: event.target.value })
+                      }
+                      rows={3}
+                      className="border-border bg-background text-text focus-visible:ring-accent min-h-24 w-full rounded-[var(--radius-md)] border px-3.5 py-3 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+                    />
                   </FormField>
                   <FormField label="Full Description" htmlFor="product-description">
-                    <textarea id="product-description" value={form.description} onChange={(event) => updateForm({ description: event.target.value })} rows={6} className="min-h-32 w-full rounded-[var(--radius-md)] border border-border bg-background px-3.5 py-3 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" />
+                    <textarea
+                      id="product-description"
+                      value={form.description}
+                      onChange={(event) =>
+                        updateForm({ description: event.target.value })
+                      }
+                      rows={6}
+                      className="border-border bg-background text-text focus-visible:ring-accent min-h-32 w-full rounded-[var(--radius-md)] border px-3.5 py-3 text-sm font-medium focus-visible:ring-2 focus-visible:outline-none"
+                    />
                   </FormField>
                 </div>
               </AdminSectionCard>
@@ -2033,55 +3257,360 @@ function ProductsAdminPage() {
               <div className="rounded-[1.4rem] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-sm)]">
                 <label className="flex items-center justify-between gap-4">
                   <span>
-                    <span className="block text-sm font-bold uppercase tracking-[0.18em] text-muted">Variants</span>
-                    <span className="mt-1 block text-base font-black text-text">Enable variant options</span>
+                    <span className="text-muted block text-sm font-bold tracking-[0.18em] uppercase">
+                      Variants
+                    </span>
+                    <span className="text-text mt-1 block text-base font-black">
+                      Enable variant options
+                    </span>
                   </span>
                   <input
                     type="checkbox"
                     checked={form.showVariants}
-                    onChange={(event) => updateForm({ showVariants: event.target.checked })}
-                    className="h-5 w-5 rounded border-border text-accent focus:ring-accent"
+                    onChange={(event) =>
+                      updateForm({ showVariants: event.target.checked })
+                    }
+                    className="border-border text-accent focus:ring-accent h-5 w-5 rounded"
                   />
                 </label>
-                <p className="mt-2 text-sm font-medium text-muted">Turn this on to show variant options on the product page and in admin editing.</p>
+                <p className="text-muted mt-2 text-sm font-medium">
+                  Turn this on to show variant options on the product page and in admin
+                  editing.
+                </p>
               </div>
 
               {form.showVariants ? (
-                <AdminSectionCard title="Variants" description="Optional variant setup for products that need it.">
+                <AdminSectionCard
+                  title="Variants"
+                  description="Optional variant setup for products that need it."
+                >
                   <div className="space-y-4">
                     {form.variants.map((variant, index) => (
-                      <div key={variant.id} draggable onDragStart={() => variantImageDragStart(variant.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => variantImageDrop(variant.id, variant.id)} className="rounded-[1.2rem] border border-border/70 bg-white/85 p-4 shadow-[var(--shadow-sm)]">
+                      <div
+                        key={variant.id}
+                        draggable
+                        onDragStart={() => variantImageDragStart(variant.id)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={() => variantImageDrop(variant.id, variant.id)}
+                        className="border-border/70 rounded-[1.2rem] border bg-white/85 p-4 shadow-[var(--shadow-sm)]"
+                      >
                         <div className="mb-3 flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <GripVertical className="h-4 w-4 text-muted" aria-hidden="true" />
-                            <p className="font-semibold text-text">Variant {index + 1}</p>
+                            <GripVertical
+                              className="text-muted h-4 w-4"
+                              aria-hidden="true"
+                            />
+                            <p className="text-text font-semibold">Variant {index + 1}</p>
                           </div>
-                          <label className="flex items-center gap-2 text-xs font-semibold text-text">
-                            <input type="checkbox" checked={variant.primary} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => ({ ...item, primary: item.id === variant.id ? event.target.checked : item.primary && !event.target.checked })) }))} />
+                          <label className="text-text flex items-center gap-2 text-xs font-semibold">
+                            <input
+                              type="checkbox"
+                              checked={variant.primary}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  variants: current.variants.map((item) => ({
+                                    ...item,
+                                    primary:
+                                      item.id === variant.id
+                                        ? event.target.checked
+                                        : item.primary && !event.target.checked,
+                                  })),
+                                }))
+                              }
+                            />
                             Default
                           </label>
                         </div>
-                        <div className="grid gap-3 lg:grid-cols-3">
-                          <Input value={variant.variantName} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, variantName: event.target.value } : item)) }))} placeholder="Variant name" />
-                          <Input value={variant.optionLabel} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, optionLabel: event.target.value } : item)) }))} placeholder="Option label" />
-                          <Input value={variant.optionValue} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, optionValue: event.target.value } : item)) }))} placeholder="Option value" />
-                          <Input value={variant.sku} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, sku: event.target.value } : item)) }))} placeholder="Variant SKU" />
-                          <Input value={variant.price} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, price: cleanNumberInput(event.target.value) } : item)) }))} placeholder="Price" />
-                          <Input value={variant.stock} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, stock: cleanNumberInput(event.target.value) } : item)) }))} placeholder="Stock" />
-                        </div>
+                        {selectedDepartmentSlug === "paints" ? (
+                          <div className="grid gap-3 lg:grid-cols-3">
+                            <FormField
+                              label="Finish"
+                              htmlFor={`variant-${index}-finish`}
+                              error={formErrors[`variant_${index}_finish`]}
+                            >
+                              <Input
+                                id={`variant-${index}-finish`}
+                                value={variant.finish}
+                                onChange={(event) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    variants: current.variants.map((item) =>
+                                      item.id === variant.id
+                                        ? { ...item, finish: event.target.value }
+                                        : item,
+                                    ),
+                                  }))
+                                }
+                                placeholder="Matt, satin, gloss"
+                              />
+                            </FormField>
+                            <FormField
+                              label="Pack size"
+                              error={formErrors[`variant_${index}_packSize`]}
+                            >
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={variant.packSize}
+                                onChange={(event) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    variants: current.variants.map((item) =>
+                                      item.id === variant.id
+                                        ? { ...item, packSize: event.target.value }
+                                        : item,
+                                    ),
+                                  }))
+                                }
+                                placeholder="1"
+                              />
+                            </FormField>
+                            <FormField
+                              label="Unit"
+                              error={formErrors[`variant_${index}_unit`]}
+                            >
+                              <select
+                                value={variant.unit}
+                                onChange={(event) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    variants: current.variants.map((item) =>
+                                      item.id === variant.id
+                                        ? { ...item, unit: event.target.value }
+                                        : item,
+                                    ),
+                                  }))
+                                }
+                                className="border-border bg-background text-text h-11 w-full rounded-[var(--radius-md)] border px-3.5 text-sm font-medium"
+                              >
+                                <option value="L">L</option>
+                                <option value="ml">ml</option>
+                                <option value="kg">kg</option>
+                                <option value="g">g</option>
+                              </select>
+                            </FormField>
+                            <FormField
+                              label="Base price"
+                              error={formErrors[`variant_${index}_basePrice`]}
+                            >
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={variant.basePrice}
+                                onChange={(event) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    variants: current.variants.map((item) =>
+                                      item.id === variant.id
+                                        ? {
+                                            ...item,
+                                            basePrice: event.target.value,
+                                            price: event.target.value,
+                                          }
+                                        : item,
+                                    ),
+                                  }))
+                                }
+                                placeholder="0"
+                              />
+                            </FormField>
+                            <FormField label="SKU">
+                              <Input
+                                value={variant.sku}
+                                onChange={(event) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    variants: current.variants.map((item) =>
+                                      item.id === variant.id
+                                        ? { ...item, sku: event.target.value }
+                                        : item,
+                                    ),
+                                  }))
+                                }
+                                placeholder="Variant SKU"
+                              />
+                            </FormField>
+                            <FormField
+                              label="Stock"
+                              error={formErrors[`variant_${index}_stock`]}
+                            >
+                              <Input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={variant.stock}
+                                onChange={(event) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    variants: current.variants.map((item) =>
+                                      item.id === variant.id
+                                        ? { ...item, stock: event.target.value }
+                                        : item,
+                                    ),
+                                  }))
+                                }
+                                placeholder="0"
+                              />
+                            </FormField>
+                          </div>
+                        ) : (
+                          <div className="grid gap-3 lg:grid-cols-3">
+                            <Input
+                              value={variant.variantName}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  variants: current.variants.map((item) =>
+                                    item.id === variant.id
+                                      ? { ...item, variantName: event.target.value }
+                                      : item,
+                                  ),
+                                }))
+                              }
+                              placeholder="Variant name"
+                            />
+                            <Input
+                              value={variant.optionLabel}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  variants: current.variants.map((item) =>
+                                    item.id === variant.id
+                                      ? { ...item, optionLabel: event.target.value }
+                                      : item,
+                                  ),
+                                }))
+                              }
+                              placeholder="Option label"
+                            />
+                            <Input
+                              value={variant.optionValue}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  variants: current.variants.map((item) =>
+                                    item.id === variant.id
+                                      ? { ...item, optionValue: event.target.value }
+                                      : item,
+                                  ),
+                                }))
+                              }
+                              placeholder="Option value"
+                            />
+                            <Input
+                              value={variant.sku}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  variants: current.variants.map((item) =>
+                                    item.id === variant.id
+                                      ? { ...item, sku: event.target.value }
+                                      : item,
+                                  ),
+                                }))
+                              }
+                              placeholder="Variant SKU"
+                            />
+                            <Input
+                              value={variant.price}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  variants: current.variants.map((item) =>
+                                    item.id === variant.id
+                                      ? {
+                                          ...item,
+                                          price: cleanNumberInput(event.target.value),
+                                          basePrice: cleanNumberInput(event.target.value),
+                                        }
+                                      : item,
+                                  ),
+                                }))
+                              }
+                              placeholder="Price"
+                            />
+                            <Input
+                              value={variant.stock}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  variants: current.variants.map((item) =>
+                                    item.id === variant.id
+                                      ? {
+                                          ...item,
+                                          stock: cleanNumberInput(event.target.value),
+                                        }
+                                      : item,
+                                  ),
+                                }))
+                              }
+                              placeholder="Stock"
+                            />
+                          </div>
+                        )}
                         <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-                          <Input value={variant.imageUrl} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, imageUrl: event.target.value } : item)) }))} placeholder="Variant image URL" />
-                          <label className="inline-flex cursor-pointer items-center justify-center rounded-full border border-border/80 bg-white/85 px-4 py-2 text-sm font-semibold text-text transition-colors hover:border-accent/25 hover:bg-white">
+                          <Input
+                            value={variant.imageUrl}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                variants: current.variants.map((item) =>
+                                  item.id === variant.id
+                                    ? { ...item, imageUrl: event.target.value }
+                                    : item,
+                                ),
+                              }))
+                            }
+                            placeholder="Variant image URL"
+                          />
+                          <label className="border-border/80 text-text hover:border-accent/25 inline-flex cursor-pointer items-center justify-center rounded-full border bg-white/85 px-4 py-2 text-sm font-semibold transition-colors hover:bg-white">
                             <span>Upload</span>
-                            <input type="file" accept="image/*" className="sr-only" onChange={(event) => void uploadVariantImage(variant.id, event.target.files?.[0] ?? null)} />
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="sr-only"
+                              onChange={(event) =>
+                                void uploadVariantImage(
+                                  variant.id,
+                                  event.target.files?.[0] ?? null,
+                                )
+                              }
+                            />
                           </label>
                         </div>
                         <div className="mt-3 flex items-center justify-between">
-                          <label className="flex items-center gap-2 text-xs font-semibold text-text">
-                            <input type="checkbox" checked={variant.active} onChange={(event) => setForm((current) => ({ ...current, variants: current.variants.map((item) => (item.id === variant.id ? { ...item, active: event.target.checked } : item)) }))} />
+                          <label className="text-text flex items-center gap-2 text-xs font-semibold">
+                            <input
+                              type="checkbox"
+                              checked={variant.active}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  variants: current.variants.map((item) =>
+                                    item.id === variant.id
+                                      ? { ...item, active: event.target.checked }
+                                      : item,
+                                  ),
+                                }))
+                              }
+                            />
                             Active
                           </label>
-                          <Button variant="danger" size="sm" onClick={() => setForm((current) => ({ ...current, variants: current.variants.filter((item) => item.id !== variant.id) }))}>
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() =>
+                              setForm((current) => ({
+                                ...current,
+                                variants: current.variants.filter(
+                                  (item) => item.id !== variant.id,
+                                ),
+                              }))
+                            }
+                          >
                             <Trash2 className="h-4 w-4" />
                             Remove Variant
                           </Button>
@@ -2089,87 +3618,260 @@ function ProductsAdminPage() {
                       </div>
                     ))}
                     <Button variant="outline" size="sm" onClick={addVariant}>
-                      <Plus className="h-4 w-4" />Add Variant
+                      <Plus className="h-4 w-4" />
+                      Add Variant
                     </Button>
                   </div>
                 </AdminSectionCard>
               ) : null}
 
-              <AdminSectionCard title="Specifications" description="Unlimited custom attributes. Leave blank optional fields empty.">
+              <AdminSectionCard
+                title="Specifications"
+                description="Unlimited custom attributes. Leave blank optional fields empty."
+              >
                 <div className="space-y-3">
                   {form.specifications.map((spec) => (
-                    <div key={spec.id} className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)_auto]">
-                      <Input value={spec.key} onChange={(event) => setForm((current) => ({ ...current, specifications: current.specifications.map((item) => (item.id === spec.id ? { ...item, key: event.target.value } : item)) }))} placeholder="Key" />
-                      <Input value={spec.value} onChange={(event) => setForm((current) => ({ ...current, specifications: current.specifications.map((item) => (item.id === spec.id ? { ...item, value: event.target.value } : item)) }))} placeholder="Value" />
-                      <Button variant="danger" size="sm" onClick={() => setForm((current) => ({ ...current, specifications: current.specifications.filter((item) => item.id !== spec.id) }))}>
+                    <div
+                      key={spec.id}
+                      className="grid gap-3 lg:grid-cols-[minmax(0,0.4fr)_minmax(0,1fr)_auto]"
+                    >
+                      <Input
+                        value={spec.key}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            specifications: current.specifications.map((item) =>
+                              item.id === spec.id
+                                ? { ...item, key: event.target.value }
+                                : item,
+                            ),
+                          }))
+                        }
+                        placeholder="Key"
+                      />
+                      <Input
+                        value={spec.value}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            specifications: current.specifications.map((item) =>
+                              item.id === spec.id
+                                ? { ...item, value: event.target.value }
+                                : item,
+                            ),
+                          }))
+                        }
+                        placeholder="Value"
+                      />
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() =>
+                          setForm((current) => ({
+                            ...current,
+                            specifications: current.specifications.filter(
+                              (item) => item.id !== spec.id,
+                            ),
+                          }))
+                        }
+                      >
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
                   ))}
                   <Button variant="outline" size="sm" onClick={addSpec}>
-                    <Plus className="h-4 w-4" />Add Spec
+                    <Plus className="h-4 w-4" />
+                    Add Spec
                   </Button>
                 </div>
               </AdminSectionCard>
 
               <AdminSectionCard title="Shipping" description="Optional shipping values.">
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  <FormField label="Weight" htmlFor="product-weight"><Input id="product-weight" value={form.weight} onChange={(event) => updateForm({ weight: cleanNumberInput(event.target.value) })} placeholder="0" /></FormField>
-                  <FormField label="Length" htmlFor="product-length"><Input id="product-length" value={form.length} onChange={(event) => updateForm({ length: cleanNumberInput(event.target.value) })} placeholder="0" /></FormField>
-                  <FormField label="Width" htmlFor="product-width"><Input id="product-width" value={form.width} onChange={(event) => updateForm({ width: cleanNumberInput(event.target.value) })} placeholder="0" /></FormField>
-                  <FormField label="Height" htmlFor="product-height"><Input id="product-height" value={form.height} onChange={(event) => updateForm({ height: cleanNumberInput(event.target.value) })} placeholder="0" /></FormField>
-                  <FormField label="Package Type" htmlFor="product-package-type"><Input id="product-package-type" value={form.packageType} onChange={(event) => updateForm({ packageType: event.target.value })} placeholder="Box, Can, Bag" /></FormField>
-                  <label className="flex items-center gap-3 rounded-[1.2rem] border border-border/70 bg-white/80 px-4 py-3 text-sm font-semibold text-text">
-                    <input type="checkbox" checked={form.fragile} onChange={(event) => updateForm({ fragile: event.target.checked })} />
+                  <FormField label="Weight" htmlFor="product-weight">
+                    <Input
+                      id="product-weight"
+                      value={form.weight}
+                      onChange={(event) =>
+                        updateForm({ weight: cleanNumberInput(event.target.value) })
+                      }
+                      placeholder="0"
+                    />
+                  </FormField>
+                  <FormField label="Length" htmlFor="product-length">
+                    <Input
+                      id="product-length"
+                      value={form.length}
+                      onChange={(event) =>
+                        updateForm({ length: cleanNumberInput(event.target.value) })
+                      }
+                      placeholder="0"
+                    />
+                  </FormField>
+                  <FormField label="Width" htmlFor="product-width">
+                    <Input
+                      id="product-width"
+                      value={form.width}
+                      onChange={(event) =>
+                        updateForm({ width: cleanNumberInput(event.target.value) })
+                      }
+                      placeholder="0"
+                    />
+                  </FormField>
+                  <FormField label="Height" htmlFor="product-height">
+                    <Input
+                      id="product-height"
+                      value={form.height}
+                      onChange={(event) =>
+                        updateForm({ height: cleanNumberInput(event.target.value) })
+                      }
+                      placeholder="0"
+                    />
+                  </FormField>
+                  <FormField label="Package Type" htmlFor="product-package-type">
+                    <Input
+                      id="product-package-type"
+                      value={form.packageType}
+                      onChange={(event) =>
+                        updateForm({ packageType: event.target.value })
+                      }
+                      placeholder="Box, Can, Bag"
+                    />
+                  </FormField>
+                  <label className="border-border/70 text-text flex items-center gap-3 rounded-[1.2rem] border bg-white/80 px-4 py-3 text-sm font-semibold">
+                    <input
+                      type="checkbox"
+                      checked={form.fragile}
+                      onChange={(event) => updateForm({ fragile: event.target.checked })}
+                    />
                     Fragile
                   </label>
                 </div>
               </AdminSectionCard>
 
-              <AdminSectionCard title="SEO" description="Search-friendly metadata and indexing controls.">
+              <AdminSectionCard
+                title="SEO"
+                description="Search-friendly metadata and indexing controls."
+              >
                 <div className="grid gap-4">
-                  <FormField label="SEO Title" htmlFor="product-seo-title"><Input id="product-seo-title" value={form.seoTitle} onChange={(event) => updateForm({ seoTitle: event.target.value })} placeholder="SEO title" /></FormField>
-                  <FormField label="Meta Description" htmlFor="product-meta-description"><Input id="product-meta-description" value={form.metaDescription} onChange={(event) => updateForm({ metaDescription: event.target.value })} placeholder="Meta description" /></FormField>
-                  <FormField label="Keywords" htmlFor="product-keywords"><Input id="product-keywords" value={form.keywords} onChange={(event) => updateForm({ keywords: event.target.value })} placeholder="keyword 1, keyword 2" /></FormField>
-                  <FormField label="Canonical URL" htmlFor="product-canonical-url" error={formErrors.canonicalUrl}><Input id="product-canonical-url" value={form.canonicalUrl} onChange={(event) => updateForm({ canonicalUrl: event.target.value })} placeholder="https://example.com/product" /></FormField>
+                  <FormField label="SEO Title" htmlFor="product-seo-title">
+                    <Input
+                      id="product-seo-title"
+                      value={form.seoTitle}
+                      onChange={(event) => updateForm({ seoTitle: event.target.value })}
+                      placeholder="SEO title"
+                    />
+                  </FormField>
+                  <FormField label="Meta Description" htmlFor="product-meta-description">
+                    <Input
+                      id="product-meta-description"
+                      value={form.metaDescription}
+                      onChange={(event) =>
+                        updateForm({ metaDescription: event.target.value })
+                      }
+                      placeholder="Meta description"
+                    />
+                  </FormField>
+                  <FormField label="Keywords" htmlFor="product-keywords">
+                    <Input
+                      id="product-keywords"
+                      value={form.keywords}
+                      onChange={(event) => updateForm({ keywords: event.target.value })}
+                      placeholder="keyword 1, keyword 2"
+                    />
+                  </FormField>
+                  <FormField
+                    label="Canonical URL"
+                    htmlFor="product-canonical-url"
+                    error={formErrors.canonicalUrl}
+                  >
+                    <Input
+                      id="product-canonical-url"
+                      value={form.canonicalUrl}
+                      onChange={(event) =>
+                        updateForm({ canonicalUrl: event.target.value })
+                      }
+                      placeholder="https://example.com/product"
+                    />
+                  </FormField>
                 </div>
               </AdminSectionCard>
 
-              <AdminSectionCard title="Related Products" description="Optional cross-sell / upsell items.">
+              <AdminSectionCard
+                title="Related Products"
+                description="Optional cross-sell / upsell items."
+              >
                 <div className="space-y-4">
-                  <Input value={relatedSearchTerm} onChange={(event) => setRelatedSearchTerm(event.target.value)} placeholder="Search existing products" aria-label="Search existing products" />
+                  <Input
+                    value={relatedSearchTerm}
+                    onChange={(event) => setRelatedSearchTerm(event.target.value)}
+                    placeholder="Search existing products"
+                    aria-label="Search existing products"
+                  />
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {relatedSearchProducts.slice(0, 12).map((product) => (
-                      <label key={product.id} className="flex items-start gap-3 rounded-[1.2rem] border border-border/70 bg-white/80 px-4 py-3 text-sm font-medium text-text">
+                      <label
+                        key={product.id}
+                        className="border-border/70 text-text flex items-start gap-3 rounded-[1.2rem] border bg-white/80 px-4 py-3 text-sm font-medium"
+                      >
                         <input
                           type="checkbox"
                           checked={form.relatedProductIds.includes(product.id)}
-                          onChange={(event) => setForm((current) => ({
-                            ...current,
-                            relatedProductIds: event.target.checked ? [...current.relatedProductIds, product.id] : current.relatedProductIds.filter((id) => id !== product.id),
-                          }))}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              relatedProductIds: event.target.checked
+                                ? [...current.relatedProductIds, product.id]
+                                : current.relatedProductIds.filter(
+                                    (id) => id !== product.id,
+                                  ),
+                            }))
+                          }
                           className="mt-1"
                         />
                         <span className="flex-1">
-                          <span className="block font-semibold text-text">{product.name}</span>
-                          <span className="block text-xs text-muted">{product.sku}</span>
+                          <span className="text-text block font-semibold">
+                            {product.name}
+                          </span>
+                          <span className="text-muted block text-xs">{product.sku}</span>
                         </span>
                       </label>
                     ))}
                   </div>
-                  <p className="text-sm font-medium text-muted">{selectedProductCount} related products selected.</p>
+                  <p className="text-muted text-sm font-medium">
+                    {selectedProductCount} related products selected.
+                  </p>
                 </div>
               </AdminSectionCard>
             </div>
           </details>
 
-          <div className="sticky bottom-0 -mx-1 mt-4 border-t border-border/70 bg-background/95 px-1 py-4 backdrop-blur-xl">
+          <div className="border-border/70 bg-background/95 sticky bottom-0 -mx-1 mt-4 border-t px-1 py-4 backdrop-blur-xl">
             <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-              <Button variant="outline" size="md" className="w-full sm:w-auto" onClick={() => { setDialogOpen(false); resetForm(); }}>
+              <Button
+                variant="outline"
+                size="md"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  setDialogOpen(false);
+                  resetForm();
+                }}
+              >
                 Cancel
               </Button>
-              <Button variant="accent" size="md" loading={saving} onClick={() => void saveProduct()} disabled={!canManage || uploading} className="w-full sm:w-auto">
-                {uploading ? "Uploading..." : editingProductId ? "Update Product" : "Save Product"}
+              <Button
+                variant="accent"
+                size="md"
+                loading={saving}
+                onClick={() => void saveProduct()}
+                disabled={!canManage || uploading}
+                className="w-full sm:w-auto"
+              >
+                {uploading
+                  ? "Uploading..."
+                  : editingProductId
+                    ? "Update Product"
+                    : "Save Product"}
               </Button>
             </div>
           </div>
@@ -2182,12 +3884,19 @@ function ProductsAdminPage() {
           if (!open) closePicker();
         }}
         title="Choose Category"
-        description={selectedDepartment ? `Select a category for ${selectedDepartment.name}.` : "Select a department first."}
+        description={
+          selectedDepartment
+            ? `Select a category for ${selectedDepartment.name}.`
+            : "Select a department first."
+        }
         className="max-w-2xl"
       >
         <div className="space-y-4">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+            <Search
+              className="text-muted pointer-events-none absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2"
+              aria-hidden="true"
+            />
             <Input
               value={pickerQuery}
               onChange={(event) => {
@@ -2206,31 +3915,38 @@ function ProductsAdminPage() {
                   key={category.id}
                   type="button"
                   onClick={() => selectCategory(category.id)}
-                  className="flex w-full items-center justify-between rounded-[1.1rem] border border-border/70 bg-white/85 px-4 py-3 text-left text-sm font-semibold text-text hover:border-accent/30 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="border-border/70 text-text hover:border-accent/30 focus-visible:ring-accent flex w-full items-center justify-between rounded-[1.1rem] border bg-white/85 px-4 py-3 text-left text-sm font-semibold hover:bg-white focus-visible:ring-2 focus-visible:outline-none"
                 >
                   <span>
                     <span className="block">{category.name}</span>
-                    <span className="block text-xs font-medium text-muted">{category.slug}</span>
+                    <span className="text-muted block text-xs font-medium">
+                      {category.slug}
+                    </span>
                   </span>
-                  <ChevronDown className="h-4 w-4 -rotate-90 text-muted" aria-hidden="true" />
+                  <ChevronDown
+                    className="text-muted h-4 w-4 -rotate-90"
+                    aria-hidden="true"
+                  />
                 </button>
               ))
             ) : (
-              <Card className="rounded-[1.2rem] border border-dashed border-border/70 bg-background-secondary/30 p-4 text-sm font-medium text-muted">
+              <Card className="border-border/70 bg-background-secondary/30 text-muted rounded-[1.2rem] border border-dashed p-4 text-sm font-medium">
                 No categories found for this department.
               </Card>
             )}
           </div>
           {filteredCategorySuggestions.length > 0 ? (
             <div className="space-y-2">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Suggested categories</p>
+              <p className="text-muted text-xs font-bold tracking-[0.18em] uppercase">
+                Suggested categories
+              </p>
               <div className="flex flex-wrap gap-2">
                 {filteredCategorySuggestions.slice(0, 6).map((category) => (
                   <button
                     key={category.slug}
                     type="button"
                     onClick={() => void createCategoryFromPicker(category.name)}
-                    className="rounded-full border border-border/70 bg-background-secondary/35 px-3 py-2 text-xs font-semibold text-text hover:border-accent/30 hover:bg-white"
+                    className="border-border/70 bg-background-secondary/35 text-text hover:border-accent/30 rounded-full border px-3 py-2 text-xs font-semibold hover:bg-white"
                   >
                     {category.name}
                   </button>
@@ -2257,12 +3973,19 @@ function ProductsAdminPage() {
           if (!open) closePicker();
         }}
         title="Choose Brand"
-        description={selectedCategory ? `Search or create a brand for ${selectedCategory.name}.` : "Select a category first."}
+        description={
+          selectedCategory
+            ? `Search or create a brand for ${selectedCategory.name}.`
+            : "Select a category first."
+        }
         className="max-w-2xl"
       >
         <div className="space-y-4">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+            <Search
+              className="text-muted pointer-events-none absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2"
+              aria-hidden="true"
+            />
             <Input
               value={pickerQuery}
               onChange={(event) => {
@@ -2281,17 +4004,22 @@ function ProductsAdminPage() {
                   key={brand.id}
                   type="button"
                   onClick={() => selectBrand(brand.id)}
-                  className="flex w-full items-center justify-between rounded-[1.1rem] border border-border/70 bg-white/85 px-4 py-3 text-left text-sm font-semibold text-text hover:border-accent/30 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="border-border/70 text-text hover:border-accent/30 focus-visible:ring-accent flex w-full items-center justify-between rounded-[1.1rem] border bg-white/85 px-4 py-3 text-left text-sm font-semibold hover:bg-white focus-visible:ring-2 focus-visible:outline-none"
                 >
                   <span>
                     <span className="block">{brand.name}</span>
-                    <span className="block text-xs font-medium text-muted">{brand.slug}</span>
+                    <span className="text-muted block text-xs font-medium">
+                      {brand.slug}
+                    </span>
                   </span>
-                  <ChevronDown className="h-4 w-4 -rotate-90 text-muted" aria-hidden="true" />
+                  <ChevronDown
+                    className="text-muted h-4 w-4 -rotate-90"
+                    aria-hidden="true"
+                  />
                 </button>
               ))
             ) : (
-              <Card className="rounded-[1.2rem] border border-dashed border-border/70 bg-background-secondary/30 p-4 text-sm font-medium text-muted">
+              <Card className="border-border/70 bg-background-secondary/30 text-muted rounded-[1.2rem] border border-dashed p-4 text-sm font-medium">
                 No brands found. Create one instantly below.
               </Card>
             )}
@@ -2319,10 +4047,21 @@ function ProductsAdminPage() {
         className="max-w-md"
       >
         <div className="space-y-4">
-          <p className="text-sm font-medium text-muted">Are you sure you want to delete this product?</p>
+          <p className="text-muted text-sm font-medium">
+            Are you sure you want to delete this product?
+          </p>
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <Button variant="outline" size="md" onClick={() => setDeleteTargetId(null)}>Cancel</Button>
-            <Button variant="danger" size="md" onClick={() => void softDeleteProduct()} disabled={!canManage}>Delete Product</Button>
+            <Button variant="outline" size="md" onClick={() => setDeleteTargetId(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="md"
+              onClick={() => void softDeleteProduct()}
+              disabled={!canManage}
+            >
+              Delete Product
+            </Button>
           </div>
         </div>
       </Modal>

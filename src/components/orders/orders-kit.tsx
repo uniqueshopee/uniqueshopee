@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowRight, CheckCircle2, CircleDot, Clock3, LocateFixed, Package, ScrollText, ShieldCheck, Truck } from "lucide-react";
+import { ArrowRight, CheckCircle2, CircleDot, Clock3, Copy, LocateFixed, Package, ScrollText, ShieldCheck, Truck } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -255,6 +255,7 @@ function OrderLineItem({ item }: { item: OrderItem }) {
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">{item.brand}</p>
           <h4 className="line-clamp-2 text-sm font-bold leading-5 text-text">{item.name}</h4>
           <p className="text-xs font-medium text-muted">{item.variant}</p>
+          {item.shadeName ? <div className="mt-2 flex items-center gap-2 rounded-lg bg-background-secondary/50 p-2"><span className="h-6 w-6 shrink-0 rounded-md border border-white" style={{ backgroundColor: item.shadeHexColor || "#cbd5e1" }} aria-hidden="true" /><span className="min-w-0 text-xs font-semibold text-text">{item.shadeName} · {item.shadeCode || "No code"}<span className="block font-medium text-muted">{[item.shadeFamily, item.baseName, item.finish, item.packSize].filter(Boolean).join(" · ")}</span></span></div> : null}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-bold text-text">{formatPrice(item.price)}</span>
             <Badge variant="neutral" className="text-[10px]">
@@ -895,22 +896,53 @@ function OrderedProductCard({
   returnStatus?: string | null;
   onReturn?: () => void;
 }) {
+  const hasShade = Boolean(item.shadeId || item.shadeName || item.shadeCode || item.shadeFamily || item.shadeHexColor || item.finish || item.packSize || item.baseName);
+
   return (
-    <SharedProductCard
-      mode="order"
-      image={item.image}
-      href={`/product/${item.slug}`}
-      brand={item.brand}
-      title={item.name}
-      subtitle={item.variant}
-      quantity={item.quantity}
-      price={item.price}
-      compareAtPrice={item.compareAtPrice}
-      returnable={returnable}
-      returnStatus={returnStatus}
-      onReturn={onReturn}
-      onBuyAgain={() => toast({ title: "Buy again", description: `Reorder for ${item.name} is ready for future wiring.` })}
-    />
+    <div className="space-y-2">
+      <SharedProductCard mode="order" image={item.image} href={`/product/${item.slug}`} brand={item.brand} title={item.name} subtitle={item.variant} quantity={item.quantity} price={item.price} compareAtPrice={item.compareAtPrice} shadeName={item.shadeName} shadeCode={item.shadeCode} shadeFamily={item.shadeFamily} shadeHexColor={item.shadeHexColor} returnable={returnable} returnStatus={returnStatus} onReturn={onReturn} onBuyAgain={() => toast({ title: "Buy again", description: `Reorder for ${item.name} is ready for future wiring.` })} />
+      {hasShade ? (
+        <PaintConfiguration item={item} />
+      ) : null}
+    </div>
+  );
+}
+
+function PaintConfiguration({ item }: { item: OrderItem }) {
+  const copyShadeCode = async () => {
+    if (!item.shadeCode) return;
+    await navigator.clipboard?.writeText(item.shadeCode);
+    toast({ title: "Shade code copied", description: item.shadeCode, variant: "success" });
+  };
+
+  const money = (value: number | null | undefined) => value === null || value === undefined ? "—" : formatPrice(value);
+
+  return (
+    <div className="rounded-xl border border-accent/20 bg-accent/5 p-3 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-black uppercase tracking-[0.16em] text-accent">🎨 Paint configuration</p>
+        {item.shadeCode ? <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => void copyShadeCode()} aria-label={`Copy shade code ${item.shadeCode}`}><Copy className="h-3 w-3" />Copy</Button> : null}
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div><p className="font-semibold text-muted">Colour Family</p><p className="font-bold text-text">{item.shadeFamily || "—"}</p></div>
+        <div><p className="font-semibold text-muted">Shade</p><div className="flex items-center gap-2"><span className="h-6 w-6 shrink-0 rounded-full border border-white shadow-sm" style={{ backgroundColor: item.shadeHexColor || "#cbd5e1" }} aria-label={item.shadeHexColor ? `Shade colour ${item.shadeHexColor}` : "Neutral shade swatch"} role="img" /><p className="font-bold text-text">{item.shadeName || (item.shadeId ? "Shade information unavailable for this order" : "No shade selected")}<span className="block font-black tracking-wide text-accent">{item.shadeCode || ""}</span>{item.shadeHexColor ? <span className="block font-medium text-muted">{item.shadeHexColor}</span> : null}</p></div></div>
+        <div><p className="font-semibold text-muted">Finish</p><p className="font-bold text-text">{item.finish || "—"}</p></div>
+        <div><p className="font-semibold text-muted">Pack Size</p><p className="font-bold text-text">{item.packSize || "—"}</p></div>
+        <div><p className="font-semibold text-muted">Quantity</p><p className="font-bold text-text">{item.quantity}</p></div>
+        <div><p className="font-semibold text-muted">Shade Extra</p><p className="font-bold text-text">{item.shadeAdjustment === null || item.shadeAdjustment === undefined ? "—" : `+${money(item.shadeAdjustment)} / unit`}</p></div>
+      </div>
+      <div className="mt-3 border-t border-accent/15 pt-3">
+        <p className="font-black uppercase tracking-[0.14em] text-muted">Historical pricing</p>
+        <div className="mt-2 grid gap-1 sm:grid-cols-2">
+          <span>SP/Base Price <b className="float-right text-text">{money(item.basePrice)}</b></span>
+          <span>Unit Price <b className="float-right text-text">{money(item.finalUnitPrice ?? item.price)}</b></span>
+          <span>Taxable Value <b className="float-right text-text">{money(item.taxableValue)}</b></span>
+          <span>GST {item.gstRate ? `(${item.gstRate}%)` : ""}<b className="float-right text-text">{money(item.gstAmount)}</b></span>
+          <span>Line Total <b className="float-right text-text">{money(item.lineTotal ?? item.subtotal)}</b></span>
+        </div>
+      </div>
+      {item.sku ? <p className="mt-2 font-medium text-muted">SKU: <span className="font-bold text-text">{item.sku}</span></p> : null}
+    </div>
   );
 }
 

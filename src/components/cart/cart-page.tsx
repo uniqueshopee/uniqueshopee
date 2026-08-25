@@ -21,17 +21,23 @@ import {
   Truck,
 } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
-import type { Product } from "@/types";
+import type { CartItem, Product } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn, formatPrice } from "@/lib/utils";
-import { calculateCartPricing, defaultShippingResolver, resolveCouponCode, type CouponCode } from "@/lib/checkout-pricing";
+import {
+  calculateCartPricing,
+  defaultShippingResolver,
+  resolveCouponCode,
+  type CouponCode,
+} from "@/lib/checkout-pricing";
 import { useCartSync } from "@/components/cart/cart-sync-provider";
 import { useCartStore } from "@/store/cart-store";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { toast } from "@/hooks/use-toast";
+import { buildCartItemKey } from "@/lib/variant-pricing";
 
 type DeliveryResult = {
   text: string;
@@ -45,7 +51,12 @@ const SECTION_VARIANTS = {
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.24, ease: [0.16, 1, 0.3, 1], staggerChildren: 0.04, delayChildren: 0.03 },
+    transition: {
+      duration: 0.24,
+      ease: [0.16, 1, 0.3, 1],
+      staggerChildren: 0.04,
+      delayChildren: 0.03,
+    },
   },
 };
 
@@ -63,7 +74,9 @@ function getSavePercent(product: Product) {
     return null;
   }
 
-  return Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100);
+  return Math.round(
+    ((product.compareAtPrice - product.price) / product.compareAtPrice) * 100,
+  );
 }
 
 function getVariantOptions(category: string) {
@@ -94,14 +107,18 @@ function CartItemActionButton({
   const className = cn(
     "justify-start rounded-full px-3 py-2 text-xs font-semibold",
     variant === "accent" && "bg-accent text-accent-foreground hover:bg-accent/90",
-    variant === "outline" && "border-border/70 bg-white/80 text-text hover:border-accent/20 hover:bg-white",
-    variant === "ghost" && "border-transparent bg-transparent text-text hover:bg-background-secondary",
+    variant === "outline" &&
+      "border-border/70 bg-white/80 text-text hover:border-accent/20 hover:bg-white",
+    variant === "ghost" &&
+      "border-transparent bg-transparent text-text hover:bg-background-secondary",
   );
 
   return (
     <Button
       type="button"
-      variant={variant === "accent" ? "accent" : variant === "ghost" ? "ghost" : "outline"}
+      variant={
+        variant === "accent" ? "accent" : variant === "ghost" ? "ghost" : "outline"
+      }
       size="sm"
       className={className}
       onClick={onClick}
@@ -125,6 +142,10 @@ function CartLineItem({
   onShare,
   onSaveForLater,
   codAvailable,
+  shadeName,
+  shadeCode,
+  shadeFamily,
+  shadeHexColor,
 }: {
   product: Product;
   quantity: number;
@@ -137,6 +158,10 @@ function CartLineItem({
   onShare: () => void;
   onSaveForLater: () => void;
   codAvailable: boolean;
+  shadeName?: string;
+  shadeCode?: string;
+  shadeFamily?: string;
+  shadeHexColor?: string;
 }) {
   const savePercent = getSavePercent(product);
   const variants = getVariantOptions(product.category);
@@ -158,10 +183,16 @@ function CartLineItem({
       className="overflow-hidden rounded-[1.35rem] border border-white/75 bg-white/95 shadow-[var(--shadow-sm)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-lg)]"
     >
       <div className="lg:hidden">
-        <div className="relative aspect-square overflow-hidden bg-gradient-to-br from-background-secondary via-white to-background-secondary">
-          <Image src={product.image} alt={product.name} fill sizes="50vw" className="object-cover" />
+        <div className="from-background-secondary to-background-secondary relative aspect-square overflow-hidden bg-gradient-to-br via-white">
+          <Image
+            src={product.image}
+            alt={product.name}
+            fill
+            sizes="50vw"
+            className="object-cover"
+          />
           {!product.inStock && (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/65">
+            <div className="bg-background/65 absolute inset-0 flex items-center justify-center">
               <Badge variant="neutral" className="text-[10px]">
                 Out of stock
               </Badge>
@@ -170,21 +201,33 @@ function CartLineItem({
         </div>
 
         <div className="space-y-2 p-3">
-          <h3 className="line-clamp-2 text-xs font-bold leading-5 text-text">{product.name}</h3>
+          <h3 className="text-text line-clamp-2 text-xs leading-5 font-bold">
+            {product.name}
+          </h3>
+          {shadeName ? (
+            <div className="flex items-center gap-2 rounded-lg bg-background-secondary/60 px-2 py-1.5">
+              <span className="h-5 w-5 shrink-0 rounded-full border-2 border-white shadow-[var(--shadow-sm)]" style={{ backgroundColor: shadeHexColor || "#cbd5e1" }} aria-label={`Selected shade ${shadeName}`} role="img" />
+              <span className="min-w-0 truncate text-[10px] font-semibold text-text">{shadeName}{shadeCode ? ` · ${shadeCode}` : ""}{shadeFamily ? <span className="block truncate font-medium text-muted">{shadeFamily}</span> : null}</span>
+            </div>
+          ) : null}
 
           <div className="flex items-baseline gap-1.5">
-            <p className="text-sm font-bold text-text">{formatPrice(product.price)}</p>
-            {originalPrice > product.price && <span className="text-[11px] font-medium text-muted line-through">{formatPrice(originalPrice)}</span>}
+            <p className="text-text text-sm font-bold">{formatPrice(product.price)}</p>
+            {originalPrice > product.price && (
+              <span className="text-muted text-[11px] font-medium line-through">
+                {formatPrice(originalPrice)}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center justify-between gap-2">
-            <div className="inline-flex h-8 items-center overflow-hidden rounded-full border border-border/70 bg-white/90 shadow-[var(--shadow-sm)]">
+            <div className="border-border/70 inline-flex h-8 items-center overflow-hidden rounded-full border bg-white/90 shadow-[var(--shadow-sm)]">
               <button
                 type="button"
                 aria-label={`Decrease quantity of ${product.name}`}
                 onClick={() => onQuantityChange(Math.max(1, quantity - 1))}
                 disabled={quantity === 1}
-                className="flex h-8 w-8 items-center justify-center text-text transition-colors hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="text-text hover:bg-background-secondary focus-visible:ring-accent flex h-8 w-8 items-center justify-center transition-colors focus-visible:ring-2 focus-visible:outline-none"
               >
                 <Minus className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
@@ -193,16 +236,22 @@ function CartLineItem({
                 initial={{ opacity: 0.4, y: 2 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.18 }}
-                className="min-w-8 px-2 text-center text-xs font-bold text-text"
+                className="text-text min-w-8 px-2 text-center text-xs font-bold"
               >
                 {quantity}
               </motion.span>
               <button
                 type="button"
                 aria-label={`Increase quantity of ${product.name}`}
-                onClick={() => onQuantityChange(maxQuantity ? Math.min(maxQuantity, quantity + 1) : quantity + 1)}
-                disabled={typeof maxQuantity === "number" ? quantity >= maxQuantity : false}
-                className="flex h-8 w-8 items-center justify-center text-text transition-colors hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                onClick={() =>
+                  onQuantityChange(
+                    maxQuantity ? Math.min(maxQuantity, quantity + 1) : quantity + 1,
+                  )
+                }
+                disabled={
+                  typeof maxQuantity === "number" ? quantity >= maxQuantity : false
+                }
+                className="text-text hover:bg-background-secondary focus-visible:ring-accent flex h-8 w-8 items-center justify-center transition-colors focus-visible:ring-2 focus-visible:outline-none"
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
@@ -212,7 +261,7 @@ function CartLineItem({
               type="button"
               onClick={onRemove}
               aria-label={`Remove ${product.name} from cart`}
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-border/70 bg-white/90 text-text shadow-[var(--shadow-sm)] transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="border-border/70 text-text focus-visible:ring-accent flex h-8 w-8 items-center justify-center rounded-full border bg-white/90 shadow-[var(--shadow-sm)] transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:ring-2 focus-visible:outline-none"
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
@@ -222,10 +271,16 @@ function CartLineItem({
 
       <div className="hidden lg:block">
         <div className="grid gap-3 p-3 sm:grid-cols-[96px_minmax(0,1fr)] sm:gap-4 sm:p-4">
-          <div className="relative aspect-square overflow-hidden rounded-[1.15rem] border border-border/70 bg-gradient-to-br from-background-secondary via-white to-background-secondary">
-            <Image src={product.image} alt={product.name} fill sizes="96px" className="object-cover" />
+          <div className="border-border/70 from-background-secondary to-background-secondary relative aspect-square overflow-hidden rounded-[1.15rem] border bg-gradient-to-br via-white">
+            <Image
+              src={product.image}
+              alt={product.name}
+              fill
+              sizes="96px"
+              className="object-cover"
+            />
             {!product.inStock && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/65">
+              <div className="bg-background/65 absolute inset-0 flex items-center justify-center">
                 <Badge variant="neutral">Out of stock</Badge>
               </div>
             )}
@@ -234,29 +289,55 @@ function CartLineItem({
           <div className="min-w-0 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 space-y-1.5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">{product.category}</p>
-                <h3 className="line-clamp-2 text-sm font-bold leading-6 text-text sm:text-base">{product.name}</h3>
+                <p className="text-muted text-[11px] font-semibold tracking-[0.18em] uppercase">
+                  {product.category}
+                </p>
+                <h3 className="text-text line-clamp-2 text-sm leading-6 font-bold sm:text-base">
+                  {product.name}
+                </h3>
+                {shadeName ? (
+                  <div className="flex items-center gap-2 rounded-lg bg-background-secondary/60 px-2 py-1.5">
+                    <span className="h-5 w-5 shrink-0 rounded-full border-2 border-white shadow-[var(--shadow-sm)]" style={{ backgroundColor: shadeHexColor || "#cbd5e1" }} aria-label={`Selected shade ${shadeName}`} role="img" />
+                    <span className="min-w-0 truncate text-[10px] font-semibold text-text">{shadeName}{shadeCode ? ` · ${shadeCode}` : ""}{shadeFamily ? <span className="block truncate font-medium text-muted">{shadeFamily}</span> : null}</span>
+                  </div>
+                ) : null}
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge
-                    variant={stockLabel === "In stock" ? "success" : stockLabel === "Out of stock" ? "neutral" : "warning"}
-                    className="text-[10px] uppercase tracking-[0.16em]"
+                    variant={
+                      stockLabel === "In stock"
+                        ? "success"
+                        : stockLabel === "Out of stock"
+                          ? "neutral"
+                          : "warning"
+                    }
+                    className="text-[10px] tracking-[0.16em] uppercase"
                   >
                     {stockLabel}
                   </Badge>
-                  <Badge variant="accent" className="text-[10px] uppercase tracking-[0.16em]">
+                  <Badge
+                    variant="accent"
+                    className="text-[10px] tracking-[0.16em] uppercase"
+                  >
                     {selectedVariant}
                   </Badge>
                 </div>
               </div>
 
               <div className="shrink-0 text-right">
-                <p className="text-lg font-bold text-text sm:text-xl">{formatPrice(product.price)}</p>
+                <p className="text-text text-lg font-bold sm:text-xl">
+                  {formatPrice(product.price)}
+                </p>
                 <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
                   {originalPrice > product.price && (
-                    <span className="text-xs font-medium text-muted line-through">{formatPrice(originalPrice)}</span>
+                    <span className="text-muted text-xs font-medium line-through">
+                      {formatPrice(originalPrice)}
+                    </span>
                   )}
                   {savePercent && (
-                    <Badge variant="success" className="text-[10px] uppercase tracking-[0.16em]">
+                    <Badge
+                      variant="success"
+                      className="text-[10px] tracking-[0.16em] uppercase"
+                    >
                       Save {savePercent}%
                     </Badge>
                   )}
@@ -266,12 +347,14 @@ function CartLineItem({
 
             <div className="grid gap-3 sm:grid-cols-[minmax(0,12rem)_auto] sm:items-end">
               <label className="space-y-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Variant</span>
+                <span className="text-muted text-[11px] font-semibold tracking-[0.18em] uppercase">
+                  Variant
+                </span>
                 <select
                   aria-label={`Select variant for ${product.name}`}
                   value={selectedVariant}
                   onChange={(event) => onVariantChange(event.target.value)}
-                  className="h-10 w-full rounded-full border border-border/70 bg-white/90 px-3.5 text-sm font-semibold text-text outline-none transition-colors focus:border-accent/25"
+                  className="border-border/70 text-text focus:border-accent/25 h-10 w-full rounded-full border bg-white/90 px-3.5 text-sm font-semibold transition-colors outline-none"
                 >
                   {variants.map((variant) => (
                     <option key={variant} value={variant}>
@@ -282,14 +365,16 @@ function CartLineItem({
               </label>
 
               <div className="space-y-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Quantity</span>
-                <div className="inline-flex h-10 items-center overflow-hidden rounded-full border border-border/70 bg-white/90 shadow-[var(--shadow-sm)]">
+                <span className="text-muted text-[11px] font-semibold tracking-[0.18em] uppercase">
+                  Quantity
+                </span>
+                <div className="border-border/70 inline-flex h-10 items-center overflow-hidden rounded-full border bg-white/90 shadow-[var(--shadow-sm)]">
                   <button
                     type="button"
                     aria-label={`Decrease quantity of ${product.name}`}
                     onClick={() => onQuantityChange(Math.max(1, quantity - 1))}
                     disabled={quantity === 1}
-                    className="flex h-10 w-10 items-center justify-center text-text transition-colors hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="text-text hover:bg-background-secondary focus-visible:ring-accent flex h-10 w-10 items-center justify-center transition-colors focus-visible:ring-2 focus-visible:outline-none"
                   >
                     <Minus className="h-4 w-4" aria-hidden="true" />
                   </button>
@@ -298,37 +383,49 @@ function CartLineItem({
                     initial={{ opacity: 0.4, y: 2 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.18 }}
-                    className="min-w-10 px-2.5 text-center text-sm font-bold text-text"
+                    className="text-text min-w-10 px-2.5 text-center text-sm font-bold"
                   >
                     {quantity}
                   </motion.span>
                   <button
                     type="button"
                     aria-label={`Increase quantity of ${product.name}`}
-                    onClick={() => onQuantityChange(maxQuantity ? Math.min(maxQuantity, quantity + 1) : quantity + 1)}
-                    disabled={typeof maxQuantity === "number" ? quantity >= maxQuantity : false}
-                    className="flex h-10 w-10 items-center justify-center text-text transition-colors hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    onClick={() =>
+                      onQuantityChange(
+                        maxQuantity ? Math.min(maxQuantity, quantity + 1) : quantity + 1,
+                      )
+                    }
+                    disabled={
+                      typeof maxQuantity === "number" ? quantity >= maxQuantity : false
+                    }
+                    className="text-text hover:bg-background-secondary focus-visible:ring-accent flex h-10 w-10 items-center justify-center transition-colors focus-visible:ring-2 focus-visible:outline-none"
                   >
                     <Plus className="h-4 w-4" aria-hidden="true" />
                   </button>
                 </div>
-                <p className="text-[11px] font-medium text-muted">{codAvailable ? "COD available" : "COD unavailable"}</p>
+                <p className="text-muted text-[11px] font-medium">
+                  {codAvailable ? "COD available" : "COD unavailable"}
+                </p>
               </div>
             </div>
 
             <div className="flex items-center justify-between gap-3">
-              <CartItemActionButton variant="accent" icon={<Trash2 className="h-4 w-4" aria-hidden="true" />} onClick={onRemove}>
+              <CartItemActionButton
+                variant="accent"
+                icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
+                onClick={onRemove}
+              >
                 Remove
               </CartItemActionButton>
 
               <details className="relative">
-                <summary className="flex h-10 w-10 list-none items-center justify-center rounded-full border border-border/70 bg-white/90 text-text shadow-[var(--shadow-sm)] transition-colors hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                <summary className="border-border/70 text-text hover:bg-background-secondary focus-visible:ring-accent flex h-10 w-10 list-none items-center justify-center rounded-full border bg-white/90 shadow-[var(--shadow-sm)] transition-colors focus-visible:ring-2 focus-visible:outline-none">
                   <MoreVertical className="h-4 w-4" aria-hidden="true" />
                 </summary>
-                <div className="absolute right-0 top-12 z-20 w-52 overflow-hidden rounded-[1.1rem] border border-border/70 bg-white/98 p-1 shadow-[var(--shadow-lg)]">
+                <div className="border-border/70 absolute top-12 right-0 z-20 w-52 overflow-hidden rounded-[1.1rem] border bg-white/98 p-1 shadow-[var(--shadow-lg)]">
                   <button
                     type="button"
-                    className="flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-sm font-medium text-text hover:bg-background-secondary"
+                    className="text-text hover:bg-background-secondary flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-sm font-medium"
                     onClick={onMoveToWishlist}
                   >
                     <Heart className="h-4 w-4" aria-hidden="true" />
@@ -336,7 +433,7 @@ function CartLineItem({
                   </button>
                   <button
                     type="button"
-                    className="flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-sm font-medium text-text hover:bg-background-secondary"
+                    className="text-text hover:bg-background-secondary flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-sm font-medium"
                     onClick={onSaveForLater}
                   >
                     <Copy className="h-4 w-4" aria-hidden="true" />
@@ -344,7 +441,7 @@ function CartLineItem({
                   </button>
                   <button
                     type="button"
-                    className="flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-sm font-medium text-text hover:bg-background-secondary"
+                    className="text-text hover:bg-background-secondary flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-sm font-medium"
                     onClick={onShare}
                   >
                     <Share2 className="h-4 w-4" aria-hidden="true" />
@@ -373,8 +470,16 @@ function SummaryRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 text-sm">
-      <span className={cn("font-medium", emphasize ? "text-text" : "text-muted")}>{label}</span>
-      <span className={cn("font-bold", emphasize ? "text-lg text-text" : "text-text", strike && "line-through text-muted")}>
+      <span className={cn("font-medium", emphasize ? "text-text" : "text-muted")}>
+        {label}
+      </span>
+      <span
+        className={cn(
+          "font-bold",
+          emphasize ? "text-text text-lg" : "text-text",
+          strike && "text-muted line-through",
+        )}
+      >
         {value}
       </span>
     </div>
@@ -403,23 +508,29 @@ function OrderSummaryCard({
   return (
     <Card className="rounded-[1.35rem] border-white/75 bg-white/95 p-4 shadow-[var(--shadow-sm)]">
       <div className="mb-4 flex items-center gap-2">
-        <ShieldCheck className="h-4 w-4 text-accent" aria-hidden="true" />
-        <h3 className="text-base font-bold text-text">Order Summary</h3>
+        <ShieldCheck className="text-accent h-4 w-4" aria-hidden="true" />
+        <h3 className="text-text text-base font-bold">Order Summary</h3>
       </div>
 
       <div className="space-y-2.5">
         <SummaryRow label="Subtotal" value={formatPrice(subtotal)} />
         <SummaryRow label="Discount" value={`- ${formatPrice(discount)}`} />
-        <SummaryRow label="Shipping" value={shipping === 0 ? "Free" : formatPrice(shipping)} />
+        <SummaryRow
+          label="Shipping"
+          value={shipping === 0 ? "Free" : formatPrice(shipping)}
+        />
         <SummaryRow label="GST" value={formatPrice(gst)} />
-        <SummaryRow label="Coupon Discount" value={couponDiscount > 0 ? `- ${formatPrice(couponDiscount)}` : formatPrice(0)} />
-        <div className="border-t border-border/70 pt-3">
+        <SummaryRow
+          label="Coupon Discount"
+          value={couponDiscount > 0 ? `- ${formatPrice(couponDiscount)}` : formatPrice(0)}
+        />
+        <div className="border-border/70 border-t pt-3">
           <SummaryRow label="Grand Total" value={formatPrice(total)} emphasize />
         </div>
       </div>
 
       {appliedCoupon && (
-        <div className="mt-3 rounded-[1rem] border border-success/20 bg-success/10 px-3 py-2.5 text-sm font-medium text-success">
+        <div className="border-success/20 bg-success/10 text-success mt-3 rounded-[1rem] border px-3 py-2.5 text-sm font-medium">
           Coupon {appliedCoupon} applied successfully.
         </div>
       )}
@@ -435,7 +546,17 @@ function OrderSummaryCard({
 function CartPageShell() {
   const shouldReduceMotion = useReducedMotion();
   const router = useRouter();
-  const { mode, loaded, mergeAvailable, guestItemCount, mergeGuestCart, dismissGuestMerge, syncError, retrySync } = useCartSync();
+  const {
+    mode,
+    loaded,
+    mergeAvailable,
+    guestItemCount,
+    mergeGuestCart,
+    dismissGuestMerge,
+    syncError,
+    retrySync,
+    flushSync,
+  } = useCartSync();
   const items = useCartStore((state) => state.items);
   const removeItem = useCartStore((state) => state.removeItem);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
@@ -460,7 +581,7 @@ function CartPageShell() {
         const product = {
           id: item.productId,
           name: item.name,
-          price: item.price,
+          price: item.finalUnitPrice ?? item.price,
           image: item.image || "/images/placeholders/department-plumbing.svg",
           category: item.category ?? "",
           compareAtPrice: item.compareAtPrice,
@@ -479,13 +600,20 @@ function CartPageShell() {
           item,
           product,
           maxQuantity: item.stockCount,
+          key: item.variantId ?? item.productId,
         };
       }),
     [items],
   );
 
   const pricing = useMemo(
-    () => calculateCartPricing(items, couponCode, defaultShippingResolver, (item) => item.compareAtPrice ?? item.price),
+    () =>
+      calculateCartPricing(
+        items,
+        couponCode,
+        defaultShippingResolver,
+        (item) => item.compareAtPrice ?? item.price,
+      ),
     [couponCode, items],
   );
 
@@ -494,7 +622,11 @@ function CartPageShell() {
     if (code) {
       setCouponCode(code as CouponCode);
       setCouponMessage(`${code} applied successfully.`);
-      toast({ title: "Coupon applied", description: `${code} saved on your order.`, variant: "success" });
+      toast({
+        title: "Coupon applied",
+        description: `${code} saved on your order.`,
+        variant: "success",
+      });
       return;
     }
 
@@ -511,24 +643,40 @@ function CartPageShell() {
     }
 
     const leadDigit = Number(cleanPincode[0]);
-    const text = leadDigit <= 3 ? "Delivery in 2-4 days" : leadDigit <= 6 ? "Delivery in 3-5 days" : "Delivery in 4-6 days";
+    const text =
+      leadDigit <= 3
+        ? "Delivery in 2-4 days"
+        : leadDigit <= 6
+          ? "Delivery in 3-5 days"
+          : "Delivery in 4-6 days";
     setDeliveryResult({ text, cod: true });
-    toast({ title: "Delivery checked", description: `${text}. Cash on Delivery is available.` });
+    toast({
+      title: "Delivery checked",
+      description: `${text}. Cash on Delivery is available.`,
+    });
   };
 
-  const handleMoveToWishlist = (product: Product) => {
-    if (!wishlistHas(product.id)) {
-      toggleWishlist(product.id);
+  const handleMoveToWishlist = (item: CartItem) => {
+    if (!wishlistHas(item.productId)) {
+      toggleWishlist(item.productId);
     }
-    removeItem(product.id);
+    removeItem(item.productId, item.variantId, item.shadeId, item.packSize, item.finish);
     toast({
       title: "Moved to wishlist",
-      description: `${product.name} was removed from cart and saved to your wishlist.`,
+      description: `${item.name} was removed from cart and saved to your wishlist.`,
       variant: "success",
     });
   };
 
-  const handleProceedToCheckout = () => {
+  const handleProceedToCheckout = async () => {
+    if (!(await flushSync())) {
+      toast({
+        title: "Cart is still syncing",
+        description: "Please try checkout again in a moment.",
+        variant: "danger",
+      });
+      return;
+    }
     router.push("/checkout");
   };
 
@@ -562,18 +710,18 @@ function CartPageShell() {
 
   if (!loaded) {
     return (
-      <section className="relative isolate overflow-hidden border-b border-border surface-texture">
+      <section className="border-border surface-texture relative isolate overflow-hidden border-b">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:py-14">
           <div className="animate-pulse space-y-4 rounded-[1.75rem] border border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)]">
-            <div className="h-4 w-28 rounded-full bg-background-secondary" />
-            <div className="h-10 w-56 rounded-2xl bg-background-secondary" />
-            <div className="h-5 w-2/3 rounded-full bg-background-secondary" />
+            <div className="bg-background-secondary h-4 w-28 rounded-full" />
+            <div className="bg-background-secondary h-10 w-56 rounded-2xl" />
+            <div className="bg-background-secondary h-5 w-2/3 rounded-full" />
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
               <div className="space-y-4">
-                <div className="h-40 rounded-[1.5rem] bg-background-secondary" />
-                <div className="h-40 rounded-[1.5rem] bg-background-secondary" />
+                <div className="bg-background-secondary h-40 rounded-[1.5rem]" />
+                <div className="bg-background-secondary h-40 rounded-[1.5rem]" />
               </div>
-              <div className="h-72 rounded-[1.5rem] bg-background-secondary" />
+              <div className="bg-background-secondary h-72 rounded-[1.5rem]" />
             </div>
           </div>
         </div>
@@ -583,19 +731,23 @@ function CartPageShell() {
 
   return (
     <motion.section
-      className="relative isolate overflow-hidden border-b border-border surface-texture"
+      className="border-border surface-texture relative isolate overflow-hidden border-b"
       initial={shouldReduceMotion ? false : "hidden"}
       animate={shouldReduceMotion ? undefined : "visible"}
       variants={SECTION_VARIANTS}
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-24 top-12 h-80 w-80 rounded-full bg-orange-300/6 blur-3xl" />
-        <div className="absolute right-0 top-20 h-72 w-72 rounded-full bg-sky-300/6 blur-3xl" />
+        <div className="absolute top-12 -left-24 h-80 w-80 rounded-full bg-orange-300/6 blur-3xl" />
+        <div className="absolute top-20 right-0 h-72 w-72 rounded-full bg-sky-300/6 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto max-w-7xl px-4 pb-40 pt-6 sm:px-6 sm:pb-44 sm:pt-8 lg:pb-14">
-        <motion.nav aria-label="Breadcrumb" className="mb-5 flex items-center gap-2 text-sm font-medium text-muted" variants={ITEM_VARIANTS}>
-          <Link href="/" className="transition-colors hover:text-text">
+      <div className="relative mx-auto max-w-7xl px-4 pt-6 pb-40 sm:px-6 sm:pt-8 sm:pb-44 lg:pb-14">
+        <motion.nav
+          aria-label="Breadcrumb"
+          className="text-muted mb-5 flex items-center gap-2 text-sm font-medium"
+          variants={ITEM_VARIANTS}
+        >
+          <Link href="/" className="hover:text-text transition-colors">
             Home
           </Link>
           <span aria-hidden="true">/</span>
@@ -616,29 +768,49 @@ function CartPageShell() {
                   {totalItems} Item{totalItems === 1 ? "" : "s"}
                 </Badge>
               </div>
-              <h1 className="mt-2 text-2xl font-bold tracking-tight text-text sm:text-3xl">Shopping Cart</h1>
-              <p className="mt-2 text-sm font-medium text-muted sm:text-base">Review, adjust, and check out faster.</p>
+              <h1 className="text-text mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+                Shopping Cart
+              </h1>
+              <p className="text-muted mt-2 text-sm font-medium sm:text-base">
+                Review, adjust, and check out faster.
+              </p>
             </div>
-            <Button asChild variant="ghost" size="sm" className="shrink-0 px-2 text-accent">
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="text-accent shrink-0 px-2"
+            >
               <Link href="/products">Continue Shopping</Link>
             </Button>
           </div>
         </motion.header>
 
         {mode === "authenticated" && mergeAvailable && (
-          <Card className="mb-5 rounded-[1.35rem] border border-accent/20 bg-gradient-to-r from-accent/10 via-white to-white p-4 shadow-[var(--shadow-sm)]">
+          <Card className="border-accent/20 from-accent/10 mb-5 rounded-[1.35rem] border bg-gradient-to-r via-white to-white p-4 shadow-[var(--shadow-sm)]">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-bold text-text">Guest cart detected</p>
-                <p className="mt-1 text-sm font-medium text-muted">
-                  {guestItemCount} saved guest item{guestItemCount === 1 ? "" : "s"} can be merged into your account.
+                <p className="text-text text-sm font-bold">Guest cart detected</p>
+                <p className="text-muted mt-1 text-sm font-medium">
+                  {guestItemCount} saved guest item{guestItemCount === 1 ? "" : "s"} can
+                  be merged into your account.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="accent" size="sm" onClick={() => void mergeGuestCart()}>
+                <Button
+                  type="button"
+                  variant="accent"
+                  size="sm"
+                  onClick={() => void mergeGuestCart()}
+                >
                   Merge Guest Cart
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={dismissGuestMerge}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={dismissGuestMerge}
+                >
                   Dismiss
                 </Button>
               </div>
@@ -647,11 +819,11 @@ function CartPageShell() {
         )}
 
         {syncError ? (
-          <Card className="mb-5 rounded-[1.35rem] border border-warning/20 bg-warning/10 p-4 shadow-[var(--shadow-sm)]">
+          <Card className="border-warning/20 bg-warning/10 mb-5 rounded-[1.35rem] border p-4 shadow-[var(--shadow-sm)]">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-bold text-text">Cart sync needs another try</p>
-                <p className="mt-1 text-sm font-medium text-muted">{syncError}</p>
+                <p className="text-text text-sm font-bold">Cart sync needs another try</p>
+                <p className="text-muted mt-1 text-sm font-medium">{syncError}</p>
               </div>
               <Button type="button" variant="outline" size="sm" onClick={retrySync}>
                 Retry Sync
@@ -666,12 +838,13 @@ function CartPageShell() {
               variants={ITEM_VARIANTS}
               className="rounded-[1.5rem] border border-white/80 bg-white/92 p-6 text-center shadow-[var(--shadow-lg)]"
             >
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[1.4rem] border border-border/70 bg-white/90 shadow-[var(--shadow-sm)]">
-                <ShoppingCart className="h-7 w-7 text-accent" aria-hidden="true" />
+              <div className="border-border/70 mx-auto flex h-16 w-16 items-center justify-center rounded-[1.4rem] border bg-white/90 shadow-[var(--shadow-sm)]">
+                <ShoppingCart className="text-accent h-7 w-7" aria-hidden="true" />
               </div>
-              <h2 className="mt-4 text-2xl font-bold text-text">Your cart is empty</h2>
-              <p className="mx-auto mt-2 max-w-xl text-sm font-medium leading-7 text-muted">
-                Add premium products from our Paint and Plumbing catalog to start building your order.
+              <h2 className="text-text mt-4 text-2xl font-bold">Your cart is empty</h2>
+              <p className="text-muted mx-auto mt-2 max-w-xl text-sm leading-7 font-medium">
+                Add premium products from our Paint and Plumbing catalog to start building
+                your order.
               </p>
               <Button asChild variant="primary" size="md" className="mt-5">
                 <Link href="/products">
@@ -685,31 +858,60 @@ function CartPageShell() {
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-1 lg:gap-4">
               {cartLineItems.map(({ item, product, maxQuantity }) => {
-                const selectedVariant = selectedVariants[product.id] ?? getVariantOptions(product.category)[0] ?? "Standard";
+                const itemKey = buildCartItemKey(item);
 
                 return (
                   <CartLineItem
-                    key={product.id}
+                    key={itemKey}
                     product={product}
                     quantity={item.quantity}
-                    selectedVariant={selectedVariant}
+                    shadeName={item.shadeName}
+                    shadeCode={item.shadeCode}
+                    shadeFamily={item.shadeFamily}
+                    shadeHexColor={item.shadeHexColor}
+                    selectedVariant={
+                      (selectedVariants[itemKey] ?? item.variant) ||
+                      getVariantOptions(product.category)[0] ||
+                      "Standard"
+                    }
                     maxQuantity={maxQuantity}
                     onQuantityChange={(nextQuantity) =>
-                      updateQuantity(item.productId, Math.max(1, maxQuantity ? Math.min(maxQuantity, nextQuantity) : nextQuantity))
+                      updateQuantity(
+                        item.productId,
+                        Math.max(
+                          1,
+                          maxQuantity
+                            ? Math.min(maxQuantity, nextQuantity)
+                            : nextQuantity,
+                        ),
+                        item.variantId,
+                        item.shadeId,
+                        item.packSize,
+                        item.finish,
+                      )
                     }
                     onVariantChange={(variant) =>
                       setSelectedVariants((current) => ({
                         ...current,
-                        [product.id]: variant,
+                        [itemKey]: variant,
                       }))
                     }
-                    onRemove={() => removeItem(item.productId)}
-                    onMoveToWishlist={() => handleMoveToWishlist(product)}
+                    onRemove={() =>
+                      removeItem(
+                        item.productId,
+                        item.variantId,
+                        item.shadeId,
+                        item.packSize,
+                        item.finish,
+                      )
+                    }
+                    onMoveToWishlist={() => handleMoveToWishlist(item)}
                     onShare={() => handleShare(product)}
                     onSaveForLater={() =>
                       toast({
                         title: "Save for later coming soon",
-                        description: "This placeholder will connect to a saved-for-later shelf later.",
+                        description:
+                          "This placeholder will connect to a saved-for-later shelf later.",
                       })
                     }
                     codAvailable={deliveryResult.cod}
@@ -717,42 +919,58 @@ function CartPageShell() {
                 );
               })}
 
-              <details className="rounded-[1.35rem] border border-white/80 bg-white/92 shadow-[var(--shadow-sm)]" open>
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4 text-sm font-bold text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              <div className="grid gap-3 lg:grid-cols-2">
+              <details
+                className="rounded-[1.35rem] border border-white/80 bg-white/92 shadow-[var(--shadow-sm)]"
+                open
+              >
+                <summary className="text-text focus-visible:ring-accent flex cursor-pointer list-none items-center justify-between gap-3 p-4 text-sm font-bold focus-visible:ring-2 focus-visible:outline-none">
                   <span className="inline-flex items-center gap-2">
-                    <BadgePercent className="h-4 w-4 text-accent" aria-hidden="true" />
+                    <BadgePercent className="text-accent h-4 w-4" aria-hidden="true" />
                     Have a coupon?
                   </span>
-                  <span className="inline-flex items-center gap-1 text-accent">
+                  <span className="text-accent inline-flex items-center gap-1">
                     Apply Coupon
                     <ChevronDown className="h-4 w-4" aria-hidden="true" />
                   </span>
                 </summary>
-                <div className="px-4 pb-4">
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="px-4 pb-3">
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                     <Input
                       value={couponInput}
                       onChange={(event) => setCouponInput(event.target.value)}
                       placeholder="Coupon Code"
                       aria-label="Coupon Code"
-                      className="h-11 rounded-full border-border/80 bg-white/90"
+                      className="border-border/80 h-11 rounded-full bg-white/90"
                     />
-                    <Button type="button" variant="accent" size="md" onClick={handleApplyCoupon}>
+                    <Button
+                      type="button"
+                      variant="accent"
+                      size="md"
+                      onClick={handleApplyCoupon}
+                    >
                       Apply
                     </Button>
                   </div>
                   {couponMessage && (
-                    <p className={cn("mt-3 text-sm font-medium", couponCode ? "text-success" : "text-muted")}>{couponMessage}</p>
+                    <p
+                      className={cn(
+                        "mt-3 text-sm font-medium",
+                        couponCode ? "text-success" : "text-muted",
+                      )}
+                    >
+                      {couponMessage}
+                    </p>
                   )}
                 </div>
               </details>
 
-              <Card className="rounded-[1.35rem] border-white/75 bg-white/92 p-4 shadow-[var(--shadow-sm)]">
-                <div className="mb-3 flex items-center gap-2">
-                  <Truck className="h-4 w-4 text-accent" aria-hidden="true" />
-                  <h2 className="text-base font-bold text-text">Delivery Check</h2>
+              <Card className="rounded-[1.35rem] border-white/75 bg-white/92 p-3 shadow-[var(--shadow-sm)]">
+                <div className="mb-2 flex items-center gap-2">
+                  <Truck className="text-accent h-4 w-4" aria-hidden="true" />
+                  <h2 className="text-text text-base font-bold">Delivery Check</h2>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <Input
                     value={pincode}
                     onChange={(event) => setPincode(event.target.value)}
@@ -760,21 +978,31 @@ function CartPageShell() {
                     aria-label="Pincode"
                     maxLength={6}
                     inputMode="numeric"
-                    className="h-11 rounded-full border-border/80 bg-white/90"
+                    className="border-border/80 h-11 rounded-full bg-white/90"
                   />
-                  <Button type="button" variant="primary" size="md" onClick={handleCheckDelivery}>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="md"
+                    onClick={handleCheckDelivery}
+                  >
                     Check Delivery
                   </Button>
                 </div>
-                <div className="mt-3 grid gap-2 rounded-[1rem] border border-border/70 bg-background-secondary/35 p-3 text-sm">
-                  <p className="font-bold text-text">{deliveryResult.text}</p>
-                  <p className="font-medium text-muted">{deliveryResult.cod ? "COD Available" : "Enter a 6-digit pincode to check delivery."}</p>
+                <div className="border-border/70 bg-background-secondary/35 mt-2 grid gap-1.5 rounded-[1rem] border p-2.5 text-sm">
+                  <p className="text-text font-bold">{deliveryResult.text}</p>
+                  <p className="text-muted font-medium">
+                    {deliveryResult.cod
+                      ? "COD Available"
+                      : "Enter a 6-digit pincode to check delivery."}
+                  </p>
                 </div>
               </Card>
+              </div>
             </div>
 
             <div className="space-y-4">
-              <div className="hidden lg:block lg:sticky lg:top-24">
+              <div className="hidden lg:sticky lg:top-24 lg:block">
                 <OrderSummaryCard
                   subtotal={pricing.subtotal}
                   discount={pricing.discount}
@@ -787,13 +1015,16 @@ function CartPageShell() {
                 />
               </div>
 
-              <details className="rounded-[1.35rem] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-sm)] lg:hidden" open>
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              <details
+                className="rounded-[1.35rem] border border-white/80 bg-white/92 p-4 shadow-[var(--shadow-sm)] lg:hidden"
+                open
+              >
+                <summary className="text-text focus-visible:ring-accent flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold focus-visible:ring-2 focus-visible:outline-none">
                   <span className="inline-flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-accent" aria-hidden="true" />
+                    <ShieldCheck className="text-accent h-4 w-4" aria-hidden="true" />
                     Order Summary
                   </span>
-                  <ChevronDown className="h-4 w-4 text-muted" aria-hidden="true" />
+                  <ChevronDown className="text-muted h-4 w-4" aria-hidden="true" />
                 </summary>
                 <div className="mt-4">
                   <OrderSummaryCard
@@ -820,13 +1051,22 @@ function CartPageShell() {
           animate={shouldReduceMotion ? undefined : { opacity: 1, y: 0 }}
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
         >
-          <div className="mx-auto max-w-2xl rounded-[1.3rem] border border-border/70 bg-white/98 px-3 py-2 shadow-[var(--shadow-lg)] backdrop-blur-xl">
+          <div className="border-border/70 mx-auto max-w-2xl rounded-[1.3rem] border bg-white/98 px-3 py-2 shadow-[var(--shadow-lg)] backdrop-blur-xl">
             <div className="flex items-center justify-between gap-2.5">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">Grand Total</p>
-                <p className="text-[1.05rem] font-bold text-text">{formatPrice(pricing.grandTotal)}</p>
+                <p className="text-muted text-[11px] font-semibold tracking-[0.2em] uppercase">
+                  Grand Total
+                </p>
+                <p className="text-text text-[1.05rem] font-bold">
+                  {formatPrice(pricing.grandTotal)}
+                </p>
               </div>
-              <Button variant="primary" size="md" onClick={handleProceedToCheckout} className="h-11 px-4">
+              <Button
+                variant="primary"
+                size="md"
+                onClick={handleProceedToCheckout}
+                className="h-11 px-4"
+              >
                 Proceed to Checkout
               </Button>
             </div>

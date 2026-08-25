@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { CartItem } from "@/types";
 import type { CouponCode } from "@/lib/checkout-pricing";
+import { buildCartItemKey } from "@/lib/variant-pricing";
 
 interface CartState {
   items: CartItem[];
@@ -8,8 +9,21 @@ interface CartState {
   couponCode: CouponCode | null;
   setItems: (items: CartItem[]) => void;
   addItem: (item: Omit<CartItem, "quantity">, quantity?: number) => void;
-  removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
+  removeItem: (
+    productId: string,
+    variantId?: string,
+    shadeId?: string,
+    packSize?: string,
+    finish?: string,
+  ) => void;
+  updateQuantity: (
+    productId: string,
+    quantity: number,
+    variantId?: string,
+    shadeId?: string,
+    packSize?: string,
+    finish?: string,
+  ) => void;
   clear: () => void;
   setOpen: (open: boolean) => void;
   setCouponCode: (couponCode: CouponCode | null) => void;
@@ -26,12 +40,13 @@ export const useCartStore = create<CartState>((set, get) => ({
 
   addItem: (item, quantity = 1) =>
     set((state) => {
-      const existing = state.items.find((i) => i.productId === item.productId);
+      const key = buildCartItemKey(item);
+      const existing = state.items.find((i) => buildCartItemKey(i) === key);
       if (existing) {
         return {
           items: state.items.map((i) =>
-            i.productId === item.productId
-              ? { ...i, quantity: i.quantity + quantity }
+            buildCartItemKey(i) === key
+              ? { ...i, quantity: i.quantity + quantity, ...item }
               : i,
           ),
         };
@@ -39,13 +54,24 @@ export const useCartStore = create<CartState>((set, get) => ({
       return { items: [...state.items, { ...item, quantity }] };
     }),
 
-  removeItem: (productId) =>
-    set((state) => ({ items: state.items.filter((i) => i.productId !== productId) })),
+  removeItem: (productId, variantId, shadeId, packSize, finish) =>
+    set((state) => ({
+      items: state.items.filter(
+        (i) =>
+          buildCartItemKey(i) !==
+          buildCartItemKey({ productId, variantId, shadeId, packSize, finish }),
+      ),
+    })),
 
-  updateQuantity: (productId, quantity) =>
+  updateQuantity: (productId, quantity, variantId, shadeId, packSize, finish) =>
     set((state) => ({
       items: state.items
-        .map((i) => (i.productId === productId ? { ...i, quantity } : i))
+        .map((i) =>
+          buildCartItemKey(i) ===
+          buildCartItemKey({ productId, variantId, shadeId, packSize, finish })
+            ? { ...i, quantity }
+            : i,
+        )
         .filter((i) => i.quantity > 0),
     })),
 

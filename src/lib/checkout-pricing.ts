@@ -1,21 +1,21 @@
-export type CouponCode = string;
+import {
+  calculateCanonicalCart,
+  type CanonicalPricingLineInput,
+} from "@/lib/pricing-engine";
 
-export type CheckoutPricingItem = {
-  price: number;
-  quantity: number;
+export type CouponCode = string;
+export type ShippingResolver = (taxableAmount: number) => number;
+export const COUPONS: Record<
+  CouponCode,
+  { label: string; percent: number; maxDiscount: number }
+> = { WELCOME10: { label: "WELCOME10", percent: 10, maxDiscount: 500 } };
+export const defaultShippingResolver: ShippingResolver = () => 99;
+
+export type CheckoutPricingItem = CanonicalPricingLineInput & {
+  price?: number;
+  basePrice?: number;
   compareAtPrice?: number | null;
 };
-
-export const COUPONS: Record<CouponCode, { label: string; percent: number; maxDiscount: number }> =
-  {
-    WELCOME10: { label: "WELCOME10", percent: 10, maxDiscount: 500 },
-    PAINT20: { label: "PAINT20", percent: 20, maxDiscount: 1000 },
-  };
-
-export type ShippingResolver = (taxableAmount: number) => number;
-
-export const defaultShippingResolver: ShippingResolver = (_taxableAmount) =>
-  99;
 
 export interface CartPricing {
   subtotal: number;
@@ -37,33 +37,38 @@ export function calculateCartPricing(
   items: CheckoutPricingItem[],
   coupon: CouponCode | null,
   shippingResolver: ShippingResolver = defaultShippingResolver,
-  comparePriceResolver: (item: CheckoutPricingItem) => number = (item) => item.price,
+  comparePriceResolver: (item: CheckoutPricingItem) => number | undefined = (item) =>
+    item.compareAtPrice ?? item.price ?? 0,
 ): CartPricing {
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-
-  const compareSubtotal = items.reduce(
-    (sum, item) => sum + comparePriceResolver(item) * item.quantity,
-    0,
-  );
-
-  const discount = Math.max(0, compareSubtotal - subtotal);
+  const lines = items.map((item) => ({
+    ...item,
+    sellingPrice: item.sellingPrice ?? item.basePrice ?? item.price ?? 0,
+    mrp: item.mrp ?? comparePriceResolver(item) ?? item.price ?? 0,
+    shadeExtraPrice: item.shadeExtraPrice ?? 0,
+    adjustmentType: item.adjustmentType ?? "none",
+    gstRate: item.gstRate ?? 18,
+  }));
+  const beforeCoupon = calculateCanonicalCart(lines, { deliveryAmount: 0 });
   const couponConfig = coupon ? COUPONS[coupon] : null;
   const couponDiscount = couponConfig
-    ? Math.min(Math.round((subtotal * couponConfig.percent) / 100), couponConfig.maxDiscount)
+    ? Math.min(
+        Math.round(beforeCoupon.productTotal * couponConfig.percent * 100) / 10000,
+        couponConfig.maxDiscount,
+      )
     : 0;
-  const taxableAmount = Math.max(0, subtotal - couponDiscount);
-  const gst = Math.round((taxableAmount * 18) / 100);
-  const shipping = shippingResolver(taxableAmount);
-  const grandTotal = Math.max(0, taxableAmount + gst + shipping);
-
-  return {
-    subtotal,
-    compareSubtotal,
-    discount,
+  const shipping = shippingResolver(beforeCoupon.taxableAmount);
+  const result = calculateCanonicalCart(lines, {
+    deliveryAmount: shipping,
     couponDiscount,
-    taxableAmount,
-    gst,
-    shipping,
-    grandTotal,
+  });
+  return {
+    subtotal: result.productTotal,
+    compareSubtotal: result.mrp,
+    discount: result.displayedSaving,
+    couponDiscount: result.couponDiscount,
+    taxableAmount: result.taxableAmount,
+    gst: result.gstAmount,
+    shipping: result.deliveryAmount,
+    grandTotal: result.finalPayable,
   };
 }

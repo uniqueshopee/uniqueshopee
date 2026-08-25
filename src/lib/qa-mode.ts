@@ -343,7 +343,6 @@ export const QA_ORDERS: OrderRecord[] = [
     trackingNumber: "QA123456780IN",
     deliveredAt: undefined,
     paymentReference: "QA-PAY-0002",
-    couponApplied: "PAINT20",
     notes: "Heavy bulk order for QA table layout checks and card wrapping validation.",
     items: [
       {
@@ -425,9 +424,17 @@ export function getQaAdminOrderRows() {
     customer: order.deliveryAddress.name,
     status: order.status,
     paymentStatus: order.paymentStatus,
-    amount: order.grandTotal,
-    placedAt: order.placedAt,
-    trackingNumber: order.trackingNumber ?? "",
+      amount: order.grandTotal,
+      placedAt: order.placedAt,
+      trackingNumber: order.trackingNumber ?? "",
+      items: order.items.map((item) => ({
+        productName: item.name,
+        shadeName: item.shadeName,
+        shadeCode: item.shadeCode,
+        shadeFamily: item.shadeFamily,
+        shadeHexColor: item.shadeHexColor,
+        quantity: item.quantity,
+      })),
   }));
 }
 
@@ -484,14 +491,13 @@ export function getQaAdminReturnRows() {
 export function getQaAdminCouponRows() {
   return [
     { id: "qa-coupon-1", code: "WELCOME10", discount: "10% off", status: "Active", expiry: "31 Aug 2026", minimumOrder: "₹0", maximumDiscount: "₹500", usageLimit: "Unlimited", perUserLimit: "1", title: "Welcome Offer", description: "First-order savings", couponType: "percentage", value: 10, appliesTo: "{}" },
-    { id: "qa-coupon-2", code: "PAINT20", discount: "20% off", status: "Active", expiry: "15 Sep 2026", minimumOrder: "₹999", maximumDiscount: "₹1000", usageLimit: "500", perUserLimit: "1", title: "Paint Festival", description: "Large paint savings", couponType: "percentage", value: 20, appliesTo: "{}" },
     { id: "qa-coupon-3", code: "BULK99", discount: "₹99 off", status: "Expired", expiry: "10 Jul 2026", minimumOrder: "₹1999", maximumDiscount: "₹99", usageLimit: "200", perUserLimit: "2", title: "Bulk Deal", description: "Small fixed discount", couponType: "flat", value: 99, appliesTo: "{}" },
   ];
 }
 
 export function getQaAdminBannerRows() {
   return [
-    { id: "qa-banner-1", title: "Festival Paint Mega Sale", subtitle: "Up to 20% off on premium paints", placement: "Home Hero", status: "Active", imageUrl: "/images/placeholders/department-paints.svg", linkUrl: "/" },
+    { id: "qa-banner-1", title: "Festival Paint Sale", subtitle: "Premium paints for every project", placement: "Home Hero", status: "Active", imageUrl: "/images/placeholders/department-paints.svg", linkUrl: "/" },
     { id: "qa-banner-2", title: "Plumbing Essentials", subtitle: "Fast-moving plumbing inventory", placement: "Category Strip", status: "Active", imageUrl: "/images/placeholders/department-plumbing.svg", linkUrl: "/category/plumbing" },
     { id: "qa-banner-3", title: "Trade Pro Bulk Order", subtitle: "Long banner copy for QA wrapping", placement: "Checkout Promo", status: "Scheduled", imageUrl: "/images/placeholders/department-paints.svg", linkUrl: "/checkout" },
   ];

@@ -67,6 +67,24 @@ export type AdminOrdersRow = {
   amount: number;
   placedAt: string;
   trackingNumber: string;
+  items: Array<{
+    productName: string;
+    shadeName?: string;
+    shadeCode?: string;
+    shadeFamily?: string;
+    shadeHexColor?: string;
+    finish?: string;
+    packSize?: string;
+    sku?: string;
+    basePrice?: number | null;
+    shadeAdjustment?: number | null;
+    unitPrice?: number;
+    gstRate?: number;
+    taxableValue?: number | null;
+    gstAmount?: number | null;
+    lineTotal?: number;
+    quantity: number;
+  }>;
 };
 
 export type AdminCustomerRow = {
@@ -389,7 +407,7 @@ export async function loadAdminOrdersRows(client: SupabaseClient<Database>, limi
     ]),
   );
 
-  return ((ordersResult.data ?? []) as Array<{
+  const orderRows = (ordersResult.data ?? []) as Array<{
     id: string;
     order_number: string;
     status: string;
@@ -398,7 +416,68 @@ export async function loadAdminOrdersRows(client: SupabaseClient<Database>, limi
     placed_at: string;
     user_id: string;
     tracking_number: string | null;
-  }>).map((order) => ({
+  }>;
+  const orderIds = orderRows.map((order) => order.id);
+  const itemsResult = orderIds.length
+    ? await client
+        .from("order_items")
+        .select("order_id, product_name_snapshot, quantity, product_variant_id, sku_snapshot, shade_id, shade_name_snapshot, shade_code_snapshot, colour_family_snapshot, hex_color_snapshot, base_name_snapshot, pack_size_snapshot, finish_snapshot, base_price_snapshot, shade_extra_price_snapshot, final_unit_price_snapshot, gst_rate, taxable_value_snapshot, gst_amount_snapshot, unit_price, total_amount")
+        .in("order_id", orderIds)
+        .is("deleted_at", null)
+    : { data: [], error: null };
+
+  if (itemsResult.error) {
+    throw itemsResult.error;
+  }
+
+  const rawOrderItems = (itemsResult.data ?? []) as Array<{
+    order_id: string;
+    product_name_snapshot: string;
+    quantity: number | string;
+    product_variant_id: string | null;
+    sku_snapshot: string | null;
+    shade_id: string | null;
+    shade_name_snapshot: string | null;
+    shade_code_snapshot: string | null;
+    colour_family_snapshot: string | null;
+    hex_color_snapshot: string | null;
+    base_name_snapshot: string | null;
+    pack_size_snapshot: string | null;
+    finish_snapshot: string | null;
+    base_price_snapshot: number | string | null;
+    shade_extra_price_snapshot: number | string | null;
+    final_unit_price_snapshot: number | string | null;
+    gst_rate: number | string | null;
+    taxable_value_snapshot: number | string | null;
+    gst_amount_snapshot: number | string | null;
+    unit_price: number | string;
+    total_amount: number | string;
+  }>;
+  const itemsByOrderId = new Map<string, AdminOrdersRow["items"]>();
+  rawOrderItems.forEach((item) => {
+    const items = itemsByOrderId.get(item.order_id) ?? [];
+    items.push({
+      productName: item.product_name_snapshot,
+      shadeName: item.shade_name_snapshot ?? undefined,
+      shadeCode: item.shade_code_snapshot ?? undefined,
+      shadeFamily: item.colour_family_snapshot ?? undefined,
+      shadeHexColor: item.hex_color_snapshot ?? undefined,
+      finish: item.finish_snapshot ?? undefined,
+      packSize: item.pack_size_snapshot ?? undefined,
+      sku: item.sku_snapshot ?? undefined,
+      basePrice: item.base_price_snapshot === null ? null : toNumber(item.base_price_snapshot),
+      shadeAdjustment: item.shade_extra_price_snapshot === null ? null : toNumber(item.shade_extra_price_snapshot),
+      unitPrice: toNumber(item.unit_price),
+      gstRate: toNumber(item.gst_rate),
+      taxableValue: item.taxable_value_snapshot === null ? null : toNumber(item.taxable_value_snapshot),
+      gstAmount: item.gst_amount_snapshot === null ? null : toNumber(item.gst_amount_snapshot),
+      lineTotal: toNumber(item.total_amount),
+      quantity: toNumber(item.quantity) || 1,
+    });
+    itemsByOrderId.set(item.order_id, items);
+  });
+
+  return orderRows.map((order) => ({
     id: order.id,
     orderNumber: order.order_number,
     customer: profileById.get(order.user_id) ?? order.user_id.slice(0, 8).toUpperCase(),
@@ -407,6 +486,7 @@ export async function loadAdminOrdersRows(client: SupabaseClient<Database>, limi
     amount: toNumber(order.total_amount),
     placedAt: new Date(order.placed_at).toLocaleString("en-IN", { day: "numeric", month: "short" }),
     trackingNumber: order.tracking_number ?? "",
+    items: itemsByOrderId.get(order.id) ?? [],
   })) satisfies AdminOrdersRow[];
 }
 

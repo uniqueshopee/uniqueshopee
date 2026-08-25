@@ -94,6 +94,10 @@ const ADMIN_NAV: NavItem[] = [
   { label: "Departments", href: "/admin/departments", icon: Factory },
   { label: "Categories", href: "/admin/categories", icon: LayoutGrid },
   { label: "Brands", href: "/admin/brands", icon: Store },
+  { label: "Shades", href: "/admin/shades", icon: Sparkles },
+  { label: "Paint Bases", href: "/admin/paint-bases", icon: Sparkles },
+  { label: "Paint Compatibility", href: "/admin/paint-compatibility", icon: SlidersHorizontal },
+  { label: "Shade Pricing", href: "/admin/shade-pricing", icon: Tag },
   { label: "Orders", href: "/admin/orders", icon: ClipboardList },
   { label: "Returns", href: "/admin/returns", icon: RefreshCcw },
   { label: "Inventory", href: "/admin/inventory", icon: Warehouse },
@@ -112,6 +116,10 @@ const NAV_META = {
   "/admin/departments": { title: "Departments", subtitle: "Department structure" },
   "/admin/categories": { title: "Categories", subtitle: "Hierarchy and structure" },
   "/admin/brands": { title: "Brands", subtitle: "Brand directory" },
+  "/admin/shades": { title: "Shades", subtitle: "Shade catalog" },
+  "/admin/paint-bases": { title: "Paint Bases", subtitle: "Tinting base management" },
+  "/admin/paint-compatibility": { title: "Paint Compatibility", subtitle: "Product and finish shade mapping" },
+  "/admin/shade-pricing": { title: "Shade Pricing", subtitle: "Paint pricing rules" },
   "/admin/orders": { title: "Orders", subtitle: "Order operations" },
   "/admin/returns": { title: "Returns", subtitle: "Return request management" },
   "/admin/inventory": { title: "Inventory", subtitle: "Stock control" },
@@ -424,7 +432,7 @@ function ReturnRequestsTable({
 function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { signOut, isAuthenticated, loading: authLoading, role } = useAuth();
   const shouldReduceMotion = useReducedMotion();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -437,6 +445,16 @@ function AdminShell({ children }: { children: ReactNode }) {
     router.refresh();
   };
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    if (!authLoading && (!isAuthenticated || role === "customer")) {
+      router.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
+    }
+  }, [authLoading, isAuthenticated, pathname, role, router]);
+
+  if (authLoading || !isAuthenticated || role === "customer") {
+    return <div className="flex min-h-screen items-center justify-center bg-background p-6 text-sm font-semibold text-muted">Verifying admin access…</div>;
+  }
 
   const meta = NAV_META[(Object.keys(NAV_META) as Array<keyof typeof NAV_META>).find((key) => pathname === key || pathname.startsWith(`${key}/`)) ?? "/admin"];
   const mobileTitle = meta?.title ?? "Dashboard";
@@ -2637,6 +2655,33 @@ function BrandsAdminPage() {
   );
 }
 
+function AdminOrderShadeSwatch({ item }: { item: AdminOrdersRow["items"][number] }) {
+  const [open, setOpen] = useState(false);
+  const hasShade = Boolean(item.shadeName || item.shadeCode || item.shadeFamily || item.shadeHexColor || item.finish || item.packSize);
+
+  if (!hasShade) {
+    return null;
+  }
+
+  return (
+    <div className="relative flex min-w-0 items-start gap-2">
+      <button type="button" className="h-6 w-6 rounded-full border-2 border-white shadow-[var(--shadow-sm)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" style={{ backgroundColor: item.shadeHexColor || "#cbd5e1" }} onClick={() => setOpen((current) => !current)} aria-label={`View shade ${item.shadeName || item.shadeCode || "details"}`} aria-expanded={open} />
+      <span className="min-w-0 text-xs font-semibold text-text">
+        <span className="block truncate">{item.shadeName || item.productName} {item.shadeCode ? `· ${item.shadeCode}` : ""}</span>
+        <span className="block truncate font-medium text-muted">{[item.packSize, item.finish].filter(Boolean).join(" · ") || `Qty ${item.quantity}`} · Qty {item.quantity}</span>
+      </span>
+      {open ? (
+        <div className="absolute left-0 top-8 z-30 w-48 rounded-xl border border-border/70 bg-white p-3 text-xs shadow-[var(--shadow-lg)]">
+          <p className="font-bold text-text">{item.shadeName || "Selected shade"}</p>
+          {item.shadeCode ? <p className="mt-0.5 font-medium text-muted">{item.shadeCode}</p> : null}
+          {item.shadeFamily ? <p className="mt-1 font-medium text-muted">Colour: {item.shadeFamily}</p> : null}
+          {item.shadeHexColor ? <p className="font-medium text-muted">HEX: {item.shadeHexColor}</p> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function OrdersAdminPage() {
   const [rows, setRows] = useState<AdminOrdersRow[]>([]);
   const [returnRows, setReturnRows] = useState<AdminReturnRow[]>([]);
@@ -2708,7 +2753,7 @@ function OrdersAdminPage() {
     () =>
       rows.filter((row) => {
         const term = search.trim().toLowerCase();
-        if (term && ![row.orderNumber, row.customer, row.status, row.paymentStatus, row.trackingNumber].join(" ").toLowerCase().includes(term)) return false;
+        if (term && ![row.orderNumber, row.customer, row.status, row.paymentStatus, row.trackingNumber, ...row.items.flatMap((item) => [item.productName, item.shadeName, item.shadeCode, item.shadeFamily])].filter(Boolean).join(" ").toLowerCase().includes(term)) return false;
         if (status !== "All" && row.status !== status) return false;
         return true;
       }),
@@ -2810,6 +2855,7 @@ function OrdersAdminPage() {
                 <tr className="text-left text-xs font-bold uppercase tracking-[0.18em] text-muted">
                   <th className="px-4 py-3">Order</th>
                   <th className="px-4 py-3">Customer</th>
+                  <th className="px-4 py-3">Products / Shades</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Payment</th>
                   <th className="px-4 py-3">Amount</th>
@@ -2824,6 +2870,16 @@ function OrdersAdminPage() {
                       <div className="text-xs text-muted">{row.placedAt}</div>
                     </td>
                     <td className="px-4 py-3 text-sm text-muted">{row.customer}</td>
+                    <td className="px-4 py-3">
+                      <div className="max-w-[22rem] space-y-2">
+                        {row.items.length > 0 ? row.items.map((item, index) => (
+                          <div key={`${row.id}-${item.productName}-${item.shadeCode ?? index}`} className="flex items-center gap-2 text-xs">
+                            <AdminOrderShadeSwatch item={item} />
+                            <span className="min-w-0 font-semibold text-text"><span className="block truncate">{item.productName}</span></span>
+                          </div>
+                        )) : <span className="text-xs font-medium text-muted">Items unavailable</span>}
+                      </div>
+                    </td>
                     <td className="px-4 py-3"><AdminStatusBadge status={row.status} /></td>
                     <td className="px-4 py-3"><AdminStatusBadge status={row.paymentStatus} /></td>
                     <td className="px-4 py-3 font-semibold text-text">{formatPrice(row.amount)}</td>

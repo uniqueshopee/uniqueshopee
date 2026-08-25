@@ -3,7 +3,17 @@ import { notFound, redirect } from "next/navigation";
 import { ProductDetailPage } from "@/components/product/product-detail-page";
 import { JsonLdScript } from "@/components/seo/json-ld";
 import { getCatalogSnapshot, getLiveProductBySlug } from "@/lib/catalog";
-import { absoluteUrl, breadcrumbJsonLd, createPageMetadata, faqJsonLd, productJsonLd } from "@/lib/seo";
+import {
+  absoluteUrl,
+  breadcrumbJsonLd,
+  createPageMetadata,
+  faqJsonLd,
+  productJsonLd,
+} from "@/lib/seo";
+
+const LEGACY_PRODUCT_REDIRECTS: Record<string, string> = {
+  paints: "paint-box",
+};
 
 type ProductPageProps = {
   params: Promise<{
@@ -12,7 +22,9 @@ type ProductPageProps = {
 };
 
 export async function generateStaticParams() {
-  return getCatalogSnapshot().then((snapshot) => snapshot.products.map((product) => ({ slug: product.slug })));
+  return getCatalogSnapshot().then((snapshot) =>
+    snapshot.products.map((product) => ({ slug: product.slug })),
+  );
 }
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
@@ -34,6 +46,8 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
 
 export default async function ProductPage({ params }: ProductPageProps) {
   const { slug } = await params;
+  const redirectSlug = LEGACY_PRODUCT_REDIRECTS[slug];
+  if (redirectSlug) redirect(`/product/${redirectSlug}`);
   const data = await getLiveProductBySlug(slug);
 
   if (!data) {
@@ -47,7 +61,10 @@ export default async function ProductPage({ params }: ProductPageProps) {
   const snapshot = await getCatalogSnapshot();
   const relatedProducts = data.detail.relatedProductIds
     .map((productId) => snapshot.products.find((item) => item.id === productId))
-    .filter((item): item is (typeof snapshot.products)[number] => item !== undefined && item.slug !== slug);
+    .filter(
+      (item): item is (typeof snapshot.products)[number] =>
+        item !== undefined && item.slug !== slug,
+    );
 
   return (
     <>
@@ -58,9 +75,19 @@ export default async function ProductPage({ params }: ProductPageProps) {
           { name: data.product.name, item: absoluteUrl(`/product/${data.product.slug}`) },
         ])}
       />
-      <JsonLdScript data={productJsonLd({ product: data.product, detail: data.detail, pathname: `/product/${data.product.slug}` })} />
+      <JsonLdScript
+        data={productJsonLd({
+          product: data.product,
+          detail: data.detail,
+          pathname: `/product/${data.product.slug}`,
+        })}
+      />
       {data.detail.faq.length > 0 && <JsonLdScript data={faqJsonLd(data.detail.faq)} />}
-      <ProductDetailPage product={data.product} detail={data.detail} relatedProducts={relatedProducts} />
+      <ProductDetailPage
+        product={data.product}
+        detail={data.detail}
+        relatedProducts={relatedProducts}
+      />
     </>
   );
 }

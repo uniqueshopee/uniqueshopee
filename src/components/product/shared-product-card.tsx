@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useState } from "react";
 import { Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,10 @@ type SharedProductCardProps = {
   quantity: number;
   price: number;
   compareAtPrice?: number | null;
+  shadeName?: string;
+  shadeCode?: string;
+  shadeFamily?: string;
+  shadeHexColor?: string;
   mode: "checkout" | "order";
   onIncrease?: () => void;
   onDecrease?: () => void;
@@ -35,15 +40,21 @@ function SharedProductCard({
   quantity,
   price,
   compareAtPrice: _compareAtPrice,
+  shadeName,
+  shadeCode,
+  shadeFamily,
+  shadeHexColor,
   mode,
   onIncrease,
   onDecrease,
   onRemove,
   onBuyAgain,
   onReturn,
-  returnStatus,
   returnable,
 }: SharedProductCardProps) {
+  const [shadeOpen, setShadeOpen] = useState(false);
+  const hasShade = Boolean(shadeName || shadeCode || shadeFamily || shadeHexColor);
+
   return (
     <div className="overflow-hidden rounded-[1.1rem] border border-border/70 bg-white/96 shadow-[var(--shadow-sm)]">
       <div
@@ -75,11 +86,6 @@ function SharedProductCard({
                   Non-returnable
                 </Badge>
               )}
-              {returnStatus ? (
-                <Badge variant="warning" className="rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em]">
-                  {returnStatus}
-                </Badge>
-              ) : null}
             </div>
           ) : null}
           <Link href={href} className="block">
@@ -88,6 +94,27 @@ function SharedProductCard({
             </h3>
           </Link>
           {subtitle ? <p className="truncate text-[11px] font-medium text-muted sm:text-xs">{subtitle}</p> : null}
+          {hasShade ? (
+            <div className="relative mt-1">
+              <button type="button" className="flex items-center gap-2 rounded-lg bg-background-secondary/60 px-2 py-1.5 text-left" onClick={() => setShadeOpen((current) => !current)} aria-label="View selected shade details" aria-expanded={shadeOpen}>
+                <span className="h-5 w-5 shrink-0 rounded-full border-2 border-white shadow-[var(--shadow-sm)]" style={{ backgroundColor: shadeHexColor || "#cbd5e1" }} aria-hidden="true" />
+                <span className="min-w-0 truncate text-[10px] font-semibold text-text sm:text-[11px]">Selected shade</span>
+              </button>
+              {shadeOpen ? (
+                <div className="absolute left-0 top-full z-20 mt-1 min-w-44 rounded-xl border border-border/70 bg-white p-2.5 text-[10px] shadow-[var(--shadow-lg)]">
+                  <div className="flex items-center gap-2">
+                    <span className="h-7 w-7 rounded-full border-2 border-white shadow-[var(--shadow-sm)]" style={{ backgroundColor: shadeHexColor || "#cbd5e1" }} aria-hidden="true" />
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-text">{shadeName || "Selected shade"}</p>
+                      {shadeCode ? <p className="truncate font-medium text-muted">{shadeCode}</p> : null}
+                    </div>
+                  </div>
+                  {shadeFamily ? <p className="mt-1.5 font-medium text-muted">Colour: {shadeFamily}</p> : null}
+                  {shadeHexColor ? <p className="font-medium text-muted">HEX: {shadeHexColor}</p> : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {mode === "checkout" ? (
             <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-muted">
               <span className="font-semibold text-text">{formatPrice(price * quantity)}</span>

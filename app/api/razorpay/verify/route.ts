@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveSupabaseRequestAuth } from "@/lib/supabase/server";
 import { getRazorpaySecretKey } from "@/lib/razorpay-config";
 import type { Json } from "@/lib/supabase/types";
 
@@ -37,18 +37,17 @@ function safeEqual(expected: string, actual: string) {
 }
 
 export async function POST(request: Request) {
-  const client = await getSupabaseServerClient();
-  if (!client) {
+  const auth = await resolveSupabaseRequestAuth(request);
+  if (!auth.configured) {
     return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
   }
 
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-
-  if (!user) {
+  if (auth.invalidBearer || !auth.client || !auth.user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
+
+  const client = auth.client;
+  const user = auth.user;
 
   const keySecret = getRazorpaySecretKey();
   if (!keySecret) {
@@ -123,7 +122,7 @@ export async function POST(request: Request) {
     p_billing_address_id: body.billingAddressId ?? null,
     p_payment_method: paymentMethod,
     p_payment_reference: razorpayPaymentId,
-    p_payment_status: "paid",
+
     p_coupon_code: couponCode,
     p_notes: notes,
     p_shipping_address_snapshot: shippingAddressSnapshot as Json | null,

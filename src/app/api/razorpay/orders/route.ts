@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveSupabaseRequestAuth } from "@/lib/supabase/server";
 import { getRazorpayPublicKeyId, getRazorpaySecretKey } from "@/lib/razorpay-config";
 
 export const runtime = "nodejs";
@@ -22,18 +22,17 @@ function toNumber(value: unknown, fallback = 0) {
 }
 
 export async function POST(request: Request) {
-  const client = await getSupabaseServerClient();
-  if (!client) {
+  const auth = await resolveSupabaseRequestAuth(request);
+  if (!auth.configured) {
     return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
   }
 
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-
-  if (!user) {
+  if (auth.invalidBearer || !auth.client || !auth.user) {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
+
+  const client = auth.client;
+  const user = auth.user;
 
   const keyId = getRazorpayPublicKeyId();
   const keySecret = getRazorpaySecretKey();

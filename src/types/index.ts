@@ -16,6 +16,10 @@ export interface Product {
   badge?: "new" | "bestseller" | "sale" | "exclusive";
   exclusiveOffer?: boolean;
   exclusiveOfferPercent?: number;
+  supportsShades?: boolean;
+  brandId?: string;
+  departmentSlug?: string;
+  categorySlug?: string;
 }
 
 export interface Category {
@@ -28,8 +32,23 @@ export interface Category {
 
 export interface CartItem {
   productId: string;
+  variantId?: string;
+  shadeId?: string;
+  shadeCode?: string;
+  shadeName?: string;
+  shadeFamily?: string;
+  shadeSubFamily?: string;
+  shadeHexColor?: string;
+  packSize?: string;
+  unit?: string;
+  finish?: string;
   name: string;
   price: number;
+  basePrice?: number;
+  shadeExtraPrice?: number;
+  gstRate?: number;
+  finalUnitPrice?: number;
+  sku?: string;
   image: string;
   quantity: number;
   slug?: string;
