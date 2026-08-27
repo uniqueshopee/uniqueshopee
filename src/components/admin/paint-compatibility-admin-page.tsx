@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, FormField } from "@/components/ui/input";
 import { AdminSectionCard, PageHeader } from "@/components/admin/admin-kit";
@@ -19,6 +19,7 @@ type Product = {
   name: string;
   slug: string;
   brand_id: string | null;
+  department_id: string;
   status: string;
   variants: ProductVariant[];
 };
@@ -29,7 +30,12 @@ type Shade = {
   color_family: string;
   brand_id: string | null;
 };
-type ProductShadeMapping = { id: string; shade_id: string; finish: string | null };
+type ProductShadeMapping = {
+  id: string;
+  shade_id: string;
+  finish: string | null;
+  is_available?: boolean;
+};
 type Brand = { id: string; name: string };
 type BulkPreview = {
   productId: string;
@@ -86,15 +92,21 @@ export function PaintCompatibilityAdminPage() {
     processed: number;
   } | null>(null);
   const [assignmentSummary, setAssignmentSummary] = useState<BulkSummary | null>(null);
+  const assignmentLoadToken = useRef(0);
 
   const load = async () => {
     const client = getSupabaseBrowserClient();
     if (!client) return;
-    const [{ data: productData }, { data: brandData }, { data: variantData }] =
+    const [
+      { data: productData },
+      { data: brandData },
+      { data: variantData },
+      { data: departmentData },
+    ] =
       await Promise.all([
         client
           .from("products")
-          .select("id, name, slug, brand_id, status")
+          .select("id, name, slug, brand_id, department_id, status")
           .eq("status", "active")
           .is("deleted_at", null)
           .order("name"),
@@ -103,7 +115,13 @@ export function PaintCompatibilityAdminPage() {
           .from("product_variants")
           .select("product_id, finish, is_active, is_available, deleted_at")
           .is("deleted_at", null),
+        client.from("departments").select("id, slug, is_active, deleted_at").is("deleted_at", null),
       ]);
+    const paintDepartmentIds = new Set(
+      (departmentData ?? [])
+        .filter((department) => department.is_active !== false && department.slug === "paints")
+        .map((department) => department.id as string),
+    );
     const variantsByProductId = new Map<string, ProductVariant[]>();
     for (const row of (variantData ?? []) as Array<
       ProductVariant & { product_id: string }
@@ -112,10 +130,12 @@ export function PaintCompatibilityAdminPage() {
       variants.push(row);
       variantsByProductId.set(row.product_id, variants);
     }
-    const loadedProducts = (productData ?? []).map((row) => ({
+    const loadedProducts = (productData ?? [])
+      .filter((row) => paintDepartmentIds.has(row.department_id as string))
+      .map((row) => ({
       ...(row as Omit<Product, "variants">),
       variants: variantsByProductId.get(row.id as string) ?? [],
-    })) as Product[];
+      })) as Product[];
     const loadedShades: Shade[] = [];
     for (let offset = 0; ; offset += 1000) {
       const { data: shadePage, error: shadeError } = await client
@@ -134,17 +154,9 @@ export function PaintCompatibilityAdminPage() {
     }
     setProducts(loadedProducts);
     setProductId((current) => {
-      if (
-        loadedProducts.some(
-          (product) => product.id === current && product.slug !== "paint-box",
-        )
-      )
-        return current;
-      return (
-        loadedProducts.find((product) => product.slug === "berger-paint")?.id ??
-        loadedProducts.find((product) => product.slug !== "paint-box")?.id ??
-        ""
-      );
+      return loadedProducts.some((product) => product.id === current)
+        ? current
+        : loadedProducts[0]?.id ?? "";
     });
     setShades(loadedShades);
     setBrands((brandData ?? []) as Brand[]);
@@ -179,6 +191,7 @@ export function PaintCompatibilityAdminPage() {
     void load();
   }, []);
   const loadAssignments = useCallback(async () => {
+    const requestToken = ++assignmentLoadToken.current;
     const client = getSupabaseBrowserClient();
     if (!client || !productId) {
       setAssigned(new Set());
@@ -188,7 +201,7 @@ export function PaintCompatibilityAdminPage() {
     for (let offset = 0; ; offset += 1000) {
       const { data, error } = await client
         .from("product_shades")
-        .select("id, shade_id, finish")
+        .select("id, shade_id, finish, is_available")
         .eq("product_id", productId)
         .is("deleted_at", null)
         .range(offset, offset + 999);
@@ -198,7 +211,7 @@ export function PaintCompatibilityAdminPage() {
           finish,
           error: error.message,
         });
-        setAssigned(new Set());
+        if (requestToken === assignmentLoadToken.current) setAssigned(new Set());
         return;
       }
       mappings.push(...((data ?? []) as ProductShadeMapping[]));
@@ -208,11 +221,13 @@ export function PaintCompatibilityAdminPage() {
     const assignedIds = mappings
       .filter(
         (row) =>
-          !normalizedFinish ||
-          !row.finish ||
-          row.finish.trim().toLowerCase() === normalizedFinish,
+          row.is_available !== false &&
+          (!normalizedFinish ||
+            !row.finish ||
+            row.finish.trim().toLowerCase() === normalizedFinish),
       )
       .map((row) => row.shade_id);
+    if (requestToken !== assignmentLoadToken.current) return;
     setAssigned(new Set(assignedIds));
     compatibilityDebug("assignment count refreshed", {
       productId,
@@ -272,26 +287,70 @@ export function PaintCompatibilityAdminPage() {
           (!search ||
             `${shade.shade_name} ${shade.shade_code}`
               .toLowerCase()
-              .includes(search.toLowerCase())) &&
-          (!product || !shade.brand_id || shade.brand_id === product.brand_id),
+              .includes(search.toLowerCase())),
       ),
-    [family, product, search, shades],
+    [family, search, shades],
   );
   const families = [...new Set(shades.map((shade) => shade.color_family))].sort();
   const assignmentCandidates = useMemo(
     () =>
       shades.filter(
         (shade) =>
-          shade.brand_id === product?.brand_id &&
           (!family || shade.color_family.toLowerCase() === family.toLowerCase()),
       ),
-    [family, product?.brand_id, shades],
+    [family, shades],
   );
 
   const matchingFinish = (mappingFinish: string | null, selectedFinish: string | null) =>
     !selectedFinish ||
     !mappingFinish ||
     mappingFinish.trim().toLowerCase() === selectedFinish.trim().toLowerCase();
+
+  const toggleAssignment = async (shade: Shade) => {
+    const client = getSupabaseBrowserClient();
+    if (!client || !product || !finish.trim() || !canManage) return;
+    const selectedFinish = finish.trim();
+    const { data: mappings, error: readError } = await client
+      .from("product_shades")
+      .select("id, finish, is_available, deleted_at")
+      .eq("product_id", product.id)
+      .eq("shade_id", shade.id);
+    if (readError) {
+      toast({ title: "Assignment failed", description: readError.message, variant: "danger" });
+      return;
+    }
+    const mapping = ((mappings ?? []) as Array<{
+      id: string;
+      finish: string | null;
+      is_available: boolean;
+      deleted_at: string | null;
+    }>).find((row) => matchingFinish(row.finish, selectedFinish));
+    let error;
+    if (mapping && mapping.deleted_at === null && mapping.is_available) {
+      ({ error } = await client
+        .from("product_shades")
+        .update({ deleted_at: new Date().toISOString(), is_available: false })
+        .eq("id", mapping.id));
+    } else if (mapping && mapping.deleted_at !== null) {
+      ({ error } = await client
+        .from("product_shades")
+        .update({ deleted_at: null, is_available: true, finish: selectedFinish })
+        .eq("id", mapping.id));
+    } else {
+      ({ error } = await client.from("product_shades").insert({
+        product_id: product.id,
+        shade_id: shade.id,
+        finish: selectedFinish,
+        is_available: true,
+      } as never));
+    }
+    if (error) {
+      toast({ title: "Assignment failed", description: error.message, variant: "danger" });
+      return;
+    }
+    await loadAssignments();
+    toast({ title: mapping?.is_available ? "Shade unassigned" : "Shade assigned", variant: "success" });
+  };
 
   const previewAssignment = async () => {
     const client = getSupabaseBrowserClient();
@@ -322,15 +381,6 @@ export function PaintCompatibilityAdminPage() {
       }
       mappings.push(...((data ?? []) as ProductShadeMapping[]));
       if (!data || data.length < 1000) break;
-    }
-    if (!product.brand_id) {
-      setAssignmentPreviewLoading(false);
-      toast({
-        title: "Preview failed",
-        description: "The selected product has no brand.",
-        variant: "danger",
-      });
-      return;
     }
     const mappedIds = new Set(
       mappings
@@ -530,54 +580,59 @@ export function PaintCompatibilityAdminPage() {
         total: chunks.length,
         processed: index * chunkSize,
       });
-      const payload = chunk.map((shade) => ({
-        product_id: assignmentPreview.productId,
-        shade_id: shade.id,
-        finish: assignmentPreview.finish,
-        is_available: true,
-      }));
-      let error: string | null = null;
-      for (let attempt = 1; attempt <= 3; attempt += 1) {
-        const result = await client.from("product_shades").insert(payload as never);
-        if (!result.error) {
-          error = null;
-          break;
-        }
-        if (result.error.code === "23505") {
-          const { data: currentMappings } = await client
-            .from("product_shades")
-            .select("shade_id, finish")
-            .eq("product_id", assignmentPreview.productId)
-            .in(
-              "shade_id",
-              chunk.map((shade) => shade.id),
+      const { data: existingMappings, error: mappingError } = await client
+        .from("product_shades")
+        .select("id, shade_id, finish, is_available, deleted_at")
+        .eq("product_id", assignmentPreview.productId)
+        .in("shade_id", chunk.map((shade) => shade.id));
+      let error: string | null = mappingError?.message ?? null;
+      if (!error) {
+        const rows = (existingMappings ?? []) as Array<{
+          id: string;
+          shade_id: string;
+          finish: string | null;
+          is_available: boolean;
+          deleted_at: string | null;
+        }>;
+        const activeIds = new Set(
+          rows
+            .filter(
+              (row) =>
+                row.deleted_at === null &&
+                row.is_available &&
+                matchingFinish(row.finish, assignmentPreview.finish),
             )
-            .is("deleted_at", null);
-          const currentIds = new Set(
-            ((currentMappings ?? []) as ProductShadeMapping[])
-              .filter((mapping) =>
-                matchingFinish(mapping.finish, assignmentPreview.finish),
-              )
-              .map((mapping) => mapping.shade_id),
-          );
-          const remaining = chunk.filter((shade) => !currentIds.has(shade.id));
-          if (remaining.length === 0) {
-            error = null;
-            break;
-          }
-          payload.splice(
-            0,
-            payload.length,
-            ...remaining.map((shade) => ({
-              product_id: assignmentPreview.productId,
-              shade_id: shade.id,
-              finish: assignmentPreview.finish,
-              is_available: true,
-            })),
-          );
-          continue;
+            .map((row) => row.shade_id),
+        );
+        const deletedToReactivate = rows.filter(
+          (row) =>
+            row.deleted_at !== null &&
+            matchingFinish(row.finish, assignmentPreview.finish) &&
+            !activeIds.has(row.shade_id),
+        );
+        for (const row of deletedToReactivate) {
+          const result = await client
+            .from("product_shades")
+            .update({ deleted_at: null, is_available: true, finish: assignmentPreview.finish })
+            .eq("id", row.id);
+          if (result.error) error = result.error.message;
         }
-        error = result.error.message;
+        const existingIds = new Set([
+          ...activeIds,
+          ...deletedToReactivate.map((row) => row.shade_id),
+        ]);
+        const payload = chunk
+          .filter((shade) => !existingIds.has(shade.id))
+          .map((shade) => ({
+            product_id: assignmentPreview.productId,
+            shade_id: shade.id,
+            finish: assignmentPreview.finish,
+            is_available: true,
+          }));
+        if (!error && payload.length > 0) {
+          const result = await client.from("product_shades").insert(payload as never);
+          if (result.error) error = result.error.message;
+        }
       }
       if (error) {
         for (const shade of chunk)
@@ -673,6 +728,8 @@ export function PaintCompatibilityAdminPage() {
               value={productId}
               onChange={(event) => {
                 setProductId(event.target.value);
+                setFamily("");
+                setAssigned(new Set());
                 setAssignmentPreview(null);
                 setAssignmentSummary(null);
               }}
@@ -680,11 +737,10 @@ export function PaintCompatibilityAdminPage() {
             >
               <option value="">Choose product</option>
               {products.map((row) => (
-                <option key={row.id} value={row.id} disabled={row.slug === "paint-box"}>
+                <option key={row.id} value={row.id}>
                   {row.name} ·{" "}
                   {brands.find((brand) => brand.id === row.brand_id)?.name ?? "No brand"}{" "}
                   · /{row.slug}
-                  {row.slug === "paint-box" ? " (TEST/DUPLICATE)" : ""}
                 </option>
               ))}
             </select>
@@ -742,23 +798,22 @@ export function PaintCompatibilityAdminPage() {
           >
             Preview assignment
           </Button>
-          {assignmentPreview ? (
+          {assignmentPreview && assignmentPreview.missing.length > 0 ? (
             <Button
               type="button"
               variant="accent"
               loading={Boolean(assignmentProgress)}
               disabled={
                 !canManage ||
-                assignmentPreview.missing.length === 0 ||
                 Boolean(assignmentProgress) ||
                 Boolean(assignmentSummary)
               }
               onClick={() => void assignMissing()}
             >
-              {family
-                ? `Assign ${family} shades`
-                : `Assign all ${productBrandName ?? "brand"} shades`}
+              {family ? `Assign ${family} shades` : "Assign all shades"}
             </Button>
+          ) : assignmentPreview ? (
+            <span className="text-success self-center text-sm font-bold">All assigned</span>
           ) : null}
         </div>
         {assignmentPreview ? (
@@ -869,8 +924,17 @@ export function PaintCompatibilityAdminPage() {
                 </p>
               </div>
               <span className="text-accent text-xs font-bold">
-                {assigned.has(shade.id) ? "Assigned" : "Available"}
+                {assigned.has(shade.id) ? "Assigned" : "Assign"}
               </span>
+              <Button
+                type="button"
+                variant={assigned.has(shade.id) ? "outline" : "accent"}
+                className="shrink-0"
+                disabled={!canManage || !product || !finish.trim()}
+                onClick={() => void toggleAssignment(shade)}
+              >
+                {assigned.has(shade.id) ? "Unassign" : "Assign"}
+              </Button>
             </div>
           ))}
         </div>
