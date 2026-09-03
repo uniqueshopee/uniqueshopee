@@ -32,9 +32,12 @@ import { cn, formatPrice } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useCartSync } from "@/components/cart/cart-sync-provider";
 import { loadUserAddresses, type CheckoutAddress } from "@/lib/address-service";
-import { createCheckoutOrder, type CheckoutPricingSummary } from "@/lib/order-service";
+import { createCheckoutOrder, loadCheckoutPricing, type CheckoutPricingSummary } from "@/lib/order-service";
+import { loadLiveCoupons, type LiveCoupon } from "@/lib/account-service";
 import { ensureCurrentUserProfile } from "@/lib/supabase/auth";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getSupabaseEnvironment } from "@/lib/supabase/env";
+import { checkDeliveryPincode, ADDRESS_UNAVAILABLE_PINCODE_MESSAGE, UNAVAILABLE_PINCODE_MESSAGE } from "@/lib/delivery-service";
 import {
   formatRazorpayContact,
   getRazorpayKeyId,
@@ -65,6 +68,20 @@ type ProductMeta = {
   brand: string;
   variant: string;
 };
+
+type CheckoutCouponOption = LiveCoupon & {
+  eligible: boolean;
+  eligibilityReason: string | null;
+};
+
+function couponEligibilityReason(message: string | null) {
+  const normalized = (message ?? "").toLowerCase();
+  if (normalized.includes("minimum order")) return message;
+  if (normalized.includes("usage limit")) return "Coupon limit reached";
+  if (normalized.includes("already used")) return "Already used";
+  if (normalized.includes("invalid coupon")) return "Not valid for this order";
+  return message || "Not applicable to this cart";
+}
 
 type ProductRow = {
   id: string;
@@ -532,7 +549,7 @@ function CheckoutShell() {
   const router = useRouter();
   const pathname = usePathname();
   const { user, profile, loading: authLoading } = useAuth();
-  const { loaded: cartLoaded } = useCartSync();
+  const { loaded: cartLoaded, flushSync } = useCartSync();
   const items = useCartStore((state) => state.items);
   const couponCode = useCartStore((state) => state.couponCode);
   const setCouponCode = useCartStore((state) => state.setCouponCode);
@@ -553,6 +570,12 @@ function CheckoutShell() {
   const [addressBusy, setAddressBusy] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
   const [couponInput, setCouponInput] = useState(couponCode ?? "");
+  const [serverPricing, setServerPricing] = useState<CheckoutPricingSummary | null>(null);
+  const [couponPreviewLoading, setCouponPreviewLoading] = useState(false);
+  const [couponPreviewError, setCouponPreviewError] = useState<string | null>(null);
+  const [availableCoupons, setAvailableCoupons] = useState<CheckoutCouponOption[]>([]);
+  const [showAvailableCoupons, setShowAvailableCoupons] = useState(false);
+  const [availableCouponsLoading, setAvailableCouponsLoading] = useState(false);
   const [notes, setNotes] = useState("");
   const [placingOrder, setPlacingOrder] = useState(false);
   const [razorpayLoading, setRazorpayLoading] = useState(false);
@@ -706,6 +729,101 @@ function CheckoutShell() {
       setCouponInput(couponCode);
     }
   }, [couponCode, couponInput]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshServerPricing = async () => {
+      if (authLoading || !cartLoaded || !user || !accountId) return;
+
+      const client = getSupabaseBrowserClient();
+      if (!client) {
+        setServerPricing(null);
+        setCouponPreviewError(UI_MESSAGES.checkout.checkoutUnavailable);
+        return;
+      }
+
+      setCouponPreviewLoading(true);
+      setCouponPreviewError(null);
+      await flushSync();
+      const result = await loadCheckoutPricing(client, { couponCode: couponCode ?? null });
+      if (cancelled) return;
+
+      if (isDev) {
+        const environment = getSupabaseEnvironment();
+        devCheckoutLog("FREE_DELIVERY_CHECKOUT_DIAGNOSTIC", {
+          supabaseHost: environment ? new URL(environment.url).host : null,
+          rpcCalled: true,
+          rpcError: Boolean(result.error),
+          rpcErrorMessage: result.error,
+          rpcReturnedData: Boolean(result.pricing),
+          serverTaxableAmount: result.pricing?.taxableAmount ?? null,
+          serverShippingAmount: result.pricing?.shippingTotal ?? null,
+          serverSubtotal: result.pricing?.subtotal ?? null,
+          serverGst: result.pricing?.taxTotal ?? null,
+          serverCouponDiscount: result.pricing?.couponDiscount ?? null,
+          serverDiscount: result.pricing?.discountTotal ?? null,
+          fallbackUsed: !result.pricing,
+        });
+      }
+
+      if (result.error || !result.pricing) {
+        setServerPricing(null);
+        setCouponPreviewError(result.error ?? "Unable to validate this coupon.");
+      } else {
+        setServerPricing(result.pricing);
+      }
+      setCouponPreviewLoading(false);
+    };
+
+    void refreshServerPricing();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, authLoading, cartLoaded, couponCode, flushSync, isDev, items, user]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCouponsForCheckout = async () => {
+      if (!showAvailableCoupons || authLoading || !cartLoaded || !user || !accountId) return;
+      const client = getSupabaseBrowserClient();
+      if (!client) return;
+
+      setAvailableCouponsLoading(true);
+      await flushSync();
+      const coupons = await loadLiveCoupons(client, accountId, couponCode);
+      const options = await Promise.all(
+        coupons.map(async (coupon): Promise<CheckoutCouponOption> => {
+          if (coupon.status === "Used") {
+            return { ...coupon, eligible: false, eligibilityReason: "Already used" };
+          }
+          if (coupon.status === "Expired") {
+            return { ...coupon, eligible: false, eligibilityReason: "Expired or not yet available" };
+          }
+          if (items.length === 0) {
+            return { ...coupon, eligible: true, eligibilityReason: null };
+          }
+          const result = await loadCheckoutPricing(client, { couponCode: coupon.code });
+          return {
+            ...coupon,
+            eligible: !result.error && Boolean(result.pricing),
+            eligibilityReason: result.error ? couponEligibilityReason(result.error) : null,
+          };
+        }),
+      );
+
+      if (!cancelled) {
+        setAvailableCoupons(options);
+        setAvailableCouponsLoading(false);
+      }
+    };
+
+    void loadCouponsForCheckout();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, authLoading, cartLoaded, couponCode, flushSync, items.length, showAvailableCoupons, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -897,12 +1015,14 @@ function CheckoutShell() {
   );
 
   const pricing = useMemo(
-    () => buildCheckoutPricingSummary(items, couponCode),
-    [couponCode, items],
+    () => serverPricing ?? buildCheckoutPricingSummary(items, null),
+    [items, serverPricing],
   );
 
   const empty = items.length === 0;
-  const summarySavings = Math.max(0, pricing.discountTotal + pricing.couponDiscount);
+  const pricingReady = Boolean(serverPricing);
+  const checkoutPrice = (value: number) => pricingReady ? formatPrice(value) : "Unavailable";
+  const totalSavings = Math.max(0, pricing.discountTotal + pricing.couponDiscount);
 
   const validateDraftAddress = () => {
     const errors: Partial<Record<keyof DraftAddressState, string>> = {};
@@ -988,6 +1108,16 @@ function CheckoutShell() {
       return;
     }
 
+    const deliveryCheck = await checkDeliveryPincode(client, draftAddress.pin);
+    if (deliveryCheck.error || !deliveryCheck.isServiceable) {
+      toast({
+        title: "Address not saved",
+        description: deliveryCheck.isValid ? ADDRESS_UNAVAILABLE_PINCODE_MESSAGE : (deliveryCheck.error ?? ADDRESS_UNAVAILABLE_PINCODE_MESSAGE),
+        variant: "warning",
+      });
+      return;
+    }
+
     setAddressBusy(true);
 
     const payload = {
@@ -1000,7 +1130,7 @@ function CheckoutShell() {
       city: draftAddress.city.trim(),
       state: draftAddress.state.trim(),
       country: "India",
-      pin_code: draftAddress.pin.trim(),
+      pin_code: deliveryCheck.normalizedPincode,
       address_type: draftAddress.type.toLowerCase(),
       is_default:
         addresses.length === 0 || addresses.every((address) => !address.isDefault),
@@ -1144,23 +1274,65 @@ function CheckoutShell() {
     });
   };
 
-  const handleApplyCoupon = () => {
-    const code = resolveCouponCode(couponInput);
-    if (code) {
-      setCouponCode(code);
+  const applyCouponCode = async (value: string) => {
+    const code = resolveCouponCode(value);
+    if (!code) {
+      setCouponCode(null);
+      setServerPricing(null);
+      setCouponPreviewError(null);
       toast({
-        title: "Coupon applied",
-        description: UI_MESSAGES.checkout.couponApplied,
-        variant: "success",
+        title: "Coupon cleared",
+        description: UI_MESSAGES.checkout.couponCleared,
+        variant: "warning",
       });
       return;
     }
-    setCouponCode(null);
+
+    if (!user || !accountId || !cartLoaded) {
+      toast({
+        title: "Coupon unavailable",
+        description: "Please wait for your account and cart to finish loading.",
+        variant: "warning",
+      });
+      return;
+    }
+
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      toast({ title: "Coupon unavailable", description: UI_MESSAGES.checkout.checkoutUnavailable, variant: "danger" });
+      return;
+    }
+
+    setCouponPreviewLoading(true);
+    setCouponPreviewError(null);
+    await flushSync();
+    const result = await loadCheckoutPricing(client, { couponCode: code });
+    setCouponPreviewLoading(false);
+
+    if (result.error || !result.pricing) {
+      setCouponCode(null);
+      setServerPricing(null);
+      setCouponPreviewError(result.error ?? "Unable to validate this coupon.");
+      toast({
+        title: "Coupon not applied",
+        description: result.error ?? "This coupon is not valid for your order.",
+        variant: "danger",
+      });
+      return;
+    }
+
+    setCouponCode(code);
+    setServerPricing(result.pricing);
+    setCouponPreviewError(null);
     toast({
-      title: "Coupon cleared",
-      description: UI_MESSAGES.checkout.couponCleared,
-      variant: "warning",
+      title: "Coupon applied",
+      description: UI_MESSAGES.checkout.couponApplied,
+      variant: "success",
     });
+  };
+
+  const handleApplyCoupon = () => {
+    void applyCouponCode(couponInput);
   };
 
   const buildAddressSnapshot = (address: CheckoutAddress) => ({
@@ -1180,6 +1352,15 @@ function CheckoutShell() {
 
   const handlePlaceOrder = async () => {
     if (placingOrder) {
+      return;
+    }
+
+    if (!pricingReady) {
+      toast({
+        title: "Pricing unavailable",
+        description: "Checkout pricing could not be verified. Please retry before placing the order.",
+        variant: "warning",
+      });
       return;
     }
 
@@ -1206,7 +1387,18 @@ function CheckoutShell() {
       return;
     }
 
-    const snapshot = buildAddressSnapshot(selectedAddress);
+    const serviceabilityClient = getSupabaseBrowserClient();
+    const deliveryCheck = await checkDeliveryPincode(serviceabilityClient, selectedAddress.pin);
+    if (deliveryCheck.error || !deliveryCheck.isServiceable) {
+      toast({
+        title: "Order not placed",
+        description: deliveryCheck.isValid ? UNAVAILABLE_PINCODE_MESSAGE : ADDRESS_UNAVAILABLE_PINCODE_MESSAGE,
+        variant: "warning",
+      });
+      return;
+    }
+
+    const snapshot = buildAddressSnapshot({ ...selectedAddress, pin: deliveryCheck.normalizedPincode });
     const rawCheckoutMetrics = {
       userId: user?.id ?? null,
       route: pathname,
@@ -1944,37 +2136,37 @@ function CheckoutShell() {
                 <SectionTitle eyebrow="Order Summary" title="Order Summary" />
 
                 <div className="border-border/70 mt-3 space-y-2.5 rounded-[1.25rem] border bg-white p-3 sm:mt-4 sm:space-y-3 sm:p-4">
-                  <SummaryRow label="Subtotal" value={formatPrice(pricing.subtotal)} />
+                  <SummaryRow label="Subtotal" value={checkoutPrice(pricing.subtotal)} />
                   <SummaryRow
                     label="Discount"
-                    value={`- ${formatPrice(pricing.discountTotal)}`}
+                    value={pricingReady ? `- ${formatPrice(pricing.discountTotal)}` : "Unavailable"}
                   />
                   <SummaryRow
                     label="Coupon Discount"
                     value={
                       pricing.couponDiscount > 0
                         ? `- ${formatPrice(pricing.couponDiscount)}`
-                        : formatPrice(0)
+                        : checkoutPrice(0)
                     }
                   />
-                  <SummaryRow label="GST" value={formatPrice(pricing.taxTotal)} />
+                  <SummaryRow label="GST" value={checkoutPrice(pricing.taxTotal)} />
                   <SummaryRow
                     label="Shipping"
                     value={
                       pricing.shippingTotal === 0
                         ? "Free"
-                        : formatPrice(pricing.shippingTotal)
+                        : checkoutPrice(pricing.shippingTotal)
                     }
                   />
                   <div className="border-border/70 border-t pt-3">
                     <SummaryRow
                       label="Grand Total"
-                      value={formatPrice(pricing.totalAmount)}
+                      value={checkoutPrice(pricing.totalAmount)}
                       emphasize
                     />
                   </div>
                   <div className="border-success/20 bg-success/10 text-success rounded-[1rem] border px-3 py-2 text-xs font-medium sm:text-sm">
-                    You Saved {formatPrice(summarySavings)}
+                    You Saved {pricingReady ? formatPrice(totalSavings) : "Unavailable"}
                   </div>
                 </div>
               </motion.section>
@@ -2002,14 +2194,68 @@ function CheckoutShell() {
                     Apply
                   </Button>
                 </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 px-1 text-accent"
+                  onClick={() => setShowAvailableCoupons((current) => !current)}
+                >
+                  {showAvailableCoupons ? "Hide available coupons" : "View available coupons"}
+                </Button>
+                {showAvailableCoupons ? (
+                  <div className="mt-2 space-y-2 rounded-[1rem] border border-border/70 bg-background-secondary/35 p-2">
+                    {availableCouponsLoading ? (
+                      <p className="px-2 py-1 text-xs font-medium text-muted">Checking available coupons…</p>
+                    ) : availableCoupons.length === 0 ? (
+                      <p className="px-2 py-1 text-xs font-medium text-muted">No coupons available.</p>
+                    ) : (
+                      availableCoupons.map((coupon) => (
+                        <div key={coupon.id} className="flex items-center justify-between gap-3 rounded-[0.85rem] bg-white px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-text">{coupon.title}</p>
+                            <p className="text-xs font-semibold text-muted">{coupon.code} · {coupon.discount}</p>
+                            {!coupon.eligible && <p className="text-xs font-medium text-danger">{coupon.eligibilityReason}</p>}
+                          </div>
+                          <Button
+                            type="button"
+                            variant={coupon.eligible ? "accent" : "outline"}
+                            size="sm"
+                            disabled={!coupon.eligible || couponPreviewLoading}
+                            onClick={() => {
+                              setCouponInput(coupon.code);
+                              void applyCouponCode(coupon.code);
+                            }}
+                          >
+                            Apply
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : null}
                 <div className="mt-2 flex items-center gap-2 rounded-[1rem] px-1 text-xs font-medium sm:text-sm">
-                  {couponCode ? (
+                  {couponPreviewLoading ? (
+                    <>
+                      <span className="border-accent text-accent inline-flex h-3.5 w-3.5 animate-pulse items-center justify-center rounded-full border text-[9px] font-bold">
+                        …
+                      </span>
+                      <span className="text-accent">Validating coupon…</span>
+                    </>
+                  ) : couponCode && serverPricing ? (
                     <>
                       <BadgeCheck
                         className="text-success h-3.5 w-3.5"
                         aria-hidden="true"
                       />
                       <span className="text-text">{couponCode} applied</span>
+                    </>
+                  ) : couponPreviewError ? (
+                    <>
+                      <span className="border-danger text-danger inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border text-[9px] font-bold">
+                        !
+                      </span>
+                      <span className="text-danger">{couponPreviewError}</span>
                     </>
                   ) : couponInput.trim().length > 0 ? (
                     <>
@@ -2123,10 +2369,10 @@ function CheckoutShell() {
                     onClick={handlePlaceOrder}
                     loading={placingOrder || razorpayLoading || addressBusy}
                     disabled={
-                      placingOrder || razorpayLoading || addressBusy || hasOutOfStockItems
+                      placingOrder || razorpayLoading || addressBusy || hasOutOfStockItems || !pricingReady
                     }
                   >
-                    Place Order
+                    {paymentMethod === "razorpay" ? `Pay ${checkoutPrice(pricing.totalAmount)}` : "Place Order"}
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </Card>
@@ -2145,7 +2391,7 @@ function CheckoutShell() {
                   Total
                 </p>
                 <p className="text-text truncate text-[15px] leading-none font-bold">
-                  {formatPrice(pricing.totalAmount)}
+                  {checkoutPrice(pricing.totalAmount)}
                 </p>
               </div>
               <Button
@@ -2156,10 +2402,10 @@ function CheckoutShell() {
                 onClick={handlePlaceOrder}
                 loading={placingOrder || razorpayLoading || addressBusy}
                 disabled={
-                  placingOrder || razorpayLoading || addressBusy || hasOutOfStockItems
+                  placingOrder || razorpayLoading || addressBusy || hasOutOfStockItems || !pricingReady
                 }
               >
-                Place Order
+                {paymentMethod === "razorpay" ? `Pay ${checkoutPrice(pricing.totalAmount)}` : "Place Order"}
                 <ArrowRight className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>

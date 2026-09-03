@@ -39,6 +39,12 @@ type ProductDetailPageProps = {
   relatedProducts: Product[];
 };
 
+type ResolvedConfigurationPrice = {
+  base_price: number | string | null;
+  shade_adjustment: number | string | null;
+  final_price: number | string | null;
+};
+
 type ZoomPoint = {
   x: number;
   y: number;
@@ -265,6 +271,8 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
   >(null);
   const [selectedPackSize, setSelectedPackSize] = useState("");
   const [selectedFinish, setSelectedFinish] = useState("");
+  const [resolvedConfigurationPrice, setResolvedConfigurationPrice] =
+    useState<ResolvedConfigurationPrice | null>(null);
   const activeImage = detail.gallery[activeImageIndex] ?? product.image;
   const isOutOfStock = !product.inStock || (product.stockCount ?? 0) <= 0;
   const resolvedShadeVariant = useMemo(() => {
@@ -286,11 +294,15 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
     selectedShadeOverride?.id === selectedShadeId
       ? selectedShadeOverride
       : (detail.shades.find((shade) => shade.id === selectedShadeId) ?? null);
+  const selectedVariantId = resolvedShadeVariant?.id ?? "";
   const selectedPricingLine = calculatePricingLine({
     mrp: resolvedShadeVariant?.mrp ?? product.compareAtPrice ?? product.price,
-    sellingPrice: resolvedShadeVariant?.basePrice ?? product.price,
-    shadeExtraPrice: resolvedShadeVariant?.shadeExtraPrice ?? 0,
-    adjustmentType: "fixed",
+    sellingPrice:
+      resolvedConfigurationPrice?.final_price ??
+      resolvedShadeVariant?.basePrice ??
+      product.price,
+    shadeExtraPrice: resolvedConfigurationPrice?.shade_adjustment ?? 0,
+    adjustmentType: "none",
     gstRate: detail.gstRate,
     quantity: 1,
   });
@@ -338,6 +350,36 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
   useEffect(() => {
     setSelectedVariants((current) => syncSelections(current, variantGroups));
   }, [variantGroups]);
+
+  useEffect(() => {
+    if (!shadeMode || !selectedVariantId) {
+      setResolvedConfigurationPrice(null);
+      return;
+    }
+
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      setResolvedConfigurationPrice(null);
+      return;
+    }
+
+    let active = true;
+    setResolvedConfigurationPrice(null);
+    void client
+      .rpc("resolve_paint_configuration_price", {
+        p_variant_id: selectedVariantId,
+        p_shade_id: selectedShadeId || null,
+      })
+      .then(({ data, error }) => {
+        if (!active || error) return;
+        const row = (Array.isArray(data) ? data[0] : data) as ResolvedConfigurationPrice | null;
+        if (row) setResolvedConfigurationPrice(row);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedShadeId, selectedVariantId, shadeMode]);
 
   useEffect(() => {
     if (!shadeMode) {
@@ -477,10 +519,16 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
         unit: resolvedShadeVariant?.unit ?? undefined,
         finish: resolvedShadeVariant?.finish ?? undefined,
         price: displayPrice,
-        basePrice: resolvedShadeVariant?.basePrice,
-        shadeExtraPrice: resolvedShadeVariant?.shadeExtraPrice,
+        basePrice: resolvedConfigurationPrice?.base_price != null
+          ? Number(resolvedConfigurationPrice.base_price)
+          : resolvedShadeVariant?.basePrice,
+        shadeExtraPrice: resolvedConfigurationPrice?.shade_adjustment != null
+          ? Number(resolvedConfigurationPrice.shade_adjustment)
+          : 0,
         gstRate: detail.gstRate,
-        finalUnitPrice: resolvedShadeVariant?.finalPrice ?? displayPrice,
+        finalUnitPrice: resolvedConfigurationPrice?.final_price != null
+          ? Number(resolvedConfigurationPrice.final_price)
+          : displayPrice,
         image: product.image,
         slug: product.slug,
         category: product.category,
@@ -541,10 +589,16 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
         unit: resolvedShadeVariant?.unit ?? undefined,
         finish: resolvedShadeVariant?.finish ?? undefined,
         price: displayPrice,
-        basePrice: resolvedShadeVariant?.basePrice,
-        shadeExtraPrice: resolvedShadeVariant?.shadeExtraPrice,
+        basePrice: resolvedConfigurationPrice?.base_price != null
+          ? Number(resolvedConfigurationPrice.base_price)
+          : resolvedShadeVariant?.basePrice,
+        shadeExtraPrice: resolvedConfigurationPrice?.shade_adjustment != null
+          ? Number(resolvedConfigurationPrice.shade_adjustment)
+          : 0,
         gstRate: detail.gstRate,
-        finalUnitPrice: resolvedShadeVariant?.finalPrice ?? displayPrice,
+        finalUnitPrice: resolvedConfigurationPrice?.final_price != null
+          ? Number(resolvedConfigurationPrice.final_price)
+          : displayPrice,
         image: product.image,
         slug: product.slug,
         category: product.category,

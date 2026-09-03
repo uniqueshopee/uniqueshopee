@@ -5,10 +5,6 @@ import {
 
 export type CouponCode = string;
 export type ShippingResolver = (taxableAmount: number) => number;
-export const COUPONS: Record<
-  CouponCode,
-  { label: string; percent: number; maxDiscount: number }
-> = { WELCOME10: { label: "WELCOME10", percent: 10, maxDiscount: 500 } };
 export const defaultShippingResolver: ShippingResolver = () => 99;
 
 export type CheckoutPricingItem = CanonicalPricingLineInput & {
@@ -49,13 +45,10 @@ export function calculateCartPricing(
     gstRate: item.gstRate ?? 18,
   }));
   const beforeCoupon = calculateCanonicalCart(lines, { deliveryAmount: 0 });
-  const couponConfig = coupon ? COUPONS[coupon] : null;
-  const couponDiscount = couponConfig
-    ? Math.min(
-        Math.round(beforeCoupon.productTotal * couponConfig.percent * 100) / 10000,
-        couponConfig.maxDiscount,
-      )
-    : 0;
+  // Coupon validation and discount calculation are authoritative on the server.
+  // This helper remains for non-checkout client summaries and must not invent
+  // a discount for an unvalidated coupon code.
+  const couponDiscount = 0;
   const shipping = shippingResolver(beforeCoupon.taxableAmount);
   const result = calculateCanonicalCart(lines, {
     deliveryAmount: shipping,

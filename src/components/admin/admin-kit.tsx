@@ -40,6 +40,7 @@ import {
   X,
   SlidersHorizontal,
   RefreshCcw,
+  Truck,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Modal } from "@/components/ui/modal";
@@ -81,6 +82,7 @@ import {
 } from "@/lib/admin-data";
 import { ORDER_MUTABLE_STATUS_OPTIONS } from "@/lib/orders-data";
 import { updateOrderStatus } from "@/lib/order-service";
+import { FREE_DELIVERY_SETTING_KEY, DEFAULT_FREE_DELIVERY_THRESHOLD, parseFreeDeliveryConfig } from "@/lib/delivery-service";
 
 type NavItem = {
   label: string;
@@ -106,8 +108,10 @@ const ADMIN_NAV: NavItem[] = [
   { label: "Coupons", href: "/admin/coupons", icon: Tag },
   { label: "Offers", href: "/admin/offers", icon: Sparkles },
   { label: "Banners", href: "/admin/banners", icon: Megaphone },
+  { label: "Notifications", href: "/admin/notifications", icon: Bell },
   { label: "Reports", href: "/admin/reports", icon: LineChart },
   { label: "Settings", href: "/admin/settings", icon: Settings2 },
+  { label: "Delivery Pincodes", href: "/admin/delivery-pincodes", icon: Truck },
 ];
 
 const NAV_META = {
@@ -128,8 +132,10 @@ const NAV_META = {
   "/admin/coupons": { title: "Coupons", subtitle: "Offer management" },
   "/admin/offers": { title: "Offers", subtitle: "Exclusive product promotions" },
   "/admin/banners": { title: "Banners", subtitle: "Promo placements" },
+  "/admin/notifications": { title: "Notifications", subtitle: "Customer notification delivery" },
   "/admin/reports": { title: "Reports", subtitle: "Sales and insights" },
   "/admin/settings": { title: "Settings", subtitle: "Store configuration" },
+  "/admin/delivery-pincodes": { title: "Delivery Pincodes", subtitle: "Manage serviceable delivery areas" },
 } as const;
 
 const ACTION_LABELS = {
@@ -4502,6 +4508,10 @@ function SettingsAdminPage() {
   const [newValue, setNewValue] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newIsPublic, setNewIsPublic] = useState(false);
+  const [freeDeliveryEnabled, setFreeDeliveryEnabled] = useState(true);
+  const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState(String(DEFAULT_FREE_DELIVERY_THRESHOLD));
+  const [freeDeliveryFlatRate, setFreeDeliveryFlatRate] = useState(99);
+  const [freeDeliverySaving, setFreeDeliverySaving] = useState(false);
 
   const loadSettings = async () => {
     const client = getSupabaseBrowserClient();
@@ -4514,6 +4524,11 @@ function SettingsAdminPage() {
     setLoading(true);
     const nextRows = await loadAdminSettingsRows(client);
     setRows(nextRows);
+    const deliverySetting = nextRows.find((row) => row.key === FREE_DELIVERY_SETTING_KEY);
+    const deliveryConfig = parseFreeDeliveryConfig(deliverySetting?.value);
+    setFreeDeliveryEnabled(deliveryConfig.enabled);
+    setFreeDeliveryThreshold(String(deliveryConfig.threshold));
+    setFreeDeliveryFlatRate(deliveryConfig.flatRate);
     setLoading(false);
   };
 
@@ -4571,6 +4586,32 @@ function SettingsAdminPage() {
     await loadSettings();
   };
 
+  const saveFreeDelivery = async () => {
+    const threshold = Number(freeDeliveryThreshold);
+    if (!Number.isFinite(threshold) || threshold <= 0) {
+      toast({ title: "Threshold required", description: "Enter a positive free-delivery threshold.", variant: "danger" });
+      return;
+    }
+
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    setFreeDeliverySaving(true);
+    const result = await upsertAdminSetting(
+      client,
+      FREE_DELIVERY_SETTING_KEY,
+      { enabled: freeDeliveryEnabled, free_over: Math.round(threshold * 100) / 100, flat_rate: freeDeliveryFlatRate },
+      "Free-delivery eligibility used by checkout shipping and the cart progress banner.",
+      true,
+    );
+    setFreeDeliverySaving(false);
+    if (result.error) {
+      toast({ title: "Free delivery not saved", description: result.error, variant: "danger" });
+      return;
+    }
+    toast({ title: "Free delivery saved", description: `Free delivery above ${formatPrice(threshold)}.`, variant: "success" });
+    await loadSettings();
+  };
+
   const deleteSetting = async (row: AdminSettingRow) => {
     const client = getSupabaseBrowserClient();
     if (!client) return;
@@ -4605,6 +4646,23 @@ function SettingsAdminPage() {
           </AdminActionButton>
         }
       />
+
+      <AdminSectionCard title="Free Delivery" description="Configure the same threshold used by checkout shipping and the customer cart banner.">
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+          <label className="flex items-center gap-3 rounded-[1.2rem] border border-border bg-background-secondary/35 px-4 py-3 text-sm font-semibold text-text">
+            <input type="checkbox" checked={freeDeliveryEnabled} onChange={(event) => setFreeDeliveryEnabled(event.target.checked)} className="h-4 w-4 rounded border-border text-accent focus:ring-accent" />
+            Enable Free Delivery
+          </label>
+          <FormField label="Minimum order for free delivery" htmlFor="free-delivery-threshold">
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-sm font-semibold text-muted">₹</span>
+              <Input id="free-delivery-threshold" type="number" min="1" step="0.01" value={freeDeliveryThreshold} onChange={(event) => setFreeDeliveryThreshold(event.target.value)} className="pl-8" />
+            </div>
+          </FormField>
+          <Button type="button" variant="accent" size="md" loading={freeDeliverySaving} onClick={() => void saveFreeDelivery()}>Save changes</Button>
+        </div>
+        <p className="mt-3 text-sm font-medium text-muted">{freeDeliveryEnabled ? `Free delivery above ${formatPrice(Number(freeDeliveryThreshold) || DEFAULT_FREE_DELIVERY_THRESHOLD)}.` : "Free delivery is currently disabled."}</p>
+      </AdminSectionCard>
 
       <AdminSectionCard title="Add Setting" description="Create a new key/value setting in Supabase.">
         <div className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">

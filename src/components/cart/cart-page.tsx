@@ -29,7 +29,6 @@ import { Input } from "@/components/ui/input";
 import { cn, formatPrice } from "@/lib/utils";
 import {
   calculateCartPricing,
-  defaultShippingResolver,
   resolveCouponCode,
   type CouponCode,
 } from "@/lib/checkout-pricing";
@@ -38,6 +37,8 @@ import { useCartStore } from "@/store/cart-store";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { toast } from "@/hooks/use-toast";
 import { buildCartItemKey } from "@/lib/variant-pricing";
+import { checkDeliveryPincode, getConfiguredShippingAmount, getResolvedCartTaxableAmount, INVALID_PINCODE_MESSAGE, loadFreeDeliveryConfig, UNAVAILABLE_PINCODE_MESSAGE, type FreeDeliveryConfig } from "@/lib/delivery-service";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type DeliveryResult = {
   text: string;
@@ -499,9 +500,9 @@ function OrderSummaryCard({
   subtotal: number;
   discount: number;
   gst: number;
-  shipping: number;
+  shipping: number | null;
   couponDiscount: number;
-  total: number;
+  total: number | null;
   appliedCoupon: string | null;
   onProceed: () => void;
 }) {
@@ -517,7 +518,7 @@ function OrderSummaryCard({
         <SummaryRow label="Discount" value={`- ${formatPrice(discount)}`} />
         <SummaryRow
           label="Shipping"
-          value={shipping === 0 ? "Free" : formatPrice(shipping)}
+          value={shipping === null ? "Unavailable" : shipping === 0 ? "Free" : formatPrice(shipping)}
         />
         <SummaryRow label="GST" value={formatPrice(gst)} />
         <SummaryRow
@@ -525,7 +526,7 @@ function OrderSummaryCard({
           value={couponDiscount > 0 ? `- ${formatPrice(couponDiscount)}` : formatPrice(0)}
         />
         <div className="border-border/70 border-t pt-3">
-          <SummaryRow label="Grand Total" value={formatPrice(total)} emphasize />
+          <SummaryRow label="Grand Total" value={total === null ? "Unavailable" : formatPrice(total)} emphasize />
         </div>
       </div>
 
@@ -540,6 +541,57 @@ function OrderSummaryCard({
         <ArrowRight className="h-4 w-4" aria-hidden="true" />
       </Button>
     </Card>
+  );
+}
+
+function FreeDeliveryProgress({
+  config,
+  qualifyingAmount,
+  itemCount,
+}: {
+  config: FreeDeliveryConfig;
+  qualifyingAmount: number;
+  itemCount: number;
+}) {
+  if (!config.enabled || itemCount === 0) return null;
+
+  const progress = Math.min(Math.max((qualifyingAmount / config.threshold) * 100, 0), 100);
+  const unlocked = qualifyingAmount >= config.threshold;
+  const remaining = Math.max(config.threshold - qualifyingAmount, 0);
+
+  return (
+    <motion.div
+      className="mb-5 overflow-hidden rounded-[1.45rem] bg-gradient-to-r from-blue-700 via-blue-600 to-cyan-500 p-4 text-white shadow-[0_14px_32px_rgba(37,99,235,0.24)] sm:p-5"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2 }}
+    >
+      <div className="flex items-center gap-3 sm:gap-5">
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-black tracking-tight sm:text-xl">
+            {unlocked ? "🎉 FREE DELIVERY UNLOCKED!" : `Add ${formatPrice(remaining)} more to unlock FREE DELIVERY`}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-white/90 sm:text-base">
+            {formatPrice(qualifyingAmount)} / {formatPrice(config.threshold)}
+          </p>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-950/35" aria-label={`${Math.round(progress)}% free delivery progress`} role="progressbar" aria-valuemax={100} aria-valuemin={0} aria-valuenow={Math.round(progress)}>
+            <motion.div
+              className="h-full rounded-full bg-cyan-300"
+              initial={{ width: 0 }}
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 0.35, ease: "easeOut" }}
+            />
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="text-right">
+            <p className="text-xs font-black tracking-[0.16em] uppercase">Cart</p>
+            <p className="text-xs font-bold sm:text-sm">{itemCount} {itemCount === 1 ? "Item" : "Items"}</p>
+          </div>
+          <ArrowRight className="h-5 w-5 sm:h-6 sm:w-6" aria-hidden="true" />
+        </div>
+      </div>
+    </motion.div>
   );
 }
 
@@ -570,10 +622,12 @@ function CartPageShell() {
   const [couponMessage, setCouponMessage] = useState<string>("");
   const [pincode, setPincode] = useState("");
   const [deliveryResult, setDeliveryResult] = useState<DeliveryResult>({
-    text: "Delivery in 2-4 days",
-    cod: true,
+    text: "Enter a 6-digit pincode to check delivery.",
+    cod: false,
   });
+  const [deliveryChecking, setDeliveryChecking] = useState(false);
   const [selectedVariants, setSelectedVariants] = useState<VariantMap>({});
+  const [freeDeliveryConfig, setFreeDeliveryConfig] = useState<FreeDeliveryConfig | null>(null);
 
   const cartLineItems = useMemo(
     () =>
@@ -609,9 +663,19 @@ function CartPageShell() {
   const pricing = useMemo(
     () =>
       calculateCartPricing(
-        items,
+        items.map((item) => {
+          const basePrice = item.basePrice ?? item.price;
+          const resolvedPrice = item.finalUnitPrice ?? item.price;
+          const resolvedBasePrice = resolvedPrice < basePrice ? resolvedPrice : basePrice;
+          return {
+            ...item,
+            sellingPrice: resolvedBasePrice,
+            shadeExtraPrice: Math.max(resolvedPrice - resolvedBasePrice, 0),
+            adjustmentType: "fixed" as const,
+          };
+        }),
         couponCode,
-        defaultShippingResolver,
+        () => 0,
         (item) => item.compareAtPrice ?? item.price,
       ),
     [couponCode, items],
@@ -635,25 +699,29 @@ function CartPageShell() {
     toast({ title: "Coupon cleared", description: "Enter a coupon code to continue." });
   };
 
-  const handleCheckDelivery = () => {
-    const cleanPincode = pincode.trim();
-    if (!/^\d{6}$/.test(cleanPincode)) {
-      setDeliveryResult({ text: "Enter a valid 6-digit pincode", cod: false });
+  const handleCheckDelivery = async () => {
+    setDeliveryChecking(true);
+    const result = await checkDeliveryPincode(getSupabaseBrowserClient(), pincode);
+    setDeliveryChecking(false);
+
+    if (result.error && !result.isValid) {
+      setDeliveryResult({ text: INVALID_PINCODE_MESSAGE, cod: false });
+      return;
+    }
+    if (result.error) {
+      setDeliveryResult({ text: "Unable to check delivery right now.", cod: false });
+      toast({ title: "Delivery check failed", description: result.error, variant: "danger" });
+      return;
+    }
+    if (!result.isServiceable) {
+      setDeliveryResult({ text: UNAVAILABLE_PINCODE_MESSAGE, cod: false });
       return;
     }
 
-    const leadDigit = Number(cleanPincode[0]);
-    const text =
-      leadDigit <= 3
-        ? "Delivery in 2-4 days"
-        : leadDigit <= 6
-          ? "Delivery in 3-5 days"
-          : "Delivery in 4-6 days";
-    setDeliveryResult({ text, cod: true });
-    toast({
-      title: "Delivery checked",
-      description: `${text}. Cash on Delivery is available.`,
-    });
+    const leadDigit = Number(result.normalizedPincode[0]);
+    const estimate = leadDigit <= 3 ? "Delivery in 2-4 days" : leadDigit <= 6 ? "Delivery in 3-5 days" : "Delivery in 4-6 days";
+    setDeliveryResult({ text: estimate, cod: true });
+    toast({ title: "Delivery checked", description: `${estimate}. Cash on Delivery is available.` });
   };
 
   const handleMoveToWishlist = (item: CartItem) => {
@@ -703,10 +771,33 @@ function CartPageShell() {
   };
 
   const empty = items.length === 0;
+  const qualifyingAmount = useMemo(() => getResolvedCartTaxableAmount(items), [items]);
+  const displayPricing = useMemo(() => {
+    if (!freeDeliveryConfig) {
+      return { ...pricing, shipping: null, grandTotal: null };
+    }
+    const shipping = getConfiguredShippingAmount(freeDeliveryConfig, qualifyingAmount);
+    return {
+      ...pricing,
+      taxableAmount: qualifyingAmount,
+      shipping,
+      grandTotal: Math.max(0, pricing.grandTotal - pricing.shipping + shipping),
+    };
+  }, [freeDeliveryConfig, pricing, qualifyingAmount]);
 
   useEffect(() => {
     setCouponInput(couponCode ?? "");
   }, [couponCode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadFreeDeliveryConfig(getSupabaseBrowserClient()).then((config) => {
+      if (!cancelled) setFreeDeliveryConfig(config);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!loaded) {
     return (
@@ -785,6 +876,14 @@ function CartPageShell() {
             </Button>
           </div>
         </motion.header>
+
+        {freeDeliveryConfig ? (
+          <FreeDeliveryProgress
+            config={freeDeliveryConfig}
+            qualifyingAmount={qualifyingAmount}
+            itemCount={totalItems}
+          />
+        ) : null}
 
         {mode === "authenticated" && mergeAvailable && (
           <Card className="border-accent/20 from-accent/10 mb-5 rounded-[1.35rem] border bg-gradient-to-r via-white to-white p-4 shadow-[var(--shadow-sm)]">
@@ -984,7 +1083,8 @@ function CartPageShell() {
                     type="button"
                     variant="primary"
                     size="md"
-                    onClick={handleCheckDelivery}
+                    onClick={() => void handleCheckDelivery()}
+                    loading={deliveryChecking}
                   >
                     Check Delivery
                   </Button>
@@ -992,9 +1092,7 @@ function CartPageShell() {
                 <div className="border-border/70 bg-background-secondary/35 mt-2 grid gap-1.5 rounded-[1rem] border p-2.5 text-sm">
                   <p className="text-text font-bold">{deliveryResult.text}</p>
                   <p className="text-muted font-medium">
-                    {deliveryResult.cod
-                      ? "COD Available"
-                      : "Enter a 6-digit pincode to check delivery."}
+                    {deliveryResult.cod ? "COD Available" : deliveryResult.text === UNAVAILABLE_PINCODE_MESSAGE ? "" : "Enter a 6-digit pincode to check delivery."}
                   </p>
                 </div>
               </Card>
@@ -1004,12 +1102,12 @@ function CartPageShell() {
             <div className="space-y-4">
               <div className="hidden lg:sticky lg:top-24 lg:block">
                 <OrderSummaryCard
-                  subtotal={pricing.subtotal}
-                  discount={pricing.discount}
-                  gst={pricing.gst}
-                  shipping={pricing.shipping}
-                  couponDiscount={pricing.couponDiscount}
-                  total={pricing.grandTotal}
+                  subtotal={displayPricing.subtotal}
+                  discount={displayPricing.discount}
+                  gst={displayPricing.gst}
+                  shipping={displayPricing.shipping}
+                  couponDiscount={displayPricing.couponDiscount}
+                  total={displayPricing.grandTotal}
                   appliedCoupon={couponCode}
                   onProceed={handleProceedToCheckout}
                 />
@@ -1028,12 +1126,12 @@ function CartPageShell() {
                 </summary>
                 <div className="mt-4">
                   <OrderSummaryCard
-                    subtotal={pricing.subtotal}
-                    discount={pricing.discount}
-                    gst={pricing.gst}
-                    shipping={pricing.shipping}
-                    couponDiscount={pricing.couponDiscount}
-                    total={pricing.grandTotal}
+                    subtotal={displayPricing.subtotal}
+                    discount={displayPricing.discount}
+                    gst={displayPricing.gst}
+                    shipping={displayPricing.shipping}
+                    couponDiscount={displayPricing.couponDiscount}
+                    total={displayPricing.grandTotal}
                     appliedCoupon={couponCode}
                     onProceed={handleProceedToCheckout}
                   />
@@ -1058,7 +1156,7 @@ function CartPageShell() {
                   Grand Total
                 </p>
                 <p className="text-text text-[1.05rem] font-bold">
-                  {formatPrice(pricing.grandTotal)}
+                  {displayPricing.grandTotal === null ? "Unavailable" : formatPrice(displayPricing.grandTotal)}
                 </p>
               </div>
               <Button

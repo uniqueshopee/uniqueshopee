@@ -41,6 +41,7 @@ import {
   type AddressType,
   type SavedAddress,
 } from "@/lib/address-data";
+import { checkDeliveryPincode, ADDRESS_UNAVAILABLE_PINCODE_MESSAGE } from "@/lib/delivery-service";
 
 const PHONE_REGEX = /^\+?\d[\d\s-]{8,16}$/;
 const PIN_REGEX = /^\d{6}$/;
@@ -648,6 +649,16 @@ function AddressManagementPage() {
       return;
     }
 
+    const deliveryCheck = await checkDeliveryPincode(client, values.pinCode);
+    if (deliveryCheck.error || !deliveryCheck.isServiceable) {
+      toast({
+        title: "Address not saved",
+        description: deliveryCheck.isValid ? ADDRESS_UNAVAILABLE_PINCODE_MESSAGE : (deliveryCheck.error ?? ADDRESS_UNAVAILABLE_PINCODE_MESSAGE),
+        variant: "danger",
+      });
+      return;
+    }
+
     setEditorBusy(true);
 
     const payload = {
@@ -662,7 +673,7 @@ function AddressManagementPage() {
       city: values.city.trim(),
       state: values.state.trim(),
       country: values.country,
-      pin_code: values.pinCode.trim(),
+      pin_code: deliveryCheck.normalizedPincode,
       address_type: values.addressType.toLowerCase(),
       is_default: values.isDefault || addresses.length === 0,
     };

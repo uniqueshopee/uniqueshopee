@@ -31,8 +31,8 @@ import { useCartStore } from "@/store/cart-store";
 import { loadLiveCoupons, loadRewardSnapshot, type LiveCoupon, type RewardSnapshot } from "@/lib/account-service";
 import { resolveCouponCode } from "@/lib/checkout-pricing";
 
-type CouponCategory = LiveCoupon["category"] | "All";
 type CouponStatus = LiveCoupon["status"] | "All";
+type CouponView = "All" | "Coupons" | "Offers";
 type RewardHistoryStatus = RewardSnapshot["history"][number]["status"];
 type RewardTier = RewardSnapshot["tier"];
 
@@ -97,6 +97,10 @@ function getRewardTierVariant(tier: RewardTier) {
   }
 }
 
+function getCouponView(coupon: LiveCoupon): Exclude<CouponView, "All"> {
+  return coupon.category.toLowerCase().includes("offer") ? "Offers" : "Coupons";
+}
+
 function CouponCard({
   coupon,
   onCopy,
@@ -109,58 +113,45 @@ function CouponCard({
   onViewTerms: (coupon: LiveCoupon) => void;
 }) {
   return (
-    <Card className={cn("rounded-[1.45rem] border-white/80 bg-white/92 shadow-[var(--shadow-sm)]", coupon.status === "Applied" && "border-accent/20")}>
-      <div className="space-y-4 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={getStatusBadge(coupon.status)}>{coupon.status}</Badge>
-              <Badge variant="neutral">{coupon.category}</Badge>
+    <Card className={cn("rounded-[1.25rem] border-white/80 bg-white/92 shadow-[var(--shadow-sm)]", coupon.status === "Applied" && "border-accent/20")}>
+      <div className="flex gap-3 p-4 sm:gap-4 sm:p-5">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[0.9rem] bg-accent/10 text-accent">
+          {getCouponView(coupon) === "Offers" ? <Gift className="h-5 w-5" aria-hidden="true" /> : <Ticket className="h-5 w-5" aria-hidden="true" />}
+        </div>
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={getStatusBadge(coupon.status)}>{coupon.status}</Badge>
+                <Badge variant="neutral">{getCouponView(coupon)}</Badge>
+              </div>
+              <h3 className="mt-2 truncate text-base font-black tracking-tight text-text sm:text-lg">{coupon.title}</h3>
+              <p className="text-xs font-bold tracking-[0.12em] text-accent">Use code {coupon.code}</p>
             </div>
-            <h3 className="text-lg font-black tracking-tight text-text">{coupon.code}</h3>
-            <p className="text-sm font-medium text-muted">{coupon.description}</p>
+            <div className="shrink-0 text-right">
+              <p className="text-base font-black text-text sm:text-lg">{coupon.discount}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted">Save more</p>
+            </div>
           </div>
-          <div className="rounded-[1rem] border border-border/70 bg-background-secondary/55 px-4 py-3 text-right">
-            <p className="text-xl font-black text-text">{coupon.discount}</p>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">Coupon</p>
+          <p className="line-clamp-2 text-sm font-medium leading-5 text-muted">{coupon.description}</p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-muted">
+            {coupon.minimumOrder !== "₹0" && <span>Min. {coupon.minimumOrder}</span>}
+            {coupon.maximumDiscount !== "Unlimited" && <span>Max. {coupon.maximumDiscount}</span>}
+            {coupon.expiry !== "No expiry" && <span>Valid till {coupon.expiry}</span>}
           </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-[1rem] border border-border/70 bg-white/70 p-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted">Expiry</p>
-            <p className="mt-1 text-sm font-semibold text-text">{coupon.expiry}</p>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Button type="button" variant="accent" size="sm" onClick={() => onApply(coupon)}>
+              <Tag className="h-4 w-4" aria-hidden="true" />
+              Apply
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => onCopy(coupon)} aria-label={`Copy ${coupon.code}`}>
+              <Copy className="h-4 w-4" aria-hidden="true" />
+              Copy code
+            </Button>
+            <Button type="button" variant="ghost" size="sm" className="border border-border/70 bg-white/75" onClick={() => onViewTerms(coupon)}>
+              Terms
+            </Button>
           </div>
-          <div className="rounded-[1rem] border border-border/70 bg-white/70 p-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted">Minimum Order</p>
-            <p className="mt-1 text-sm font-semibold text-text">{coupon.minimumOrder}</p>
-          </div>
-          <div className="rounded-[1rem] border border-border/70 bg-white/70 p-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted">Maximum Discount</p>
-            <p className="mt-1 text-sm font-semibold text-text">{coupon.maximumDiscount}</p>
-          </div>
-          <div className="rounded-[1rem] border border-border/70 bg-white/70 p-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted">Category</p>
-            <p className="mt-1 text-sm font-semibold text-text">{coupon.category}</p>
-          </div>
-        </div>
-
-        <p className="text-sm font-medium leading-6 text-muted">
-          <span className="font-semibold text-text">Terms:</span> {coupon.terms}
-        </p>
-
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => onCopy(coupon)}>
-            <Copy className="h-4 w-4" aria-hidden="true" />
-            Copy Code
-          </Button>
-          <Button type="button" variant="accent" size="sm" className="w-full sm:w-auto" onClick={() => onApply(coupon)}>
-            <Tag className="h-4 w-4" aria-hidden="true" />
-            Apply
-          </Button>
-          <Button type="button" variant="ghost" size="sm" className="w-full border border-border/70 bg-white/75 sm:w-auto" onClick={() => onViewTerms(coupon)}>
-            View Terms
-          </Button>
         </div>
       </div>
     </Card>
@@ -298,8 +289,8 @@ function Header({
   subtitle: string;
   countLabel: string;
   countValue: string;
-  primaryAction: React.ReactNode;
-  secondaryAction: React.ReactNode;
+  primaryAction?: React.ReactNode;
+  secondaryAction?: React.ReactNode;
 }) {
   return (
     <div className="rounded-[1.6rem] border border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)] sm:p-6">
@@ -332,10 +323,12 @@ function Header({
             {countValue} {countLabel}
           </div>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          {secondaryAction}
-          {primaryAction}
-        </div>
+        {primaryAction || secondaryAction ? (
+          <div className="flex flex-col gap-3 sm:flex-row">
+            {secondaryAction}
+            {primaryAction}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -348,8 +341,7 @@ function CouponsPage() {
   const currentCouponCode = useCartStore((state) => state.couponCode);
   const setCouponCode = useCartStore((state) => state.setCouponCode);
   const [items, setItems] = useState<LiveCoupon[]>([]);
-  const [activeStatus, setActiveStatus] = useState<CouponStatus>("Available");
-  const [activeCategory, setActiveCategory] = useState<CouponCategory>("All");
+  const [activeView, setActiveView] = useState<CouponView>("All");
   const [query, setQuery] = useState("");
   const [termsCoupon, setTermsCoupon] = useState<LiveCoupon | null>(null);
   const [loading, setLoading] = useState(true);
@@ -378,22 +370,17 @@ function CouponsPage() {
     };
   }, [accountId, currentCouponCode]);
 
-  const categoryOptions = useMemo(
-    () => ["All", ...Array.from(new Set(items.map((coupon) => coupon.category)))],
-    [items],
-  );
-
   const filteredCoupons = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return items.filter((coupon) => {
-      if (activeStatus !== "All" && coupon.status !== activeStatus) return false;
-      if (activeCategory !== "All" && coupon.category !== activeCategory) return false;
+      if (coupon.status !== "Available" && coupon.status !== "Applied") return false;
+      if (activeView !== "All" && getCouponView(coupon) !== activeView) return false;
       if (!normalized) return true;
-      return [coupon.code, coupon.description, coupon.category, coupon.terms].join(" ").toLowerCase().includes(normalized);
+      return [coupon.code, coupon.title, coupon.description, coupon.category, coupon.terms].join(" ").toLowerCase().includes(normalized);
     });
-  }, [activeCategory, activeStatus, items, query]);
+  }, [activeView, items, query]);
 
-  const availableCount = useMemo(() => items.filter((coupon) => coupon.status === "Available").length, [items]);
+  const availableCount = useMemo(() => items.filter((coupon) => coupon.status === "Available" || coupon.status === "Applied").length, [items]);
 
   const copyCode = async (coupon: LiveCoupon) => {
     try {
@@ -461,22 +448,28 @@ function CouponsPage() {
               subtitle="Save more with curated offers across paints, plumbing, bank deals, and contractor rewards."
               countLabel="available coupons"
               countValue={String(availableCount)}
-              primaryAction={
-                <Button type="button" variant="accent" size="md" className="w-full sm:w-auto">
-                  <Tag className="h-4 w-4" aria-hidden="true" />
-                  Explore Offers
-                </Button>
-              }
-              secondaryAction={
-                <Button type="button" variant="outline" size="md" className="w-full sm:w-auto">
-                  <Gift className="h-4 w-4" aria-hidden="true" />
-                  Rewards
-                </Button>
-              }
             />
           </motion.div>
 
-          <motion.div variants={itemVariants} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_18rem]">
+          <motion.div variants={itemVariants} className="flex rounded-[1.1rem] border border-border/70 bg-white/85 p-1" role="tablist" aria-label="Coupon type">
+            {(["All", "Coupons", "Offers"] as const).map((view) => (
+              <button
+                key={view}
+                type="button"
+                role="tab"
+                aria-selected={activeView === view}
+                onClick={() => setActiveView(view)}
+                className={cn(
+                  "min-h-10 flex-1 rounded-[0.85rem] px-3 py-2 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                  activeView === view ? "bg-primary text-primary-foreground shadow-[var(--shadow-sm)]" : "text-muted hover:bg-background-secondary hover:text-text",
+                )}
+              >
+                {view}
+              </button>
+            ))}
+          </motion.div>
+
+          <motion.div variants={itemVariants} className="grid gap-3">
             <FormField label="Search coupons" htmlFor="coupon-search">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
@@ -490,58 +483,6 @@ function CouponsPage() {
                 />
               </div>
             </FormField>
-            <div className="grid grid-cols-2 gap-3">
-              {["Available", "Applied", "Used", "Expired"].map((status) => (
-                <button
-                  key={status}
-                  type="button"
-                  onClick={() => setActiveStatus(status as CouponStatus)}
-                  aria-pressed={activeStatus === status}
-                  className={cn(
-                    "rounded-[1.1rem] border px-4 py-3 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                    activeStatus === status
-                      ? "border-transparent bg-primary text-primary-foreground"
-                      : "border-border/70 bg-white/85 text-text hover:border-accent/20 hover:bg-white",
-                  )}
-                >
-                  {status}
-                </button>
-              ))}
-            </div>
-          </motion.div>
-
-          <motion.div variants={itemVariants} className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveCategory("All")}
-              aria-pressed={activeCategory === "All"}
-              className={cn(
-                "rounded-full border px-4 py-2 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                activeCategory === "All"
-                  ? "border-transparent bg-accent text-accent-foreground"
-                  : "border-border/70 bg-white/85 text-text hover:border-accent/20 hover:bg-white",
-              )}
-            >
-              All Categories
-            </button>
-            {categoryOptions
-              .filter((category) => category !== "All")
-              .map((category) => (
-              <button
-                key={category}
-                type="button"
-                onClick={() => setActiveCategory(category as CouponCategory)}
-                aria-pressed={activeCategory === category}
-                className={cn(
-                  "rounded-full border px-4 py-2 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                  activeCategory === category
-                    ? "border-transparent bg-accent text-accent-foreground"
-                    : "border-border/70 bg-white/85 text-text hover:border-accent/20 hover:bg-white",
-                )}
-              >
-                {category}
-              </button>
-            ))}
           </motion.div>
 
           <div className="grid gap-4 md:grid-cols-2">

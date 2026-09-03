@@ -39,13 +39,11 @@ const DEPARTMENTS: Department[] = [
 ];
 
 const PAINT_FILTERS = {
-  rooms: ["Living Room", "Bedroom", "Kitchen", "Bathroom", "Exterior", "Office"],
-  finishes: ["Matte", "Luxury Matte", "Satin", "Silk", "Gloss", "Texture", "Waterproof Finish"],
+  rooms: [] as string[],
 };
 
 const PLUMBING_FILTERS = {
-  rooms: ["Bathroom", "Kitchen", "Utility Room", "Terrace", "Commercial"],
-  finishes: ["Chrome", "Matte Black", "Stainless Steel", "Brass", "Water-Saving"],
+  rooms: [] as string[],
 };
 
 const ANIM_CONTAINER = {
@@ -153,8 +151,6 @@ function DepartmentEmptyState({
 }
 
 function getProductTags(product: CatalogProduct) {
-  const rooms = product.departmentSlug === "plumbing" ? PLUMBING_FILTERS.rooms : PAINT_FILTERS.rooms;
-  const finishes = product.departmentSlug === "plumbing" ? PLUMBING_FILTERS.finishes : PAINT_FILTERS.finishes;
   return {
     categories: [product.categoryName, product.departmentName].filter(Boolean) as string[],
     collections: [
@@ -163,8 +159,8 @@ function getProductTags(product: CatalogProduct) {
       product.badge === "sale" ? "Sale" : null,
       product.isNew ? "New Arrivals" : null,
     ].filter(Boolean) as string[],
-    rooms,
-    finishes,
+    rooms: [] as string[],
+    finishes: product.filterFinishes,
   };
 }
 
@@ -207,6 +203,13 @@ function ProductListingPage({ products, initialDepartment = "paints", initialQue
 
   const filterConfig = useMemo(() => {
     const categories = Array.from(new Set(departmentProducts.map((product) => product.categoryName))).sort();
+    const finishes = Array.from(
+      new Map(
+        departmentProducts
+          .flatMap((product) => product.filterFinishes)
+          .map((finish) => [finish.trim().toLowerCase(), finish] as const),
+      ).values(),
+    ).sort();
     const collections = Array.from(
       new Set([
         ...brands,
@@ -220,7 +223,7 @@ function ProductListingPage({ products, initialDepartment = "paints", initialQue
       categories: categories.length > 0 ? categories : department === "paints" ? ["Interior Paint", "Exterior Paint"] : ["PVC Pipes", "Faucets"],
       collections,
       rooms: department === "paints" ? PAINT_FILTERS.rooms : PLUMBING_FILTERS.rooms,
-      finishes: department === "paints" ? PAINT_FILTERS.finishes : PLUMBING_FILTERS.finishes,
+      finishes,
     };
   }, [brands, department, departmentProducts]);
 
@@ -551,27 +554,29 @@ function ProductListingPage({ products, initialDepartment = "paints", initialQue
               </div>
             </section>
 
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-[18px] font-bold text-[#111827]">Shop by Room</h3>
-                <button type="button" onClick={() => setSelectedRooms([])} className="text-xs font-semibold text-[#2563EB] hover:underline">
-                  Clear
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {filterConfig.rooms.map((item) => {
-                  const active = selectedRooms.includes(item);
-                  return (
-                    <FilterChip
-                      key={item}
-                      label={item}
-                      active={active}
-                      onClick={() => toggleValue(item, selectedRooms, setSelectedRooms)}
-                    />
-                  );
-                })}
-              </div>
-            </section>
+            {filterConfig.rooms.length > 0 && (
+              <section className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-[18px] font-bold text-[#111827]">Shop by Room</h3>
+                  <button type="button" onClick={() => setSelectedRooms([])} className="text-xs font-semibold text-[#2563EB] hover:underline">
+                    Clear
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {filterConfig.rooms.map((item) => {
+                    const active = selectedRooms.includes(item);
+                    return (
+                      <FilterChip
+                        key={item}
+                        label={item}
+                        active={active}
+                        onClick={() => toggleValue(item, selectedRooms, setSelectedRooms)}
+                      />
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-3">

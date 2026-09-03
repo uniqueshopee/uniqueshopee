@@ -7,7 +7,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
-  Bell,
   Droplets,
   Heart,
   MapPin,
@@ -30,6 +29,7 @@ import { loadUserAddresses, type CheckoutAddress } from "@/lib/address-service";
 import { cn, formatPrice } from "@/lib/utils";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { addValidatedCartItem } from "@/lib/cart-service";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 type HomeProduct = {
   id: string;
@@ -389,13 +389,7 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
             </Link>
 
             <div className="flex items-center gap-2">
-              <Link
-                href="/notifications"
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-white/90 text-text shadow-[var(--shadow-sm)]"
-                aria-label="Notifications"
-              >
-                <Bell className="h-5 w-5" aria-hidden="true" />
-              </Link>
+              <NotificationBell />
               <Link
                 href={isAuthenticated ? "/wishlist" : buildLoginRedirectPath("/wishlist")}
                 className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-white/90 text-text shadow-[var(--shadow-sm)]"

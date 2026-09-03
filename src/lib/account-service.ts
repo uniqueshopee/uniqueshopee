@@ -317,8 +317,13 @@ export async function loadAccountOverview(client: SupabaseClient | null, userId:
 }
 
 export async function loadLiveNotifications(client: SupabaseClient | null, userId: string | null) {
+  const result = await loadLiveNotificationsResult(client, userId);
+  return result.data;
+}
+
+export async function loadLiveNotificationsResult(client: SupabaseClient | null, userId: string | null) {
   if (!client || !userId) {
-    return [] as LiveNotification[];
+    return { data: [] as LiveNotification[], error: client ? null : "Supabase is not configured." };
   }
 
   const { data, error } = await client
@@ -329,10 +334,10 @@ export async function loadLiveNotifications(client: SupabaseClient | null, userI
     .order("created_at", { ascending: false });
 
   if (error || !data) {
-    return [] as LiveNotification[];
+    return { data: [] as LiveNotification[], error: error?.message ?? "Unable to load notifications." };
   }
 
-  return (data as NotificationRow[]).map((row) => {
+  return { data: (data as NotificationRow[]).map((row) => {
     const category = deriveNotificationCategory(row.type, row.title, row.message);
     const preview = deriveNotificationPreview(row.action_url, row.metadata, row.title);
 
@@ -350,7 +355,19 @@ export async function loadLiveNotifications(client: SupabaseClient | null, userI
       previewSubtitle: preview.previewSubtitle,
       type: row.type,
     };
-  });
+  }), error: null };
+}
+
+export async function loadUnreadNotificationCount(client: SupabaseClient | null, userId: string | null) {
+  if (!client || !userId) return { count: 0, error: client ? null : "Supabase is not configured." };
+  const { count, error } = await client.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("is_read", false).is("deleted_at", null);
+  return { count: count ?? 0, error: error?.message ?? null };
+}
+
+export function subscribeToUserNotifications(client: SupabaseClient | null, userId: string | null, onChange: () => void) {
+  if (!client || !userId) return () => undefined;
+  const channel = client.channel(`user-notifications-${userId}`).on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` }, onChange).subscribe();
+  return () => { void client.removeChannel(channel); };
 }
 
 export async function markNotificationRead(client: SupabaseClient | null, userId: string | null, notificationId: string) {
@@ -361,6 +378,12 @@ export async function markNotificationRead(client: SupabaseClient | null, userId
     .eq("id", notificationId)
     .eq("user_id", userId)
     .is("deleted_at", null);
+  return { error: error ? error.message : null };
+}
+
+export async function markAllNotificationsRead(client: SupabaseClient | null, userId: string | null) {
+  if (!client || !userId) return { error: "Supabase is not configured." };
+  const { error } = await client.from("notifications").update({ is_read: true, read_at: new Date().toISOString() }).eq("user_id", userId).eq("is_read", false).is("deleted_at", null);
   return { error: error ? error.message : null };
 }
 

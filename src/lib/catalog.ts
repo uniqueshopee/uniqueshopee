@@ -230,6 +230,7 @@ type CatalogProduct = Product & {
   gallery: string[];
   isNew: boolean;
   shadeKeywords: string[];
+  filterFinishes: string[];
 };
 
 type CatalogShade = {
@@ -750,6 +751,22 @@ function buildProductFromRow(
   const productShades = (lookups.productShadesByProductId.get(row.id) ?? []).filter(
     (shade) => shade.deleted_at === null && toBoolean(shade.is_available, true),
   );
+  const filterFinishes = Array.from(
+    new Map(
+      [
+        ...productShades.map((productShade) => productShade.finish),
+        ...variants
+          .filter(
+            (variant) =>
+              toBoolean(variant.is_active, true) && toBoolean(variant.is_available, true),
+          )
+          .map((variant) => variant.finish),
+      ]
+        .map((finish) => finish?.trim() ?? "")
+        .filter(Boolean)
+        .map((finish) => [normalize(finish), finish] as const),
+    ).values(),
+  );
   const shadeKeywords = productShades
     .map((productShade) => lookups.shadesById.get(productShade.shade_id))
     .filter((shade): shade is ShadeRow =>
@@ -857,6 +874,7 @@ function buildProductFromRow(
     shadeKeywords: shadeKeywords.filter((value): value is string =>
       Boolean(value && value.trim().length > 0),
     ),
+    filterFinishes,
   };
 }
 
