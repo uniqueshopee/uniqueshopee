@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CONTACT_DETAILS } from "@/lib/support-data";
 import { createPageMetadata } from "@/lib/seo";
+import { PublicAccountDeletionAction } from "@/components/account/public-account-deletion-action";
 
 export const metadata: Metadata = createPageMetadata({
   title: "Account Deletion | UniqueShopee",
@@ -49,6 +50,8 @@ export default function AccountDeletionPage() {
               </p>
             </div>
           </div>
+
+          <PublicAccountDeletionAction />
 
           <div className="mt-6 space-y-4">
             {INFORMATION.map((item) => (

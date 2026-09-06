@@ -125,6 +125,8 @@ export type AdminReturnRow = {
   orderNumber: string;
   customer: string;
   product: string;
+  requestedQuantity: number;
+  purchasedQuantity: number;
   status: string;
   reason: string;
   pickupOption: string;
@@ -617,6 +619,8 @@ export async function loadAdminReturnRows(client: SupabaseClient<Database>, limi
     orderNumber: string;
     customer: string;
     productName: string;
+    requestedQuantity: number;
+    purchasedQuantity: number;
     status: string;
     reason: string;
     pickupOption: string;
@@ -630,6 +634,8 @@ export async function loadAdminReturnRows(client: SupabaseClient<Database>, limi
     orderNumber: row.orderNumber,
     customer: row.customer,
     product: row.productName,
+    requestedQuantity: row.requestedQuantity,
+    purchasedQuantity: row.purchasedQuantity,
     status: row.status,
     reason: row.reason,
     pickupOption: row.pickupOption,

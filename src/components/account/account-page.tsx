@@ -116,7 +116,7 @@ const REWARDS_MENU: MenuItem[] = [
 const HELP_MENU: MenuItem[] = [
   { label: "Contact Support", description: "Call, WhatsApp, or email us", icon: PhoneIcon, href: "/contact" },
   { label: "FAQs", description: "Common questions", icon: HelpCircle, href: "/faq" },
-  { label: "Returns & Refunds", description: "Manage returns", icon: FileText, href: "/support-ticket" },
+  { label: "Returns & Refunds", description: "Manage returns", icon: FileText, href: "/returns" },
 ];
 
 const ABOUT_MENU: MenuItem[] = [

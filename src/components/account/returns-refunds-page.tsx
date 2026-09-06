@@ -45,6 +45,13 @@ function buildItemSummary(order: OrderRecord) {
   return visibleItems.join(", ");
 }
 
+function formatReturnStatus(status: string) {
+  return status
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function ReturnsRefundsPage() {
   const { user, loading: authLoading } = useAuth();
   const [entries, setEntries] = useState<ReturnOrderEntry[]>([]);
@@ -139,7 +146,6 @@ function ReturnsRefundsPage() {
         ) : (
           <div className="grid gap-3">
             {entries.map(({ order, requests }) => {
-              const primaryRequest = requests[0] ?? null;
               const isRefunded = order.status === "Refunded";
               const isReturned = order.status === "Returned";
 
@@ -162,9 +168,26 @@ function ReturnsRefundsPage() {
                     {order.items.length > 2 ? <span className="text-xs font-medium text-muted">+{order.items.length - 2} more</span> : null}
                   </div>
 
-                  <p className="mt-2 text-sm font-medium leading-6 text-muted">
-                    {primaryRequest?.reason ?? `Return request ${order.status.toLowerCase()}.`}
-                  </p>
+                  {requests.length > 0 ? requests.map((request) => (
+                    <div key={request.id} className="mt-3 rounded-[1rem] border border-border/70 bg-background-secondary/30 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="max-w-full break-all text-xs font-semibold text-text">Return ID: {request.id}</p>
+                        <Badge variant={request.status === "RETURN_REJECTED" ? "danger" : request.status === "REFUNDED" ? "success" : "accent"}>
+                          {formatReturnStatus(request.status)}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-sm font-medium leading-6 text-muted">{request.reason}</p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-muted">
+                        <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">Product: {request.productName}</span>
+                        <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">Quantity: {request.requestedQuantity ?? 0}</span>
+                        <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">Requested: {request.createdAt}</span>
+                        {request.pickupOption ? <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">Pickup: {request.pickupOption}</span> : null}
+                        {request.pickupLocation ? <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">Location: {request.pickupLocation}</span> : null}
+                      </div>
+                    </div>
+                  )) : (
+                    <p className="mt-2 text-sm font-medium leading-6 text-muted">Return request {formatReturnStatus(order.status)}.</p>
+                  )}
                 </Card>
               );
             })}

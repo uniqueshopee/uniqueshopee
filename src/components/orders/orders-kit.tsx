@@ -419,6 +419,7 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [returnRequests, setReturnRequests] = useState<OrderReturnRequest[]>([]);
   const [returnItem, setReturnItem] = useState<OrderItem | null>(null);
+  const [returnQuantity, setReturnQuantity] = useState(1);
   const [returnReason, setReturnReason] = useState("Damaged product");
   const [returnPickupOption, setReturnPickupOption] = useState<ReturnPickupOption>("Home Pickup");
   const [returnPickupLocation, setReturnPickupLocation] = useState("");
@@ -499,7 +500,7 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "support_tickets", filter: `order_id=eq.${liveOrder.id}` },
+        { event: "*", schema: "public", table: "returns", filter: `order_id=eq.${liveOrder.id}` },
         () => {
           void refreshReturns();
         },
@@ -518,7 +519,16 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
   }, [authLoading, liveOrder.id, roleKey, user?.id]);
 
   const activeReturnRequestByProductId = useMemo(() => {
-    return new Map(returnRequests.map((request) => [request.productId, request]));
+    return new Map(returnRequests.filter((request) => request.orderItemId).map((request) => [request.orderItemId, request]));
+  }, [returnRequests]);
+
+  const activeRequestedQuantityByItemId = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const request of returnRequests) {
+      if (!request.orderItemId) continue;
+      totals.set(request.orderItemId, (totals.get(request.orderItemId) ?? 0) + (request.requestedQuantity ?? 0));
+    }
+    return totals;
   }, [returnRequests]);
 
   const pricing = useMemo(() => {
@@ -534,19 +544,20 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
 
   const returnEligibilityByProductId = useMemo(() => {
     const entries = liveOrder.items.map((item) => {
-      const itemKey = item.productId ?? item.id;
+      const itemKey = item.id;
       const activeRequest = activeReturnRequestByProductId.get(itemKey) ?? null;
+      const requestedQuantity = activeRequestedQuantityByItemId.get(itemKey) ?? 0;
       const eligibility = getReturnEligibility(
         { status: liveOrder.status, deliveredAtRaw: liveOrder.deliveredAtRaw ?? null },
         item,
-        activeRequest,
+        requestedQuantity >= item.quantity ? activeRequest : null,
       );
 
       return [itemKey, eligibility] as const;
     });
 
     return new Map(entries);
-  }, [activeReturnRequestByProductId, liveOrder.items, liveOrder.deliveredAtRaw, liveOrder.status]);
+  }, [activeRequestedQuantityByItemId, activeReturnRequestByProductId, liveOrder.items, liveOrder.deliveredAtRaw, liveOrder.status]);
 
   const canCancelLiveOrder = canCancelOrder(liveOrder.status);
 
@@ -598,6 +609,7 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
 
   const closeReturnModal = () => {
     setReturnItem(null);
+    setReturnQuantity(1);
     setReturnReason("Damaged product");
     setReturnPickupOption("Home Pickup");
     setReturnPickupLocation("");
@@ -621,9 +633,9 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
     const combinedReason = returnNotes.trim().length > 0 ? `${nextReason}. ${returnNotes.trim()}` : nextReason;
     const result = await createReturnRequest(client, {
       orderId: liveOrder.id,
-      productId: returnItem.productId ?? returnItem.id,
-      productName: returnItem.name,
-      reason: combinedReason,
+      orderItemId: returnItem.id,
+      requestedQuantity: returnQuantity,
+      customerReason: combinedReason,
       pickupOption: returnPickupOption,
       pickupLocation: returnPickupLocation,
     });
@@ -636,7 +648,7 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
 
     toast({
       title: "Return request submitted",
-      description: "Delivery charge remains non-refundable. We will update the ticket shortly.",
+      description: "Your request is now RETURN_REQUESTED and will be reviewed.",
       variant: "success",
     });
     setReturnSubmitting(false);
@@ -700,7 +712,7 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
               <div className="grid gap-4 sm:grid-cols-2">
                 {liveOrder.items.map((item) => (
                   (() => {
-                    const itemKey = item.productId ?? item.id;
+                    const itemKey = item.id;
                     const activeRequest = activeReturnRequestByProductId.get(itemKey) ?? null;
                     const eligibility = returnEligibilityByProductId.get(itemKey);
                     const canOpenReturnModal = Boolean(eligibility?.eligible);
@@ -732,12 +744,13 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <p className="text-sm font-bold text-text">{request.productName}</p>
-                          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted">{request.ticketNumber}</p>
+                          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted">{request.status}</p>
                         </div>
                         <Badge variant="warning">{request.status}</Badge>
                       </div>
                       <p className="mt-3 text-sm font-medium leading-6 text-muted">{request.reason}</p>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted">
+                        <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">Quantity: {request.requestedQuantity ?? 0}</span>
                         <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">{request.pickupOption}</span>
                         <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1 normal-case tracking-normal">{request.pickupLocation}</span>
                         <span className="rounded-full border border-border/70 bg-white/85 px-3 py-1">{request.deliveryChargeNote}</span>
@@ -829,6 +842,18 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
                 </select>
               </FormField>
 
+              <FormField label="Quantity" htmlFor="return-quantity" hint={`Purchased quantity: ${returnItem?.quantity ?? 0}`}>
+                <input
+                  id="return-quantity"
+                  type="number"
+                  min={1}
+                  max={returnItem?.quantity ?? 1}
+                  value={returnQuantity}
+                  onChange={(event) => setReturnQuantity(Math.max(1, Number(event.target.value) || 1))}
+                  className="h-11 w-full rounded-[var(--radius-md)] border border-border bg-background px-3.5 text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                />
+              </FormField>
+
               <FormField label="Pickup option" htmlFor="return-pickup">
                 <select
                   id="return-pickup"
@@ -865,7 +890,7 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
               </FormField>
 
               <div className="rounded-[1.2rem] border border-border/70 bg-background-secondary/30 p-3 text-xs font-semibold text-muted">
-                Delivery charge is non-refundable. Return pickup is created as a support ticket and will be reviewed live.
+                Delivery charge is non-refundable. Your return request will be reviewed after submission.
               </div>
 
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

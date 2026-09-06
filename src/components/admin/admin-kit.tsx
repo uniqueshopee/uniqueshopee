@@ -352,9 +352,13 @@ function AdminLoadingView({ title }: { title: string }) {
 function ReturnRequestsTable({
   rows,
   loading,
+  onTransition,
+  transitioningId,
 }: {
   rows: AdminReturnRow[];
   loading: boolean;
+  onTransition?: (row: AdminReturnRow, targetStatus: string) => void;
+  transitioningId?: string | null;
 }) {
   return loading ? (
     <div className="space-y-3">
@@ -371,7 +375,7 @@ function ReturnRequestsTable({
       <table className="min-w-full divide-y divide-border/70">
         <thead className="bg-background-secondary/35">
           <tr className="text-left text-xs font-bold uppercase tracking-[0.18em] text-muted">
-            <th className="px-4 py-3">Ticket</th>
+            <th className="px-4 py-3">Return ID</th>
             <th className="px-4 py-3">Order</th>
             <th className="px-4 py-3">Customer</th>
             <th className="px-4 py-3">Product</th>
@@ -384,7 +388,7 @@ function ReturnRequestsTable({
           {rows.map((row) => (
             <tr key={row.id}>
               <td className="px-4 py-3">
-                <div className="font-semibold text-text">{row.ticketNumber}</div>
+                <div className="max-w-[12rem] break-all font-semibold text-text">{row.id}</div>
                 <div className="text-xs text-muted">{row.createdAt}</div>
               </td>
               <td className="px-4 py-3">
@@ -394,11 +398,12 @@ function ReturnRequestsTable({
               <td className="px-4 py-3 text-sm text-muted">
                 <div className="max-w-[18rem]">
                   <p className="font-medium text-text">{row.product}</p>
+                  <p className="mt-1 text-xs">Requested: {row.requestedQuantity} · Purchased: {row.purchasedQuantity}</p>
                   <p className="mt-1 text-xs text-muted">{row.reason}</p>
                 </div>
               </td>
               <td className="px-4 py-3">
-                <AdminStatusBadge status={row.status} />
+                <AdminStatusBadge status={formatReturnStatus(row.status)} />
               </td>
               <td className="px-4 py-3 text-sm text-muted">
                 <div className="space-y-1">
@@ -428,6 +433,9 @@ function ReturnRequestsTable({
                     <FileText className="h-4 w-4" />
                     Note
                   </Button>
+                  {onTransition ? (
+                    <ReturnActionButtons row={row} onTransition={onTransition} disabled={transitioningId === row.id} />
+                  ) : null}
                 </div>
               </td>
             </tr>
@@ -435,6 +443,52 @@ function ReturnRequestsTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+const TERMINAL_RETURN_STATUSES = new Set(["REFUNDED", "RETURN_REJECTED"]);
+
+function formatReturnStatus(status: string) {
+  return status
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function ReturnActionButtons({
+  row,
+  onTransition,
+  disabled,
+}: {
+  row: AdminReturnRow;
+  onTransition: (row: AdminReturnRow, targetStatus: string) => void;
+  disabled: boolean;
+}) {
+  const actions: Array<{ label: string; status: string }> = {
+    RETURN_REQUESTED: [{ label: "Approve", status: "RETURN_APPROVED" }],
+    RETURN_APPROVED: [{ label: "Schedule pickup", status: "PICKUP_SCHEDULED" }],
+    PICKUP_SCHEDULED: [{ label: "Mark picked up", status: "PICKED_UP" }],
+    PICKED_UP: [{ label: "Mark received", status: "RECEIVED" }],
+    RECEIVED: [{ label: "Start inspection", status: "UNDER_INSPECTION" }],
+    UNDER_INSPECTION: [{ label: "Complete inspection", status: "REFUND_PENDING" }],
+    REFUND_PENDING: [],
+    REFUNDED: [],
+    RETURN_REJECTED: [],
+  }[row.status] ?? [];
+
+  return (
+    <>
+      {actions.map((action) => (
+        <Button key={action.status} variant="accent" size="sm" disabled={disabled} onClick={() => onTransition(row, action.status)}>
+          {action.label}
+        </Button>
+      ))}
+      {!TERMINAL_RETURN_STATUSES.has(row.status) && row.status !== "REFUND_PENDING" ? (
+        <Button variant="outline" size="sm" disabled={disabled} onClick={() => onTransition(row, "RETURN_REJECTED")}>
+          Reject
+        </Button>
+      ) : null}
+    </>
   );
 }
 
@@ -2840,6 +2894,7 @@ function ReturnsAdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [transitioningId, setTransitioningId] = useState<string | null>(null);
 
   const loadRows = async () => {
     setLoading(true);
@@ -2865,35 +2920,88 @@ function ReturnsAdminPage() {
     void loadRows();
   }, []);
 
+  const transitionReturn = async (row: AdminReturnRow, targetStatus: string) => {
+    let rejectionReason = "";
+    let inspectionResult = "";
+    let inspectionNotes = "";
+
+    if (targetStatus === "RETURN_REJECTED") {
+      rejectionReason = window.prompt("Enter the admin rejection reason:", "")?.trim() ?? "";
+      if (!rejectionReason) return;
+      if (row.status === "UNDER_INSPECTION") {
+        inspectionResult = window.prompt("Inspection result (FAILED):", "FAILED")?.trim().toUpperCase() ?? "";
+        if (inspectionResult !== "FAILED") return;
+        inspectionNotes = window.prompt("Inspection notes (optional):", "")?.trim() ?? "";
+      }
+    }
+
+    if (targetStatus === "REFUND_PENDING") {
+      inspectionResult = window.prompt("Inspection result (GOOD):", "GOOD")?.trim().toUpperCase() ?? "";
+      if (inspectionResult !== "GOOD") return;
+      inspectionNotes = window.prompt("Inspection notes (optional):", "")?.trim() ?? "";
+    }
+
+    if (targetStatus === "UNDER_INSPECTION") {
+      // The backend controls inspection completion; this action only starts it.
+      inspectionResult = "";
+    }
+
+    setTransitioningId(row.id);
+    try {
+      const response = await fetch("/api/admin/returns/transition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          returnId: row.id,
+          toStatus: targetStatus,
+          rejectionReason: rejectionReason || undefined,
+          inspectionResult: inspectionResult || undefined,
+          inspectionNotes: inspectionNotes || undefined,
+        }),
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        toast({ title: "Return transition failed", description: result.error ?? "Unable to transition the return request.", variant: "danger" });
+        return;
+      }
+      toast({ title: "Return updated", description: `${row.id} is now ${formatReturnStatus(targetStatus)}.`, variant: "success" });
+      await loadRows();
+    } catch {
+      toast({ title: "Return transition failed", description: "Unable to reach the return service.", variant: "danger" });
+    } finally {
+      setTransitioningId(null);
+    }
+  };
+
   const filteredRows = useMemo(
     () =>
       rows.filter((row) => {
         const term = search.trim().toLowerCase();
-        if (term && ![row.ticketNumber, row.orderNumber, row.customer, row.product, row.status, row.pickupOption, row.pickupLocation].join(" ").toLowerCase().includes(term)) return false;
+        if (term && ![row.id, row.orderNumber, row.customer, row.product, row.status, formatReturnStatus(row.status), row.pickupOption, row.pickupLocation].join(" ").toLowerCase().includes(term)) return false;
         return true;
       }),
     [rows, search],
   );
 
-  const pendingCount = rows.filter((row) => row.status.toLowerCase().includes("pending")).length;
+  const pendingCount = rows.filter((row) => !TERMINAL_RETURN_STATUSES.has(row.status)).length;
 
   return (
     <section className="space-y-6">
       <PageHeader
         crumbs={[{ label: "Admin", href: "/admin" }, { label: "Returns" }]}
         title="Returns"
-        subtitle="Review return tickets, pickup preferences, and delivery-charge notes from live Supabase data."
+        subtitle="Review normalized return requests, pickup preferences, and delivery-charge notes from live Supabase data."
         actions={<AdminActionButton variant="outline" onClick={() => void loadRows()}><Download className="h-4 w-4" />Refresh</AdminActionButton>}
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <AdminStatCard stat={{ label: "Returns", value: String(rows.length), delta: `${filteredRows.length} visible`, note: "Return tickets", tone: "neutral" }} />
+        <AdminStatCard stat={{ label: "Returns", value: String(rows.length), delta: `${filteredRows.length} visible`, note: "Normalized requests", tone: "neutral" }} />
         <AdminStatCard stat={{ label: "Pending", value: String(pendingCount), delta: "Needs review", note: "Waiting on admin action", tone: "warning" }} />
-        <AdminStatCard stat={{ label: "Resolved", value: String(rows.length - pendingCount), delta: "Completed", note: "Processed returns", tone: "success" }} />
+        <AdminStatCard stat={{ label: "Resolved", value: String(rows.length - pendingCount), delta: "Terminal returns", note: "Rejected or refunded", tone: "success" }} />
         <AdminStatCard stat={{ label: "Search", value: filteredRows.length ? "Active" : "None", delta: "Filtered list", note: "Search results", tone: "accent" }} />
       </div>
 
-      <AdminSectionCard title="Search & Filters" description="Search by ticket, order number, customer, product, pickup option, or status.">
+      <AdminSectionCard title="Search & Filters" description="Search by return ID, order number, customer, product, pickup option, or status.">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_auto]">
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search returns" aria-label="Search returns" />
           <Button type="button" variant="outline" size="md" onClick={() => void loadRows()} loading={loading} className="w-full lg:w-auto">
@@ -2912,8 +3020,8 @@ function ReturnsAdminPage() {
         </Card>
       ) : null}
 
-      <AdminSectionCard title="Return Requests" description="Delivered order returns with pickup options and non-refundable delivery charge notes.">
-        <ReturnRequestsTable rows={filteredRows} loading={loading} />
+      <AdminSectionCard title="Return Requests" description="Normalized delivered-order returns with pickup options and non-refundable delivery charge notes.">
+        <ReturnRequestsTable rows={filteredRows} loading={loading} onTransition={(row, targetStatus) => void transitionReturn(row, targetStatus)} transitioningId={transitioningId} />
       </AdminSectionCard>
     </section>
   );

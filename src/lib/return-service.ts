@@ -8,41 +8,18 @@ export type ReturnPickupOption = "Home Pickup" | "Store Drop-off" | "Schedule Pi
 
 export type OrderReturnRequest = {
   id: string;
-  ticketNumber: string;
+  ticketNumber?: string;
   orderId: string;
-  productId: string;
+  orderItemId?: string;
+  productId?: string;
   productName: string;
   status: string;
   reason: string;
-  pickupOption: ReturnPickupOption;
-  pickupLocation: string;
+  requestedQuantity?: number;
+  pickupOption?: ReturnPickupOption;
+  pickupLocation?: string;
   createdAt: string;
-  deliveryChargeNote: string;
-};
-
-type SupportTicketRow = {
-  id: string;
-  ticket_number: string;
-  status: string;
-  description: string;
-  order_id: string | null;
-  product_id: string | null;
-  created_at: string;
-  user_id: string;
-  deleted_at: string | null;
-};
-
-type ProductRow = {
-  id: string;
-  name: string;
-  deleted_at: string | null;
-};
-
-type OrderRow = {
-  id: string;
-  order_number: string;
-  user_id: string;
-  deleted_at: string | null;
+  deliveryChargeNote?: string;
 };
 
 type ProfileRow = {
@@ -50,28 +27,6 @@ type ProfileRow = {
   full_name: string | null;
   email: string;
 };
-
-function titleCase(value: string) {
-  return value
-    .split(/[\s_-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function parseReturnDescription(description: string) {
-  const reasonMatch = description.match(/^Reason:\s*(.+)$/im);
-  const pickupMatch = description.match(/^Pickup option:\s*(.+)$/im);
-  const locationMatch = description.match(/^Pickup location:\s*(.+)$/im);
-  const chargeMatch = description.match(/^Delivery charge:\s*(.+)$/im);
-
-  return {
-    reason: reasonMatch?.[1]?.trim() || description.trim(),
-    pickupOption: (pickupMatch?.[1]?.trim() || "Home Pickup") as ReturnPickupOption,
-    pickupLocation: locationMatch?.[1]?.trim() || "Not provided",
-    deliveryChargeNote: chargeMatch?.[1]?.trim() || "Delivery charge is non-refundable.",
-  };
-}
 
 const RETURN_WINDOW_DAYS = 5;
 
@@ -122,132 +77,44 @@ export function getReturnEligibility(
   return { eligible: true, message: `Return available until ${formatWindowDeadline(deadline)}.`, deadline };
 }
 
-function makeReturnTicketNumber() {
-  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `RTN-${Date.now().toString().slice(-8)}-${suffix}`;
-}
-
 export async function createReturnRequest(
-  client: SupabaseClient<Database> | null,
+  _client: SupabaseClient<Database> | null,
   payload: {
     orderId: string;
-    productId: string;
-    productName: string;
-    reason: string;
+    orderItemId: string;
+    requestedQuantity: number;
+    customerReason: string;
     pickupOption: ReturnPickupOption;
     pickupLocation: string;
   },
-): Promise<{ error: string | null; ticketNumber: string | null }> {
+): Promise<{ error: string | null; returnRequest: OrderReturnRequest | null }> {
   if (isQaBypassEnabled()) {
-    return { error: null, ticketNumber: makeReturnTicketNumber() };
+    return { error: null, returnRequest: null };
   }
 
-  if (!client) {
-    return { error: "Supabase is not configured.", ticketNumber: null };
+  if (!_client) {
+    return { error: "Supabase is not configured.", returnRequest: null };
   }
 
-  const { data: authData } = await client.auth.getUser();
-  const userId = authData.user?.id ?? null;
-  if (!userId) {
-    return { error: "Please sign in to request a return.", ticketNumber: null };
+  try {
+    const response = await fetch("/api/returns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        orderId: payload.orderId,
+        orderItemId: payload.orderItemId,
+        requestedQuantity: payload.requestedQuantity,
+        customerReason: payload.customerReason,
+        pickupOption: payload.pickupOption,
+        pickupLocation: payload.pickupLocation,
+      }),
+    });
+    const result = (await response.json()) as { error?: string; returnRequest?: OrderReturnRequest };
+    if (!response.ok) return { error: result.error ?? "Unable to create the return request.", returnRequest: null };
+    return { error: null, returnRequest: result.returnRequest ?? null };
+  } catch {
+    return { error: "Unable to reach the return service.", returnRequest: null };
   }
-
-  const reason = payload.reason.trim();
-  const pickupOption = payload.pickupOption;
-  const pickupLocation = payload.pickupLocation.trim();
-  if (!reason) {
-    return { error: "Please share a return reason.", ticketNumber: null };
-  }
-  if (!pickupLocation) {
-    return { error: "Please share a pickup location.", ticketNumber: null };
-  }
-
-  const { data: orderRow, error: orderError } = await client
-    .from("orders")
-    .select("id, user_id, status, delivered_at, deleted_at")
-    .eq("id", payload.orderId)
-    .is("deleted_at", null)
-    .maybeSingle();
-
-  if (orderError || !orderRow) {
-    return { error: "Unable to validate the order for returns.", ticketNumber: null };
-  }
-
-  const orderUserId = (orderRow as { user_id?: string | null }).user_id ?? null;
-  if (orderUserId && orderUserId !== userId) {
-    return { error: "This order does not belong to the signed-in customer.", ticketNumber: null };
-  }
-
-  const deliveredAt = parseDate((orderRow as { delivered_at: string | null }).delivered_at);
-  const deadline = deliveredAt ? new Date(deliveredAt.getTime() + RETURN_WINDOW_DAYS * 24 * 60 * 60 * 1000) : null;
-  if ((orderRow as { status: string }).status?.toLowerCase() !== "delivered" || !deliveredAt || !deadline) {
-    return { error: "Returns are available only after delivery.", ticketNumber: null };
-  }
-
-  if (Date.now() > deadline.getTime()) {
-    return { error: `Returns are allowed only within 5 days of delivery.`, ticketNumber: null };
-  }
-
-  const { data: itemRow } = await client
-    .from("order_items")
-    .select("id, order_id, product_id, deleted_at")
-    .eq("order_id", payload.orderId)
-    .eq("product_id", payload.productId)
-    .is("deleted_at", null)
-    .maybeSingle();
-
-  if (!itemRow) {
-    return { error: "Unable to verify the selected item.", ticketNumber: null };
-  }
-
-  const { data: productRow } = await client
-    .from("products")
-    .select("id, attributes, deleted_at")
-    .eq("id", payload.productId)
-    .is("deleted_at", null)
-    .maybeSingle();
-
-  const attributes = (productRow as { attributes: Record<string, unknown> | null } | null)?.attributes ?? null;
-  const isReturnable = Boolean(attributes?.returnable ?? attributes?.is_returnable ?? attributes?.returnable_product);
-  if (!isReturnable) {
-    return { error: "This product is not marked as returnable.", ticketNumber: null };
-  }
-
-  const { data: existingReturn } = await client
-    .from("support_tickets")
-    .select("id, status, description")
-    .eq("order_id", payload.orderId)
-    .eq("product_id", payload.productId)
-    .eq("category", "Returns")
-    .is("deleted_at", null)
-    .maybeSingle();
-
-  if (existingReturn) {
-    return { error: "A return request already exists for this item.", ticketNumber: null };
-  }
-
-  const description = [
-    `Reason: ${reason}`,
-    `Pickup option: ${pickupOption}`,
-    `Pickup location: ${pickupLocation}`,
-    "Delivery charge: Non-refundable",
-  ].join("\n");
-
-  const ticketNumber = makeReturnTicketNumber();
-
-  const { error } = await client.from("support_tickets").insert({
-    user_id: userId,
-    ticket_number: ticketNumber,
-    subject: `Return request for ${payload.productName}`,
-    category: "Returns",
-    status: "open",
-    priority: "medium",
-    description,
-    order_id: payload.orderId,
-    product_id: payload.productId,
-  });
-
-  return { error: error ? error.message : null, ticketNumber: error ? null : ticketNumber };
 }
 
 export async function loadOrderReturnRequests(
@@ -270,12 +137,10 @@ export async function loadOrderReturnRequests(
   }
 
   let query = client
-    .from("support_tickets")
-    .select("id, ticket_number, status, description, order_id, product_id, created_at, user_id, deleted_at")
+    .from("returns")
+    .select("id, order_id, status, customer_reason, pickup_option, pickup_location, requested_at, user_id, return_items(id, order_item_id, product_name_snapshot, requested_quantity)")
     .eq("order_id", orderId)
-    .eq("category", "Returns")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .order("requested_at", { ascending: false });
 
   if (!isPrivileged && userId) {
     query = query.eq("user_id", userId);
@@ -286,38 +151,44 @@ export async function loadOrderReturnRequests(
     return [] as OrderReturnRequest[];
   }
 
-  const tickets = data as SupportTicketRow[];
-  const productIds = Array.from(new Set(tickets.map((ticket) => ticket.product_id).filter((value): value is string => Boolean(value))));
+  type NormalizedReturnRow = {
+    id: string;
+    order_id: string;
+    status: string;
+    customer_reason: string;
+    pickup_option: string | null;
+    pickup_location: string | null;
+    requested_at: string;
+    return_items: Array<{
+      id: string;
+      order_item_id: string;
+      product_name_snapshot: string;
+      requested_quantity: number;
+    }>;
+  };
 
-  const { data: productsData } =
-    productIds.length > 0
-      ? await client.from("products").select("id, name, deleted_at").in("id", productIds).is("deleted_at", null)
-      : { data: [] as ProductRow[] };
-
-  const products = new Map(((productsData ?? []) as ProductRow[]).map((product) => [product.id, product.name]));
-
-  return tickets.map((ticket) => {
-    const parsed = parseReturnDescription(ticket.description);
-    return {
-      id: ticket.id,
-      ticketNumber: ticket.ticket_number,
-      orderId: ticket.order_id ?? orderId,
-      productId: ticket.product_id ?? "",
-      productName: products.get(ticket.product_id ?? "") ?? "Product",
-      status: titleCase(ticket.status),
-      reason: parsed.reason,
-      pickupOption: parsed.pickupOption,
-      pickupLocation: parsed.pickupLocation,
-      createdAt: new Date(ticket.created_at).toLocaleString("en-IN", {
+  return (data as unknown as NormalizedReturnRow[]).flatMap((request) =>
+    (request.return_items ?? []).map((item) => ({
+      id: request.id,
+      ticketNumber: undefined,
+      orderId: request.order_id,
+      orderItemId: item.order_item_id,
+      productName: item.product_name_snapshot,
+      requestedQuantity: item.requested_quantity,
+      status: request.status,
+      reason: request.customer_reason,
+      pickupOption: (request.pickup_option ?? undefined) as ReturnPickupOption | undefined,
+      pickupLocation: request.pickup_location ?? undefined,
+      createdAt: new Date(request.requested_at).toLocaleString("en-IN", {
         day: "numeric",
         month: "short",
         year: "numeric",
         hour: "numeric",
         minute: "2-digit",
       }),
-      deliveryChargeNote: parsed.deliveryChargeNote,
-    };
-  });
+      deliveryChargeNote: "Delivery charge is non-refundable.",
+    })),
+  );
 }
 
 export async function loadAdminReturnRequests(client: SupabaseClient<Database>, limit = 25) {
@@ -325,51 +196,81 @@ export async function loadAdminReturnRequests(client: SupabaseClient<Database>, 
     return [] as Array<OrderReturnRequest & { orderNumber: string; customer: string }>;
   }
 
-  const [ticketsResult, ordersResult, profilesResult, productsResult] = await Promise.all([
-    client
-      .from("support_tickets")
-      .select("id, ticket_number, status, description, order_id, product_id, created_at, user_id, deleted_at")
-      .eq("category", "Returns")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(limit),
-    client.from("orders").select("id, order_number, user_id, deleted_at").is("deleted_at", null),
-    client.from("profiles").select("id, full_name, email").is("deleted_at", null),
-    client.from("products").select("id, name, deleted_at").is("deleted_at", null),
+  const returnsResult = await client
+    .from("returns")
+    .select("id, order_id, user_id, status, customer_reason, pickup_option, pickup_location, requested_at, return_items(id, order_item_id, requested_quantity, product_name_snapshot)")
+    .order("requested_at", { ascending: false })
+    .limit(limit);
+
+  if (returnsResult.error) {
+    throw new Error("Unable to load normalized return requests.");
+  }
+
+  type NormalizedReturnRow = {
+    id: string;
+    order_id: string;
+    user_id: string | null;
+    status: string;
+    customer_reason: string;
+    pickup_option: string | null;
+    pickup_location: string | null;
+    requested_at: string;
+    return_items: Array<{
+      id: string;
+      order_item_id: string;
+      requested_quantity: number;
+      product_name_snapshot: string;
+    }>;
+  };
+
+  const normalizedReturns = returnsResult.data as unknown as NormalizedReturnRow[];
+  const orderIds = [...new Set(normalizedReturns.map((request) => request.order_id))];
+  const userIds = [...new Set(normalizedReturns.map((request) => request.user_id).filter((id): id is string => Boolean(id)))];
+  const orderItemIds = [...new Set(normalizedReturns.flatMap((request) => request.return_items.map((item) => item.order_item_id)))];
+
+  const [ordersResult, profilesResult, orderItemsResult] = await Promise.all([
+    orderIds.length ? client.from("orders").select("id, order_number").in("id", orderIds) : Promise.resolve({ data: [], error: null }),
+    userIds.length ? client.from("profiles").select("id, full_name, email").in("id", userIds) : Promise.resolve({ data: [], error: null }),
+    orderItemIds.length ? client.from("order_items").select("id, quantity").in("id", orderItemIds) : Promise.resolve({ data: [], error: null }),
   ]);
 
+  if (ordersResult.error || profilesResult.error || orderItemsResult.error) {
+    throw new Error("Unable to load normalized return details.");
+  }
+
   const orders = new Map(
-    ((ordersResult.data ?? []) as OrderRow[]).map((order) => [order.id, order.order_number]),
+    ((ordersResult.data ?? []) as Array<{ id: string; order_number: string }>).map((order) => [order.id, order.order_number]),
   );
   const customers = new Map(
     ((profilesResult.data ?? []) as ProfileRow[]).map((profile) => [profile.id, profile.full_name?.trim() || profile.email]),
   );
-  const products = new Map(
-    ((productsResult.data ?? []) as ProductRow[]).map((product) => [product.id, product.name]),
+  const purchasedQuantities = new Map(
+    ((orderItemsResult.data ?? []) as Array<{ id: string; quantity: number }>).map((item) => [item.id, item.quantity]),
   );
 
-  return ((ticketsResult.data ?? []) as SupportTicketRow[]).map((ticket) => {
-    const parsed = parseReturnDescription(ticket.description);
+  return normalizedReturns.map((request) => {
+    const items = request.return_items ?? [];
     return {
-      id: ticket.id,
-      ticketNumber: ticket.ticket_number,
-      orderId: ticket.order_id ?? "",
-      orderNumber: ticket.order_id ? orders.get(ticket.order_id) ?? ticket.order_id.slice(0, 8).toUpperCase() : "ORDER",
-      customer: customers.get(ticket.user_id) ?? ticket.user_id.slice(0, 8).toUpperCase(),
-      productId: ticket.product_id ?? "",
-      productName: products.get(ticket.product_id ?? "") ?? "Product",
-      status: titleCase(ticket.status),
-      reason: parsed.reason,
-      pickupOption: parsed.pickupOption,
-      pickupLocation: parsed.pickupLocation,
-      createdAt: new Date(ticket.created_at).toLocaleString("en-IN", {
+      id: request.id,
+      ticketNumber: request.id,
+      orderId: request.order_id,
+      orderNumber: orders.get(request.order_id) ?? request.order_id,
+      customer: request.user_id ? customers.get(request.user_id) ?? "Customer unavailable" : "Customer unavailable",
+      productName: items.map((item) => item.product_name_snapshot).join(" • ") || "No item snapshot",
+      requestedQuantity: items.reduce((total, item) => total + item.requested_quantity, 0),
+      purchasedQuantity: items.reduce((total, item) => total + (purchasedQuantities.get(item.order_item_id) ?? 0), 0),
+      status: request.status,
+      reason: request.customer_reason,
+      pickupOption: request.pickup_option ?? "Not provided",
+      pickupLocation: request.pickup_location ?? "Not provided",
+      createdAt: new Date(request.requested_at).toLocaleString("en-IN", {
         day: "numeric",
         month: "short",
         year: "numeric",
         hour: "numeric",
         minute: "2-digit",
       }),
-      deliveryChargeNote: parsed.deliveryChargeNote,
+      deliveryChargeNote: "Delivery charge is non-refundable.",
     };
   });
 }
