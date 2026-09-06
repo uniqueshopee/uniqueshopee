@@ -547,7 +547,6 @@ type ProductDetail = {
   highlights: string[];
   specifications: ProductSpecification[];
   applications: string[];
-  downloads: ProductDownload[];
   reviews: ProductReview[];
   faq: ProductFaq[];
   delivery: string[];
@@ -1856,10 +1855,6 @@ export async function getLiveProductBySlug(slug: string) {
         ? specifications
         : [...specifications, { label: "Returnable", value: returnable ? "Yes" : "No" }],
       applications: makeApplications(product.departmentSlug, product.categoryName),
-      downloads: [
-        { label: "Product datasheet", meta: "PDF · mock" },
-        { label: "Application guide", meta: "PDF · mock" },
-      ],
       reviews: [],
       faq: makeFaq(product.departmentSlug, product.categoryName),
       delivery: [

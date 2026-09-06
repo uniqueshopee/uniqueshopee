@@ -7,8 +7,6 @@ import { motion, useReducedMotion } from "framer-motion";
 import {
   Brush,
   Camera,
-  CheckCircle2,
-  Download,
   Eye,
   Fullscreen,
   Heart,
@@ -298,8 +296,6 @@ function RoomVisualizerPage() {
   };
 
   const handlePrint = () => window.print();
-
-  const handleDownload = () => toast({ title: "Download placeholder", description: "Preview download is ready for future integration.", variant: "success" });
 
   const selectedOverlay = selectedColor ? colorWithAlpha(selectedColor.hex, opacity / 100) : "rgba(255,255,255,0.55)";
   const hasUpload = Boolean(uploadedImage);
@@ -703,14 +699,6 @@ function RoomVisualizerPage() {
                 </div>
 
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  <Button type="button" variant="accent" size="md" className="w-full" onClick={() => toast({ title: "Design saved", description: "This is a frontend-only saved design placeholder.", variant: "success" })}>
-                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    Save Design
-                  </Button>
-                  <Button type="button" variant="outline" size="md" className="w-full" onClick={handleDownload}>
-                    <Download className="h-4 w-4" aria-hidden="true" />
-                    Download Preview
-                  </Button>
                   <Button type="button" variant="outline" size="md" className="w-full" onClick={handleShare}>
                     <Share2 className="h-4 w-4" aria-hidden="true" />
                     Share

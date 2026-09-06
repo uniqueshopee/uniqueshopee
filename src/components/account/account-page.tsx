@@ -37,7 +37,6 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { softDeleteCurrentProfile } from "@/lib/account-service";
 import { UI_MESSAGES, getFriendlyErrorMessage } from "@/lib/messages";
 
 type MenuItem = {
@@ -156,10 +155,18 @@ function AccountPage() {
   const [editName, setEditName] = useState(profile?.full_name ?? "");
   const [editPhone, setEditPhone] = useState(profile?.phone ?? "");
   const [saveBusy, setSaveBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteOtp, setDeleteOtp] = useState("");
+  const [deleteOtpChallengeId, setDeleteOtpChallengeId] = useState<string | null>(null);
+  const [deleteOtpSent, setDeleteOtpSent] = useState(false);
+  const [deleteOtpVerified, setDeleteOtpVerified] = useState(false);
+  const [deleteOtpBusy, setDeleteOtpBusy] = useState(false);
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [language, setLanguage] = useState<"English" | "Hindi">("English");
-  const accountId = profile?.id ?? user?.id ?? null;
   const referralLink = useMemo(() => {
     if (!profile?.customer_code) {
       return "";
@@ -169,6 +176,8 @@ function AccountPage() {
     }
     return `${window.location.origin}/register?ref=${encodeURIComponent(profile.customer_code)}`;
   }, [profile?.customer_code]);
+  const isEmailProvider = user?.app_metadata?.provider === "email" || user?.identities?.some((identity) => identity.provider === "email") === true;
+  const isPhoneProvider = user?.app_metadata?.provider === "phone" || user?.identities?.some((identity) => identity.provider === "phone") === true;
 
   useEffect(() => {
     setEditName(profile?.full_name ?? "");
@@ -190,38 +199,6 @@ function AccountPage() {
     await signOut();
     router.replace("/");
     router.refresh();
-  };
-
-  const handleDeleteAccount = async () => {
-    if (!accountId) {
-      toast({ title: "Account unavailable", description: UI_MESSAGES.auth.sessionExpired, variant: "danger" });
-      return;
-    }
-
-    const confirmed = window.confirm("Delete your account? This will soft-delete your profile and sign you out.");
-    if (!confirmed) {
-      return;
-    }
-
-    const client = getSupabaseBrowserClient();
-    if (!client) {
-      toast({ title: "Account unavailable", description: UI_MESSAGES.generic.server, variant: "danger" });
-      return;
-    }
-
-    setDeleteBusy(true);
-    const result = await softDeleteCurrentProfile(client, accountId);
-    setDeleteBusy(false);
-
-    if (result.error) {
-      toast({ title: "Delete failed", description: getFriendlyErrorMessage(result.error, UI_MESSAGES.generic.server), variant: "danger" });
-      return;
-    }
-
-    await signOut();
-    router.replace("/");
-    router.refresh();
-    toast({ title: "Account deleted", description: UI_MESSAGES.auth.logoutSuccess, variant: "success" });
   };
 
   const handleLanguageChange = (nextLanguage: "English" | "Hindi") => {
@@ -305,6 +282,85 @@ function AccountPage() {
     await refresh();
     setEditOpen(false);
     toast({ title: "Profile updated", description: UI_MESSAGES.profile.updated, variant: "success" });
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deleteConfirmed || deleteBusy || (isEmailProvider && deletePassword.length === 0) || (isPhoneProvider && !deleteOtpChallengeId)) {
+      return;
+    }
+
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      const response = await fetch("/api/account/delete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(isPhoneProvider ? { deletionOtpChallengeId: deleteOtpChallengeId } : { password: deletePassword }),
+      });
+      const result = (await response.json().catch(() => null)) as { error?: string; state?: string } | null;
+      if (!response.ok || result?.state !== "COMPLETED") {
+        setDeleteError(result?.error ?? "Account deletion could not be completed.");
+        return;
+      }
+
+      await signOut();
+      router.replace("/");
+      router.refresh();
+    } catch {
+      setDeleteError("Account deletion could not be completed.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
+  const handleSendDeletionOtp = async () => {
+    if (deleteOtpBusy || !isPhoneProvider) return;
+    setDeleteOtpBusy(true);
+    setDeleteError(null);
+    try {
+      const response = await fetch("/api/account/delete/phone-otp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "send" }),
+      });
+      const result = (await response.json().catch(() => null)) as { error?: string; challengeId?: string } | null;
+      if (!response.ok || !result?.challengeId) {
+        setDeleteError(result?.error ?? "Unable to send the deletion code.");
+        return;
+      }
+      setDeleteOtpChallengeId(result.challengeId);
+      setDeleteOtpSent(true);
+      setDeleteOtpVerified(false);
+      setDeleteOtp("");
+    } catch {
+      setDeleteError("Unable to send the deletion code.");
+    } finally {
+      setDeleteOtpBusy(false);
+    }
+  };
+
+  const handleVerifyDeletionOtp = async () => {
+    if (!deleteOtpChallengeId || !deleteOtp || deleteOtpBusy) return;
+    setDeleteOtpBusy(true);
+    setDeleteError(null);
+    try {
+      const response = await fetch("/api/account/delete/phone-otp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "verify", challengeId: deleteOtpChallengeId, otp: deleteOtp }),
+      });
+      const result = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        setDeleteError(result?.error ?? "Invalid deletion code.");
+        return;
+      }
+      setDeleteOtpVerified(true);
+      setDeleteError(null);
+    } catch {
+      setDeleteError("Unable to verify the deletion code.");
+    } finally {
+      setDeleteOtpBusy(false);
+    }
   };
 
   return (
@@ -410,13 +466,90 @@ function AccountPage() {
                 <LogOut className="h-4 w-4" aria-hidden={true} />
                 Logout
               </Button>
-              <Button variant="danger" size="lg" className="w-full justify-center" loading={deleteBusy} onClick={() => void handleDeleteAccount()}>
+              <Button
+                variant="danger"
+                size="lg"
+                className="w-full justify-center"
+                disabled={(!isEmailProvider && !isPhoneProvider) || deleteBusy}
+                onClick={() => {
+                  setDeleteError(null);
+                  setDeleteOpen(true);
+                }}
+                title={isEmailProvider || isPhoneProvider ? "Open account deletion confirmation" : "Account deletion is unavailable for this sign-in provider"}
+              >
                 <Trash2 className="h-4 w-4" aria-hidden={true} />
                 Delete account
               </Button>
             </div>
           </Card>
         </div>
+
+        <Modal
+          open={deleteOpen}
+          onOpenChange={(open) => {
+            if (!deleteBusy) setDeleteOpen(open);
+            if (!open) {
+              setDeletePassword("");
+              setDeleteOtp("");
+              setDeleteOtpChallengeId(null);
+              setDeleteOtpSent(false);
+              setDeleteConfirmed(false);
+              setDeleteOtpVerified(false);
+              setDeleteError(null);
+            }
+          }}
+          title="Delete your account?"
+          description="This action is permanent and cannot be undone."
+          className="max-w-lg"
+        >
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium leading-6 text-rose-900">
+              <p className="font-bold">The account will be permanently deleted.</p>
+              <p className="mt-2">Saved addresses, cart items, wishlist items, notifications, paint calculations, room visualizations, roles, and phone-auth credentials will be removed.</p>
+              <p className="mt-2">Order history, order items, reviews, support records, consultations, coupon usage, and certain verification records may be retained where necessary for legal, security, fraud prevention, dispute resolution, or regulatory purposes. These records are not used to maintain your deleted account.</p>
+            </div>
+            {isEmailProvider ? (
+              <FormField label="Current password" htmlFor="account-deletion-password">
+                <Input id="account-deletion-password" type="password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} autoComplete="current-password" placeholder="Enter your current password" />
+              </FormField>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-muted">We will send a one-time deletion code to the phone number already verified on this account.</p>
+                <Button type="button" variant="outline" size="md" className="w-full" loading={deleteOtpBusy && !deleteOtpSent} disabled={deleteOtpBusy} onClick={() => void handleSendDeletionOtp()}>
+                  {deleteOtpSent ? "Send a new deletion code" : "Send deletion code"}
+                </Button>
+                {deleteOtpSent ? (
+                  <div className="space-y-3">
+                    <FormField label="Deletion code" htmlFor="account-deletion-otp">
+                      <Input id="account-deletion-otp" value={deleteOtp} onChange={(event) => setDeleteOtp(event.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder="Enter the code" />
+                    </FormField>
+                    <Button type="button" variant="outline" size="md" className="w-full" loading={deleteOtpBusy} disabled={!deleteOtp || deleteOtpBusy} onClick={() => void handleVerifyDeletionOtp()}>
+                      Verify deletion code
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            )}
+            <label className="flex items-start gap-3 text-sm font-semibold text-text">
+              <input
+                type="checkbox"
+                checked={deleteConfirmed}
+                onChange={(event) => setDeleteConfirmed(event.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-border text-accent focus:ring-accent"
+              />
+              <span>I understand this permanently deletes my account and cannot be undone.</span>
+            </label>
+            {deleteError ? <p className="text-sm font-semibold text-rose-700" role="alert">{deleteError}</p> : null}
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button type="button" variant="danger" size="md" className="w-full" loading={deleteBusy} disabled={!deleteConfirmed || (isEmailProvider && deletePassword.length === 0) || (isPhoneProvider && !deleteOtpVerified)} onClick={() => void handleDeleteAccount()}>
+                Permanently delete account
+              </Button>
+              <Button type="button" variant="outline" size="md" className="w-full" disabled={deleteBusy} onClick={() => setDeleteOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </Modal>
 
         <Modal
           open={editOpen}

@@ -7,8 +7,6 @@ import {
   ArrowRight,
   Calculator,
   CircleHelp,
-  Download,
-  Mail,
   Paintbrush,
   Printer,
   Tag,
@@ -35,8 +33,6 @@ import { ProductShowcase } from "@/components/product/product-showcase";
 import { cn } from "@/lib/utils";
 
 type Unit = "feet" | "meters";
-type PaintType = "Interior Paint" | "Exterior Paint" | "Primer" | "Waterproofing" | "Wood Finish" | "Metal Paint";
-type SurfaceType = "Concrete" | "Wall" | "Wood" | "Metal" | "POP" | "Putty";
 type CoatCount = 1 | 2 | 3;
 
 type MaterialRecommendation = {
@@ -51,24 +47,6 @@ const MATERIAL_RECOMMENDATIONS: MaterialRecommendation[] = [
   { label: "Rollers", description: "For smooth wall coverage", icon: PaintRoller, tone: "neutral" },
   { label: "Masking Tape", description: "Protect trims and clean edges", icon: Tag, tone: "warning" },
 ];
-
-const PAINT_TYPE_FACTORS: Record<PaintType, number> = {
-  "Interior Paint": 115,
-  "Exterior Paint": 105,
-  Primer: 125,
-  Waterproofing: 92,
-  "Wood Finish": 135,
-  "Metal Paint": 120,
-};
-
-const SURFACE_FACTORS: Record<SurfaceType, number> = {
-  Concrete: 0.86,
-  Wall: 1,
-  Wood: 0.92,
-  Metal: 0.8,
-  POP: 0.76,
-  Putty: 0.72,
-};
 
 const METERS_TO_FEET = 3.28084;
 const SQM_TO_SQFT = 10.7639;
@@ -250,14 +228,14 @@ function PaintCalculatorPage() {
   const [doorArea, setDoorArea] = useState("21");
   const [windows, setWindows] = useState("2");
   const [windowArea, setWindowArea] = useState("12");
-  const [paintType, setPaintType] = useState<PaintType>("Interior Paint");
-  const [surface, setSurface] = useState<SurfaceType>("Wall");
+  const [coveragePerLitre, setCoveragePerLitre] = useState("");
   const [coats, setCoats] = useState<CoatCount>(2);
   const [calculated, setCalculated] = useState(false);
 
   const deferredLength = useDeferredValue(length);
   const deferredWidth = useDeferredValue(width);
   const deferredHeight = useDeferredValue(height);
+  const deferredCoverage = useDeferredValue(coveragePerLitre);
 
   const computed = useMemo(() => {
     const l = parseNumber(deferredLength);
@@ -275,13 +253,17 @@ function PaintCalculatorPage() {
     const totalAreaSqFt = Math.max(2 * (lengthFt + widthFt) * heightFt, 0);
     const openingsSqFt = Math.max(convertArea(doorCount * doorSize + windowCount * windowSize, unit), 0);
     const paintableAreaSqFt = Math.max(totalAreaSqFt - openingsSqFt, 0);
-    const coverage = PAINT_TYPE_FACTORS[paintType] * SURFACE_FACTORS[surface];
-    const litresRequired = Math.max((paintableAreaSqFt * coats) / coverage, 0);
+    const coverage = parseNumber(deferredCoverage);
+    const hasCoverage = Number.isFinite(coverage) && coverage > 0 && coverage <= 10000;
+    const litresRequired = hasCoverage ? Math.max((paintableAreaSqFt * coats) / coverage, 0) : 0;
     const purchasePacks = formatPackList(litresRequired);
-    const hasDimensions = l > 0 && w > 0 && h > 0;
+    const hasDimensions = Number.isFinite(l) && Number.isFinite(w) && Number.isFinite(h) && l > 0 && w > 0 && h > 0 && l <= 1000 && w <= 1000 && h <= 1000;
+    const hasOpenings = Number.isInteger(doorCount) && Number.isInteger(windowCount) && doorCount >= 0 && windowCount >= 0 && doorCount <= 100 && windowCount <= 100;
 
     return {
       hasDimensions,
+      hasCoverage,
+      hasValidInputs: hasDimensions && hasCoverage && hasOpenings,
       totalAreaSqFt,
       openingsSqFt,
       paintableAreaSqFt,
@@ -289,13 +271,13 @@ function PaintCalculatorPage() {
       purchasePacks,
       coverage,
     };
-  }, [coats, deferredHeight, deferredLength, deferredWidth, doorArea, doors, paintType, surface, unit, windowArea, windows]);
+  }, [coats, deferredCoverage, deferredHeight, deferredLength, deferredWidth, doorArea, doors, unit, windowArea, windows]);
 
   useEffect(() => {
-    if (computed.hasDimensions) {
+    if (computed.hasValidInputs) {
       setCalculated(true);
     }
-  }, [computed.hasDimensions]);
+  }, [computed.hasValidInputs]);
 
   const recommendedProducts = useMemo(
     () => [],
@@ -303,6 +285,11 @@ function PaintCalculatorPage() {
   );
 
   const recalculateNow = () => {
+    if (!computed.hasValidInputs) {
+      toast({ title: "Check your inputs", description: "Enter valid dimensions, opening counts, and product-label coverage before calculating.", variant: "danger" });
+      setCalculated(false);
+      return;
+    }
     setCalculated(true);
     resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -323,14 +310,6 @@ function PaintCalculatorPage() {
     } catch {
       toast({ title: "Share unavailable", description: "Clipboard access is unavailable in this session.", variant: "danger" });
     }
-  };
-
-  const downloadPlaceholder = (mode: "PDF" | "Email") => {
-    toast({
-      title: `${mode} export placeholder`,
-      description: "This export flow is ready for future backend integration.",
-      variant: "success",
-    });
   };
 
   const summaryLabel = unit === "feet" ? "sq.ft" : "sq.m";
@@ -467,80 +446,22 @@ function PaintCalculatorPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.22em] text-accent">Step 3 - 5</p>
-                    <h2 className="mt-2 text-xl font-black text-text">Paint, Surface, and Coats</h2>
+                    <h2 className="mt-2 text-xl font-black text-text">Coverage and Coats</h2>
                   </div>
                   <Sparkles className="h-5 w-5 text-muted" aria-hidden="true" />
                 </div>
 
                 <div className="mt-4 space-y-5">
-                  <div className="space-y-3">
-                    <p className="text-sm font-semibold text-text">Paint Type</p>
-                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                      {Object.keys(PAINT_TYPE_FACTORS).map((item) => {
-                        const active = paintType === item;
-                        return (
-                          <button
-                            key={item}
-                            type="button"
-                            onClick={() => setPaintType(item as PaintType)}
-                            aria-pressed={active}
-                            className={cn(
-                              "rounded-[1rem] border px-4 py-3 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                              active
-                                ? "border-transparent bg-accent text-accent-foreground"
-                                : "border-border/70 bg-white text-text hover:border-accent/20 hover:bg-white",
-                            )}
-                          >
-                            {item}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <p className="text-sm font-semibold text-text">Surface</p>
-                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                      {Object.keys(SURFACE_FACTORS).map((item) => {
-                        const active = surface === item;
-                        return (
-                          <button
-                            key={item}
-                            type="button"
-                            onClick={() => setSurface(item as SurfaceType)}
-                            aria-pressed={active}
-                            className={cn(
-                              "rounded-[1rem] border px-4 py-3 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                              active
-                                ? "border-transparent bg-primary text-primary-foreground"
-                                : "border-border/70 bg-white text-text hover:border-accent/20 hover:bg-white",
-                            )}
-                          >
-                            {item}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
+                  <FormField label="Coverage per litre (sq ft/L/coat)" htmlFor="coverage-per-litre">
+                    <Input id="coverage-per-litre" value={coveragePerLitre} onChange={(event) => setCoveragePerLitre(event.target.value)} type="number" inputMode="decimal" min={0} placeholder="Enter the product label coverage" aria-label="Coverage per litre in square feet per litre per coat" />
+                  </FormField>
                   <div className="space-y-3">
                     <p className="text-sm font-semibold text-text">Coats</p>
                     <div className="grid grid-cols-3 gap-2">
                       {[1, 2, 3].map((coat) => {
                         const active = coats === coat;
                         return (
-                          <button
-                            key={coat}
-                            type="button"
-                            onClick={() => setCoats(coat as CoatCount)}
-                            aria-pressed={active}
-                            className={cn(
-                              "rounded-[1rem] border px-4 py-3 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                              active
-                                ? "border-transparent bg-primary text-primary-foreground"
-                                : "border-border/70 bg-white text-text hover:border-accent/20 hover:bg-white",
-                            )}
-                          >
+                          <button key={coat} type="button" onClick={() => setCoats(coat as CoatCount)} aria-pressed={active} className={cn("rounded-[1rem] border px-4 py-3 text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "border-transparent bg-primary text-primary-foreground" : "border-border/70 bg-white text-text hover:border-accent/20 hover:bg-white")}>
                             {coat} Coat{coat > 1 ? "s" : ""}
                           </button>
                         );
@@ -548,6 +469,7 @@ function PaintCalculatorPage() {
                     </div>
                   </div>
                 </div>
+                <p className="mt-4 text-xs font-semibold leading-5 text-muted">Coverage is entered from your product label and means square feet per litre for one coat. No generic wastage factor is added.</p>
               </Card>
 
               <Card ref={resultsRef} className="rounded-[1.6rem] border-white/80 bg-white/92 p-5 shadow-[var(--shadow-lg)] sm:p-6">
@@ -586,7 +508,7 @@ function PaintCalculatorPage() {
                         </div>
                         <div className="rounded-[1rem] border border-border/70 bg-white/85 p-3">
                           <p className="text-[11px] uppercase tracking-[0.18em] text-muted">Coverage</p>
-                          <p className="mt-1">{computed.coverage.toFixed(0)} sq.ft/L</p>
+                          <p className="mt-1">{computed.coverage.toFixed(1)} sq.ft/L/coat</p>
                         </div>
                         <div className="rounded-[1rem] border border-border/70 bg-white/85 p-3">
                           <p className="text-[11px] uppercase tracking-[0.18em] text-muted">Unit</p>
@@ -601,8 +523,9 @@ function PaintCalculatorPage() {
                         <ArrowRight className="h-4 w-4 rotate-90 text-muted transition-transform group-open:-rotate-90" aria-hidden="true" />
                       </summary>
                       <div className="mt-4 space-y-3 text-sm font-medium leading-6 text-muted">
-                        <p>Formula: ((2 x (Length + Width) x Height) - Openings) x Coats ÷ Coverage</p>
-                        <p>Coverage assumptions: {paintType} at {PAINT_TYPE_FACTORS[paintType].toFixed(0)} sq.ft/L and {surface} factor {SURFACE_FACTORS[surface].toFixed(2)}.</p>
+                        <p>Wall area: {computed.totalAreaSqFt.toFixed(1)} sq.ft; opening deduction: {computed.openingsSqFt.toFixed(1)} sq.ft; paintable wall area: {computed.paintableAreaSqFt.toFixed(1)} sq.ft.</p>
+                        <p>Formula: (Paintable wall area x Coats) ÷ Coverage per litre (sq.ft/L/coat)</p>
+                        <p>Coverage input: {computed.coverage.toFixed(1)} sq.ft/L/coat. No generic wastage factor is added.</p>
                         <p>Calculation notes: openings are subtracted after unit conversion and the final quantity is rounded for practical purchasing.</p>
                       </div>
                     </details>
@@ -629,8 +552,7 @@ function PaintCalculatorPage() {
                     <div className="rounded-[1.35rem] border border-border/70 bg-background-secondary/30 p-4">
                       <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Current setup</p>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <Badge variant="accent">{paintType}</Badge>
-                        <Badge variant="neutral">{surface}</Badge>
+                        <Badge variant="accent">{computed.coverage.toFixed(1)} sq.ft/L/coat</Badge>
                         <Badge variant="neutral">{coats} coat{coats > 1 ? "s" : ""}</Badge>
                         <Badge variant="neutral">{unit}</Badge>
                       </div>
@@ -651,14 +573,6 @@ function PaintCalculatorPage() {
                     <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
                       <Printer className="h-4 w-4" aria-hidden="true" />
                       Print
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={() => downloadPlaceholder("PDF")}>
-                      <Download className="h-4 w-4" aria-hidden="true" />
-                      PDF
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={() => downloadPlaceholder("Email")}>
-                      <Mail className="h-4 w-4" aria-hidden="true" />
-                      Email
                     </Button>
                     <Button type="button" variant="outline" size="sm" onClick={handleShare}>
                       <Share2 className="h-4 w-4" aria-hidden="true" />

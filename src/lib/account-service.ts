@@ -531,17 +531,3 @@ export async function loadRewardSnapshot(client: SupabaseClient | null, userId: 
     redeemOptions,
   } satisfies RewardSnapshot;
 }
-
-export async function softDeleteCurrentProfile(client: SupabaseClient | null, userId: string | null) {
-  if (!client || !userId) {
-    return { error: "Supabase is not configured." };
-  }
-
-  const { error } = await client
-    .from("profiles")
-    .update({ deleted_at: new Date().toISOString(), status: "deleted" })
-    .eq("id", userId)
-    .is("deleted_at", null);
-
-  return { error: error ? error.message : null };
-}

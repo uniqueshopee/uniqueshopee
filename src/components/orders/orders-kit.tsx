@@ -26,6 +26,7 @@ import {
   getOrderTab,
 } from "@/lib/orders-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { addValidatedCartItem } from "@/lib/cart-service";
 import { cancelOrder, loadOrderById, type OrderAccessRole } from "@/lib/order-service";
 import { createReturnRequest, getReturnEligibility, loadOrderReturnRequests, type OrderReturnRequest, type ReturnPickupOption } from "@/lib/return-service";
 import { calculateCartPricing, resolveCouponCode } from "@/lib/checkout-pricing";
@@ -897,10 +898,36 @@ function OrderedProductCard({
   onReturn?: () => void;
 }) {
   const hasShade = Boolean(item.shadeId || item.shadeName || item.shadeCode || item.shadeFamily || item.shadeHexColor || item.finish || item.packSize || item.baseName);
+  const handleBuyAgain = async () => {
+    if (!item.productId) {
+      toast({ title: "Unable to buy again", description: "This product is no longer available.", variant: "danger" });
+      return;
+    }
+
+    await addValidatedCartItem({
+      productId: item.productId,
+      name: item.name,
+      price: item.price,
+      image: item.image,
+      slug: item.slug,
+      category: item.category,
+      brand: item.brand,
+      variant: item.variant,
+      compareAtPrice: item.compareAtPrice,
+      shadeId: item.shadeId,
+      shadeName: item.shadeName,
+      shadeCode: item.shadeCode,
+      shadeFamily: item.shadeFamily,
+      shadeHexColor: item.shadeHexColor,
+      packSize: item.packSize,
+      finish: item.finish,
+      sku: item.sku,
+    }, Math.max(1, item.quantity));
+  };
 
   return (
     <div className="space-y-2">
-      <SharedProductCard mode="order" image={item.image} href={`/product/${item.slug}`} brand={item.brand} title={item.name} subtitle={item.variant} quantity={item.quantity} price={item.price} compareAtPrice={item.compareAtPrice} shadeName={item.shadeName} shadeCode={item.shadeCode} shadeFamily={item.shadeFamily} shadeHexColor={item.shadeHexColor} returnable={returnable} returnStatus={returnStatus} onReturn={onReturn} onBuyAgain={() => toast({ title: "Buy again", description: `Reorder for ${item.name} is ready for future wiring.` })} />
+      <SharedProductCard mode="order" image={item.image} href={`/product/${item.slug}`} brand={item.brand} title={item.name} subtitle={item.variant} quantity={item.quantity} price={item.price} compareAtPrice={item.compareAtPrice} shadeName={item.shadeName} shadeCode={item.shadeCode} shadeFamily={item.shadeFamily} shadeHexColor={item.shadeHexColor} returnable={returnable} returnStatus={returnStatus} onReturn={onReturn} onBuyAgain={() => void handleBuyAgain()} />
       {hasShade ? (
         <PaintConfiguration item={item} />
       ) : null}

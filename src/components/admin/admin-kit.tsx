@@ -75,14 +75,17 @@ import {
   type AdminReturnRow,
   type AdminReviewRow,
 } from "@/lib/admin-service";
-import {
-  INVENTORY_ROWS,
-  PRODUCT_ROWS,
-  type AdminStat,
-} from "@/lib/admin-data";
 import { ORDER_MUTABLE_STATUS_OPTIONS } from "@/lib/orders-data";
 import { updateOrderStatus } from "@/lib/order-service";
 import { FREE_DELIVERY_SETTING_KEY, DEFAULT_FREE_DELIVERY_THRESHOLD, parseFreeDeliveryConfig } from "@/lib/delivery-service";
+
+type AdminStat = {
+  label: string;
+  value: string;
+  delta: string;
+  note: string;
+  tone: "accent" | "success" | "warning" | "neutral";
+};
 
 type NavItem = {
   label: string;
@@ -438,7 +441,7 @@ function ReturnRequestsTable({
 function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { signOut, isAuthenticated, loading: authLoading, role } = useAuth();
+  const { signOut, isAuthenticated, loading: authLoading, profile, role, user } = useAuth();
   const shouldReduceMotion = useReducedMotion();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -560,7 +563,7 @@ function AdminShell({ children }: { children: ReactNode }) {
                   type="button"
                   className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-md)] text-text hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   aria-label="Notifications"
-                  onClick={() => toast({ title: "Notifications", description: "Admin notifications placeholder.", variant: "success" })}
+                  onClick={() => router.push("/admin/notifications")}
                 >
                   <Bell className="h-5 w-5" aria-hidden="true" />
                 </button>
@@ -627,12 +630,11 @@ function AdminShell({ children }: { children: ReactNode }) {
       >
         <div className="space-y-4">
           <div className="rounded-[1.2rem] border border-border/70 bg-background-secondary/35 p-4">
-            <p className="text-sm font-bold text-text">Piyush Sharma</p>
-            <p className="text-xs font-medium text-muted">Super Admin</p>
+            <p className="text-sm font-bold text-text">{profile?.full_name?.trim() || user?.email || "Admin"}</p>
+            <p className="text-xs font-medium capitalize text-muted">{role || "Admin"}</p>
           </div>
           <div className="grid gap-2">
-            <Button type="button" variant="outline" size="md">Profile Settings</Button>
-            <Button type="button" variant="outline" size="md">Notifications</Button>
+            <Button type="button" variant="outline" size="md" onClick={() => { setProfileOpen(false); router.push("/admin/notifications"); }}>Notifications</Button>
             <Button type="button" variant="danger" size="md" onClick={() => void handleLogout()}>
               Logout
             </Button>
@@ -644,6 +646,7 @@ function AdminShell({ children }: { children: ReactNode }) {
 }
 
 function DashboardAdminPage() {
+  const router = useRouter();
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
@@ -707,11 +710,7 @@ function DashboardAdminPage() {
         subtitle="Monitor sales, orders, products, customers, and the latest store activity from one premium control center."
         actions={
           <>
-            <AdminActionButton variant="outline" onClick={() => toast({ title: "Export", description: "Connect this action to an export job or CSV endpoint.", variant: "success" })}>
-              <Download className="h-4 w-4" aria-hidden="true" />
-              Export
-            </AdminActionButton>
-            <AdminActionButton variant="accent" onClick={() => toast({ title: "Open products", description: "Use the Products section to create a new catalog item.", variant: "success" })}>
+            <AdminActionButton variant="accent" onClick={() => router.push("/admin/products")}>
               <Plus className="h-4 w-4" aria-hidden="true" />
               Add Product
             </AdminActionButton>
@@ -756,17 +755,6 @@ function DashboardAdminPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-        <AdminSectionCard title="Sales Chart" description="Revenue trend placeholder for future chart integration.">
-          <div className="grid min-h-64 grid-cols-6 items-end gap-3 rounded-[1.4rem] border border-dashed border-border bg-background-secondary/25 p-4">
-            {[52, 62, 48, 76, 68, 88].map((height, index) => (
-              <div key={index} className="flex flex-col items-center gap-2">
-                <div className="w-full rounded-t-[1rem] bg-gradient-to-t from-accent to-[#fdba74]" style={{ height: `${height}%` }} />
-                <span className="text-[11px] font-semibold text-muted">W{index + 1}</span>
-              </div>
-            ))}
-          </div>
-        </AdminSectionCard>
-
         <AdminSectionCard title="Quick Actions" description="Common admin shortcuts.">
           <div className="grid gap-3">
             {quickActions.map((action) => {
@@ -870,105 +858,6 @@ function DashboardAdminPage() {
           </div>
         </AdminSectionCard>
       </div>
-    </section>
-  );
-}
-
-function ProductsAdminPage() {
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("All");
-  const [brand, setBrand] = useState("All");
-  const [category, setCategory] = useState("All");
-
-  const rows = useMemo(
-    () =>
-      PRODUCT_ROWS.filter((row) => {
-        if (search && ![row.name, row.brand, row.category].join(" ").toLowerCase().includes(search.toLowerCase())) return false;
-        if (status !== "All" && row.status !== status) return false;
-        if (brand !== "All" && row.brand !== brand) return false;
-        if (category !== "All" && row.category !== category) return false;
-        return true;
-      }),
-    [brand, category, search, status],
-  );
-
-  return (
-    <section className="space-y-6">
-      <PageHeader
-        crumbs={[{ label: "Admin", href: "/admin" }, { label: "Products" }]}
-        title="Products"
-        subtitle="Search, filter, and manage product listings with bulk actions and quick row controls."
-        actions={
-          <>
-            <AdminActionButton onClick={() => toast({ title: "Bulk action", description: "Bulk product action placeholder.", variant: "success" })}>
-              <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-              Bulk Actions
-            </AdminActionButton>
-            <AdminActionButton variant="accent" onClick={() => toast({ title: "Add product", description: "Create product flow will be connected later.", variant: "success" })}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Add Product
-            </AdminActionButton>
-          </>
-        }
-      />
-
-      <AdminSectionCard title="Search & Filters" description="Filter the catalog by status, brand, and category.">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,0.8fr))]">
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search products" aria-label="Search products" />
-          <Input value={status} onChange={(e) => setStatus(e.target.value)} placeholder="Status" aria-label="Status filter" />
-          <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Brand" aria-label="Brand filter" />
-          <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Category" aria-label="Category filter" />
-        </div>
-      </AdminSectionCard>
-
-      <AdminSectionCard title="Product Table" description="Bulk management, row actions, and pagination placeholder.">
-        <div className="overflow-hidden rounded-[1.2rem] border border-border/70">
-          <table className="min-w-full divide-y divide-border/70">
-            <thead className="bg-background-secondary/35">
-              <tr className="text-left text-xs font-bold uppercase tracking-[0.18em] text-muted">
-                <th className="px-4 py-3">Product</th>
-                <th className="px-4 py-3">Brand</th>
-                <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Stock</th>
-                <th className="px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/70 bg-white/80">
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="px-4 py-3">
-                    <div className="font-semibold text-text">{row.name}</div>
-                    <div className="text-xs text-muted">{formatPrice(row.price)}</div>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted">{row.brand}</td>
-                  <td className="px-4 py-3 text-sm text-muted">{row.category}</td>
-                  <td className="px-4 py-3">
-                    <AdminStatusBadge status={row.status} />
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted">{row.stock}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="outline" size="sm" onClick={() => toast({ title: "View product", description: row.name, variant: "success" })}><Eye className="h-4 w-4" />View</Button>
-                      <Button variant="outline" size="sm" onClick={() => toast({ title: "Edit product", description: row.name, variant: "success" })}><PenSquare className="h-4 w-4" />Edit</Button>
-                      <Button variant="outline" size="sm" onClick={() => toast({ title: "Duplicate product", description: row.name, variant: "success" })}><Copy className="h-4 w-4" />Duplicate</Button>
-                      <Button variant="danger" size="sm" onClick={() => toast({ title: "Delete placeholder", description: row.name, variant: "warning" })}><Trash2 className="h-4 w-4" />Delete</Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <p className="text-sm font-medium text-muted">{rows.length} products visible</p>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">Prev</Button>
-            <Badge variant="neutral">Page 1 of 4</Badge>
-            <Button variant="outline" size="sm">Next</Button>
-          </div>
-        </div>
-      </AdminSectionCard>
     </section>
   );
 }
@@ -4345,42 +4234,6 @@ function BannersAdminPage() {
   );
 }
 
-function InventoryAdminPage() {
-  return (
-    <section className="space-y-6">
-      <PageHeader crumbs={[{ label: "Admin", href: "/admin" }, { label: "Inventory" }]} title="Inventory" subtitle="Track stock status, low stock alerts, and quantity adjustments." />
-      <AdminSectionCard title="Inventory Table" description="Stock, low stock, and out-of-stock controls.">
-        <div className="overflow-hidden rounded-[1.2rem] border border-border/70">
-          <table className="min-w-full divide-y divide-border/70">
-            <thead className="bg-background-secondary/35">
-              <tr className="text-left text-xs font-bold uppercase tracking-[0.18em] text-muted">
-                <th className="px-4 py-3">Product</th>
-                <th className="px-4 py-3">SKU</th>
-                <th className="px-4 py-3">Stock</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Adjust</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/70 bg-white/80">
-              {INVENTORY_ROWS.map((row) => (
-                <tr key={row.id}>
-                  <td className="px-4 py-3 text-sm font-semibold text-text">{row.product}</td>
-                  <td className="px-4 py-3 text-sm text-muted">{row.sku}</td>
-                  <td className="px-4 py-3 text-sm font-semibold text-text">{row.stock}</td>
-                  <td className="px-4 py-3"><AdminStatusBadge status={row.status} /></td>
-                  <td className="px-4 py-3">
-                    <Button variant="outline" size="sm"><PenSquare className="h-4 w-4" />Adjust Quantity</Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </AdminSectionCard>
-    </section>
-  );
-}
-
 function ReportsAdminPage() {
   const [dashboard, setDashboard] = useState<AdminDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -4733,10 +4586,8 @@ export {
   CouponsAdminPage,
   CustomersAdminPage,
   DashboardAdminPage,
-  InventoryAdminPage,
   OrdersAdminPage,
   PageHeader,
-  ProductsAdminPage,
   ReportsAdminPage,
   ReviewsAdminPage,
   SettingsAdminPage,

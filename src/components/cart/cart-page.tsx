@@ -9,7 +9,6 @@ import {
   ArrowRight,
   BadgePercent,
   ChevronDown,
-  Copy,
   Heart,
   Minus,
   MoreVertical,
@@ -141,7 +140,6 @@ function CartLineItem({
   onRemove,
   onMoveToWishlist,
   onShare,
-  onSaveForLater,
   codAvailable,
   shadeName,
   shadeCode,
@@ -157,7 +155,6 @@ function CartLineItem({
   onRemove: () => void;
   onMoveToWishlist: () => void;
   onShare: () => void;
-  onSaveForLater: () => void;
   codAvailable: boolean;
   shadeName?: string;
   shadeCode?: string;
@@ -431,14 +428,6 @@ function CartLineItem({
                   >
                     <Heart className="h-4 w-4" aria-hidden="true" />
                     Move to Wishlist
-                  </button>
-                  <button
-                    type="button"
-                    className="text-text hover:bg-background-secondary flex w-full items-center gap-3 rounded-[0.9rem] px-3 py-2.5 text-sm font-medium"
-                    onClick={onSaveForLater}
-                  >
-                    <Copy className="h-4 w-4" aria-hidden="true" />
-                    Save for Later
                   </button>
                   <button
                     type="button"
@@ -1006,13 +995,6 @@ function CartPageShell() {
                     }
                     onMoveToWishlist={() => handleMoveToWishlist(item)}
                     onShare={() => handleShare(product)}
-                    onSaveForLater={() =>
-                      toast({
-                        title: "Save for later coming soon",
-                        description:
-                          "This placeholder will connect to a saved-for-later shelf later.",
-                      })
-                    }
                     codAvailable={deliveryResult.cod}
                   />
                 );
