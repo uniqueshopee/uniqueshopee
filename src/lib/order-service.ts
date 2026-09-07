@@ -115,6 +115,7 @@ type VariantRow = {
   variant_name: string;
   option_label: string | null;
   option_value: string | null;
+  mrp_override: number | string | null;
   shade_id: string | null;
   shade_code_snapshot: string | null;
   shade_name_snapshot: string | null;
@@ -372,7 +373,8 @@ function buildOrderItem(
   images: ProductImageRow[],
 ): OrderItem {
   const price = toNumber(item.unit_price);
-  const compareAtPrice = product && toNumber(product.mrp) > price ? toNumber(product.mrp) : undefined;
+  const comparePrice = toNumber(variant?.mrp_override ?? product?.mrp);
+  const compareAtPrice = comparePrice > price ? comparePrice : undefined;
   const attributes = product?.attributes ?? null;
   const hasPaintSnapshot = Boolean(
     item.shade_name_snapshot ||
@@ -522,7 +524,7 @@ async function loadOrderBundle(client: SupabaseClient, orders: OrderRow[]) {
     variantIds.length > 0
       ? client
           .from("product_variants")
-          .select("id, product_id, sku, variant_name, option_label, option_value, shade_id, shade_code_snapshot, shade_name_snapshot, color_family_snapshot, hex_color_snapshot, is_default, deleted_at")
+          .select("id, product_id, sku, variant_name, option_label, option_value, mrp_override, shade_id, shade_code_snapshot, shade_name_snapshot, color_family_snapshot, hex_color_snapshot, is_default, deleted_at")
           .in("id", variantIds)
           .is("deleted_at", null)
       : Promise.resolve({ data: [] as VariantRow[] }),

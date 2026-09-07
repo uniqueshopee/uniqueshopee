@@ -316,20 +316,20 @@ export async function loadRemoteCartItems(
   options?: { profileId?: string | null },
 ) {
   if (isQaBypassEnabled()) {
-    return getQaCartItems();
+    return { items: getQaCartItems(), error: null as string | null };
   }
 
   const resolvedClient = await getClient(client);
 
   if (!resolvedClient) {
-    return [] as CartItem[];
+    return { items: [] as CartItem[], error: "Supabase is not configured." };
   }
 
   const profileId = options?.profileId ?? null;
   if (profileId !== userId) {
     const profile = await ensureCurrentUserProfile(resolvedClient);
     if (!profile || profile.id !== userId) {
-      return [] as CartItem[];
+      return { items: [] as CartItem[], error: "Your account is still being prepared. Please try again." };
     }
   }
 
@@ -386,7 +386,15 @@ export async function loadRemoteCartItems(
     variantsResult.error ||
     inventoryResult.error
   ) {
-    return [] as CartItem[];
+    const error = [
+      cartResult.error,
+      productsResult.error,
+      brandsResult.error,
+      imagesResult.error,
+      variantsResult.error,
+      inventoryResult.error,
+    ].find(Boolean);
+    return { items: [] as CartItem[], error: error?.message ?? "Unable to load your cart." };
   }
 
   const products = (productsResult.data ?? []) as ProductRow[];
@@ -418,7 +426,7 @@ export async function loadRemoteCartItems(
     inventoryByVariantId.set(inventory.product_variant_id, list);
   }
 
-  return ((cartResult.data ?? []) as CartRow[])
+  const items = ((cartResult.data ?? []) as CartRow[])
     .map((row) => {
       const product = productById.get(row.product_id);
       if (!product || product.status !== "active" || product.deleted_at) {
@@ -496,6 +504,8 @@ export async function loadRemoteCartItems(
       } satisfies CartItem & { department: string };
     })
     .filter(Boolean) as Array<CartItem & { department: string }>;
+
+  return { items, error: null as string | null };
 }
 
 export async function replaceRemoteCartItems(

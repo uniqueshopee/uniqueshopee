@@ -30,6 +30,7 @@ import { addValidatedCartItem } from "@/lib/cart-service";
 import { cancelOrder, loadOrderById, type OrderAccessRole } from "@/lib/order-service";
 import { createReturnRequest, getReturnEligibility, loadOrderReturnRequests, type OrderReturnRequest, type ReturnPickupOption } from "@/lib/return-service";
 import { calculateCartPricing, resolveCouponCode } from "@/lib/checkout-pricing";
+import { calculateCustomerPrice } from "@/lib/pricing-engine";
 import type { ReactNode } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 
@@ -258,7 +259,7 @@ function OrderLineItem({ item }: { item: OrderItem }) {
           <p className="text-xs font-medium text-muted">{item.variant}</p>
           {item.shadeName ? <div className="mt-2 flex items-center gap-2 rounded-lg bg-background-secondary/50 p-2"><span className="h-6 w-6 shrink-0 rounded-md border border-white" style={{ backgroundColor: item.shadeHexColor || "#cbd5e1" }} aria-hidden="true" /><span className="min-w-0 text-xs font-semibold text-text">{item.shadeName} · {item.shadeCode || "No code"}<span className="block font-medium text-muted">{[item.shadeFamily, item.baseName, item.finish, item.packSize].filter(Boolean).join(" · ")}</span></span></div> : null}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-bold text-text">{formatPrice(item.price)}</span>
+            <span className="text-sm font-bold text-text">{formatPrice(calculateCustomerPrice(item.price, item.gstRate))}</span>
             <Badge variant="neutral" className="text-[10px]">
               Qty {item.quantity}
             </Badge>
@@ -536,6 +537,7 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
       liveOrder.items.map((item) => ({
         price: item.price,
         quantity: item.quantity,
+        gstRate: item.gstRate,
         compareAtPrice: item.compareAtPrice ?? null,
       })),
       resolveCouponCode(liveOrder.couponApplied ?? ""),
@@ -783,7 +785,8 @@ function OrderDetailPage({ order, roleKey }: { order: OrderRecord; roleKey: Orde
                 <h2 className="mt-2 text-xl font-bold text-text">Order summary</h2>
               </div>
               <div className="space-y-2 text-sm font-medium text-muted">
-                <Row label="Subtotal" value={formatPrice(pricing.subtotal)} />
+                <Row label="Taxable SP" value={formatPrice(pricing.taxableAmount)} />
+                <Row label="Items Total (incl. GST)" value={formatPrice(pricing.subtotal)} />
                 <Row label="Discount" value={`-${formatPrice(pricing.discount)}`} />
                 <Row label="Coupon Discount" value={pricing.couponDiscount > 0 ? `-${formatPrice(pricing.couponDiscount)}` : formatPrice(0)} />
                 <Row label="GST" value={formatPrice(pricing.gst)} />
@@ -952,7 +955,7 @@ function OrderedProductCard({
 
   return (
     <div className="space-y-2">
-      <SharedProductCard mode="order" image={item.image} href={`/product/${item.slug}`} brand={item.brand} title={item.name} subtitle={item.variant} quantity={item.quantity} price={item.price} compareAtPrice={item.compareAtPrice} shadeName={item.shadeName} shadeCode={item.shadeCode} shadeFamily={item.shadeFamily} shadeHexColor={item.shadeHexColor} returnable={returnable} returnStatus={returnStatus} onReturn={onReturn} onBuyAgain={() => void handleBuyAgain()} />
+      <SharedProductCard mode="order" image={item.image} href={`/product/${item.slug}`} brand={item.brand} title={item.name} subtitle={item.variant} quantity={item.quantity} price={item.price} gstRate={item.gstRate} compareAtPrice={item.compareAtPrice} shadeName={item.shadeName} shadeCode={item.shadeCode} shadeFamily={item.shadeFamily} shadeHexColor={item.shadeHexColor} returnable={returnable} returnStatus={returnStatus} onReturn={onReturn} onBuyAgain={() => void handleBuyAgain()} />
       {hasShade ? (
         <PaintConfiguration item={item} />
       ) : null}
@@ -987,7 +990,7 @@ function PaintConfiguration({ item }: { item: OrderItem }) {
         <p className="font-black uppercase tracking-[0.14em] text-muted">Historical pricing</p>
         <div className="mt-2 grid gap-1 sm:grid-cols-2">
           <span>SP/Base Price <b className="float-right text-text">{money(item.basePrice)}</b></span>
-          <span>Unit Price <b className="float-right text-text">{money(item.finalUnitPrice ?? item.price)}</b></span>
+           <span>Unit Price (incl. GST) <b className="float-right text-text">{money(calculateCustomerPrice(item.finalUnitPrice ?? item.price, item.gstRate))}</b></span>
           <span>Taxable Value <b className="float-right text-text">{money(item.taxableValue)}</b></span>
           <span>GST {item.gstRate ? `(${item.gstRate}%)` : ""}<b className="float-right text-text">{money(item.gstAmount)}</b></span>
           <span>Line Total <b className="float-right text-text">{money(item.lineTotal ?? item.subtotal)}</b></span>

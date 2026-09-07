@@ -31,7 +31,8 @@ import { toast } from "@/hooks/use-toast";
 import { PaintConfigurationPicker } from "./paint-configuration-picker";
 import { isPaintProduct } from "@/lib/paint-capabilities";
 import { useCartSync } from "@/components/cart/cart-sync-provider";
-import { calculatePricingLine } from "@/lib/pricing-engine";
+import { calculateCustomerPrice, calculatePricingLine } from "@/lib/pricing-engine";
+import { resolveVariantCombination } from "@/lib/variant-pricing";
 
 type ProductDetailPageProps = {
   product: Product;
@@ -105,7 +106,37 @@ function formatVariantGroup(label: string | null | undefined, fallbackIndex: num
   return value.replace(/\s+/g, " ");
 }
 
+function normalizeOptionKey(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeOptionValue(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 function buildVariantGroups(variants: ProductDetail["variants"]) {
+  const structuredOptions = variants.flatMap((variant) =>
+    Object.entries(variant.optionValues ?? {}),
+  );
+
+  if (structuredOptions.length > 0) {
+    const groups = new Map<string, VariantGroup>();
+
+    for (const variant of variants) {
+      for (const [rawLabel, rawValue] of Object.entries(variant.optionValues ?? {})) {
+        const label = formatVariantGroup(rawLabel, groups.size);
+        const key = normalizeOptionKey(label);
+        const options = groups.get(key)?.options ?? [];
+        if (!options.some((option) => normalizeOptionValue(option.value) === normalizeOptionValue(rawValue))) {
+          options.push({ ...variant, label: rawValue, value: rawValue, group: label });
+        }
+        groups.set(key, { label, options });
+      }
+    }
+
+    return Array.from(groups.values());
+  }
+
   const groups = new Map<string, ProductDetail["variants"]>();
   const namedGroups = variants.filter((variant) => Boolean(variant.group?.trim()));
 
@@ -290,32 +321,46 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
       finish: selectedFinish,
     });
   }, [selectedFinish, selectedPackSize, selectedShadeId, shadeMode, shadeVariants]);
+  const selectedGenericVariant = useMemo(() => {
+    if (shadeMode || variantGroups.length === 0) return null;
+
+    return resolveVariantCombination(detail.variants, selectedVariants);
+  }, [detail.variants, selectedVariants, shadeMode, variantGroups]);
+  const selectedProductVariant = shadeMode ? resolvedShadeVariant : selectedGenericVariant;
   const selectedShade =
     selectedShadeOverride?.id === selectedShadeId
       ? selectedShadeOverride
       : (detail.shades.find((shade) => shade.id === selectedShadeId) ?? null);
-  const selectedVariantId = resolvedShadeVariant?.id ?? "";
+  const selectedVariantId = selectedProductVariant?.id ?? "";
   const selectedPricingLine = calculatePricingLine({
-    mrp: resolvedShadeVariant?.mrp ?? product.compareAtPrice ?? product.price,
+    mrp: selectedProductVariant?.mrp ?? product.compareAtPrice ?? product.price,
     sellingPrice:
       resolvedConfigurationPrice?.final_price ??
-      resolvedShadeVariant?.basePrice ??
+      selectedProductVariant?.finalPrice ??
+      selectedProductVariant?.basePrice ??
       product.price,
-    shadeExtraPrice: resolvedConfigurationPrice?.shade_adjustment ?? 0,
+    // The RPC's final_price is already base_price + shade_adjustment.
+    // Keep the adjustment separate in the cart/order snapshot, but never add it
+    // a second time to the customer-facing detail price.
+    shadeExtraPrice: 0,
     adjustmentType: "none",
     gstRate: detail.gstRate,
     quantity: 1,
   });
-  const displayPrice = shadeMode ? selectedPricingLine.taxableLineValue : product.price;
+  const taxableDisplayPrice = selectedPricingLine.taxableLineValue;
+  const displayPrice = calculateCustomerPrice(taxableDisplayPrice, detail.gstRate);
   const compareAtPrice =
-    resolvedShadeVariant?.mrp && resolvedShadeVariant.mrp > displayPrice
-      ? resolvedShadeVariant.mrp
-      : product.compareAtPrice && product.compareAtPrice > displayPrice
+    selectedProductVariant?.mrp && selectedProductVariant.mrp > taxableDisplayPrice
+      ? selectedProductVariant.mrp
+      : product.compareAtPrice && product.compareAtPrice > taxableDisplayPrice
         ? product.compareAtPrice
         : undefined;
   const discountPercent = compareAtPrice
-    ? Math.max(1, Math.round((1 - displayPrice / compareAtPrice) * 100))
+    ? Math.max(1, Math.round((1 - taxableDisplayPrice / compareAtPrice) * 100))
     : null;
+  const customerCompareAtPrice = compareAtPrice == null
+    ? null
+    : calculateCustomerPrice(compareAtPrice, detail.gstRate);
   const selectedVariantSummary = useMemo(() => {
     if (shadeMode) {
       return [
@@ -503,7 +548,7 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
       {
         productId: product.id,
         name: product.name,
-        variantId: resolvedShadeVariant?.id,
+        variantId: selectedProductVariant?.id,
         shadeId: (selectedShadeId || resolvedShadeVariant?.shadeId) ?? undefined,
         shadeCode: selectedShade?.code ?? resolvedShadeVariant?.shadeCode ?? undefined,
         shadeName: selectedShade?.name ?? resolvedShadeVariant?.shadeName ?? undefined,
@@ -515,25 +560,25 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
           undefined,
         shadeHexColor:
           selectedShade?.hexColor ?? resolvedShadeVariant?.hexColor ?? undefined,
-        packSize: resolvedShadeVariant?.packSize ?? undefined,
-        unit: resolvedShadeVariant?.unit ?? undefined,
-        finish: resolvedShadeVariant?.finish ?? undefined,
-        price: displayPrice,
+        packSize: selectedProductVariant?.packSize ?? undefined,
+        unit: selectedProductVariant?.unit ?? undefined,
+        finish: selectedProductVariant?.finish ?? undefined,
+        price: taxableDisplayPrice,
         basePrice: resolvedConfigurationPrice?.base_price != null
           ? Number(resolvedConfigurationPrice.base_price)
-          : resolvedShadeVariant?.basePrice,
+          : selectedProductVariant?.basePrice,
         shadeExtraPrice: resolvedConfigurationPrice?.shade_adjustment != null
           ? Number(resolvedConfigurationPrice.shade_adjustment)
           : 0,
         gstRate: detail.gstRate,
         finalUnitPrice: resolvedConfigurationPrice?.final_price != null
           ? Number(resolvedConfigurationPrice.final_price)
-          : displayPrice,
+          : taxableDisplayPrice,
         image: product.image,
         slug: product.slug,
         category: product.category,
         brand: detail.brand,
-        sku: resolvedShadeVariant?.sku ?? product.sku,
+        sku: selectedProductVariant?.sku ?? product.sku,
         variant: selectedVariantSummary || undefined,
         compareAtPrice,
         inStock: product.inStock,
@@ -573,7 +618,7 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
       {
         productId: product.id,
         name: product.name,
-        variantId: resolvedShadeVariant?.id,
+        variantId: selectedProductVariant?.id,
         shadeId: (selectedShadeId || resolvedShadeVariant?.shadeId) ?? undefined,
         shadeCode: selectedShade?.code ?? resolvedShadeVariant?.shadeCode ?? undefined,
         shadeName: selectedShade?.name ?? resolvedShadeVariant?.shadeName ?? undefined,
@@ -585,25 +630,25 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
           undefined,
         shadeHexColor:
           selectedShade?.hexColor ?? resolvedShadeVariant?.hexColor ?? undefined,
-        packSize: resolvedShadeVariant?.packSize ?? undefined,
-        unit: resolvedShadeVariant?.unit ?? undefined,
-        finish: resolvedShadeVariant?.finish ?? undefined,
-        price: displayPrice,
+        packSize: selectedProductVariant?.packSize ?? undefined,
+        unit: selectedProductVariant?.unit ?? undefined,
+        finish: selectedProductVariant?.finish ?? undefined,
+        price: taxableDisplayPrice,
         basePrice: resolvedConfigurationPrice?.base_price != null
           ? Number(resolvedConfigurationPrice.base_price)
-          : resolvedShadeVariant?.basePrice,
+          : selectedProductVariant?.basePrice,
         shadeExtraPrice: resolvedConfigurationPrice?.shade_adjustment != null
           ? Number(resolvedConfigurationPrice.shade_adjustment)
           : 0,
         gstRate: detail.gstRate,
         finalUnitPrice: resolvedConfigurationPrice?.final_price != null
           ? Number(resolvedConfigurationPrice.final_price)
-          : displayPrice,
+          : taxableDisplayPrice,
         image: product.image,
         slug: product.slug,
         category: product.category,
         brand: detail.brand,
-        sku: resolvedShadeVariant?.sku ?? product.sku,
+        sku: selectedProductVariant?.sku ?? product.sku,
         variant: selectedVariantSummary || undefined,
         compareAtPrice,
         inStock: product.inStock,
@@ -842,15 +887,15 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
                   <div className="flex flex-wrap items-end gap-2.5">
                     <div className="min-w-0">
                       <p className="text-muted text-xs font-semibold tracking-[0.22em] uppercase">
-                        Selling Price
+                        Price incl. GST
                       </p>
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <span className="text-text text-[2rem] leading-none font-bold">
                           {formatPrice(displayPrice)}
                         </span>
-                        {compareAtPrice && (
+                        {customerCompareAtPrice && (
                           <span className="text-muted text-sm font-medium line-through">
-                            {formatPrice(compareAtPrice)}
+                            {formatPrice(customerCompareAtPrice)}
                           </span>
                         )}
                       </div>
@@ -1082,24 +1127,30 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
                         </div>
                         <div className="mt-3 grid gap-2 text-sm">
                           <div className="flex items-center justify-between">
-                            <span className="text-muted font-medium">Base price</span>
+                            <span className="text-muted font-medium">Base price (before GST)</span>
                             <span className="text-text font-bold">
                               {formatPrice(
-                                resolvedShadeVariant?.basePrice ?? product.price,
+                                resolvedConfigurationPrice?.base_price != null
+                                  ? Number(resolvedConfigurationPrice?.base_price)
+                                  : selectedProductVariant?.basePrice ?? product.price,
                               )}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="text-muted font-medium">
-                              Shade adjustment
+                              Shade adjustment (before GST)
                             </span>
                             <span className="text-text font-bold">
-                              + {formatPrice(resolvedShadeVariant?.shadeExtraPrice ?? 0)}
+                              + {formatPrice(
+                                resolvedConfigurationPrice?.shade_adjustment != null
+                                  ? Number(resolvedConfigurationPrice?.shade_adjustment)
+                                  : selectedProductVariant?.shadeExtraPrice ?? 0,
+                              )}
                             </span>
                           </div>
                           <div className="border-border/60 border-t pt-2.5">
                             <div className="flex items-center justify-between">
-                              <span className="text-text font-semibold">Final price</span>
+                              <span className="text-text font-semibold">Final price (incl. GST)</span>
                               <span className="text-text text-lg font-black">
                                 {formatPrice(displayPrice)}
                               </span>
@@ -1351,9 +1402,9 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
                     <span className="text-text text-[1.05rem] font-bold">
                       {formatPrice(displayPrice)}
                     </span>
-                    {compareAtPrice && (
+                    {customerCompareAtPrice && (
                       <span className="text-muted text-xs font-medium line-through">
-                        {formatPrice(compareAtPrice)}
+                        {formatPrice(customerCompareAtPrice)}
                       </span>
                     )}
                   </div>

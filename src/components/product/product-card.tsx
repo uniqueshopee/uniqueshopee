@@ -11,6 +11,7 @@ import { cn, formatPrice } from "@/lib/utils";
 import { buildLoginRedirectPath } from "@/lib/auth";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { addValidatedCartItem } from "@/lib/cart-service";
+import { calculateCustomerPrice } from "@/lib/pricing-engine";
 
 function ProductCard({ product }: { product: Product }) {
   const router = useRouter();
@@ -21,6 +22,8 @@ function ProductCard({ product }: { product: Product }) {
   const isOutOfStock = !product.inStock || (product.stockCount ?? 0) <= 0;
   const loginRedirect = buildLoginRedirectPath(pathname);
   const exclusivePercent = product.exclusiveOfferPercent ?? (product.badge === "exclusive" ? Math.round(Math.max(((product.compareAtPrice ?? product.price) - product.price) / Math.max(product.compareAtPrice ?? product.price, 1) * 100, 0)) : 0);
+  const customerPrice = calculateCustomerPrice(product.price, product.gstRate ?? 18);
+  const customerMrp = product.compareAtPrice == null ? null : calculateCustomerPrice(product.compareAtPrice, product.gstRate ?? 18);
 
   async function handleAddToCart() {
     if (isOutOfStock) {
@@ -37,6 +40,7 @@ function ProductCard({ product }: { product: Product }) {
         productId: product.id,
         name: product.name,
         price: product.price,
+        gstRate: product.gstRate,
         image: product.image,
         slug: product.slug,
         category: product.category,
@@ -114,10 +118,10 @@ function ProductCard({ product }: { product: Product }) {
             ) : null}
 
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span className="text-[14px] font-bold text-text sm:text-[15px]">{formatPrice(product.price)}</span>
-              {product.compareAtPrice && (
+              <span className="text-[14px] font-bold text-text sm:text-[15px]">{formatPrice(customerPrice)}</span>
+              {customerMrp && (
                 <span className="text-[11px] font-medium text-muted line-through sm:text-xs">
-                  {formatPrice(product.compareAtPrice)}
+                  {formatPrice(customerMrp)}
                 </span>
               )}
             </div>

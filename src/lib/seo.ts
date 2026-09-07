@@ -3,6 +3,7 @@ import type { Product } from "@/types";
 import type { ProductDetail } from "@/lib/catalog";
 import { readEnvironmentValue } from "@/lib/environment";
 import { SITE_NAME } from "@/lib/constants";
+import { calculateCustomerPrice } from "@/lib/pricing-engine";
 
 const DEFAULT_SITE_URL = "https://uniqueshopee.com";
 const DEFAULT_OG_IMAGE_PATH = "/images/seo/og-default.svg";
@@ -147,7 +148,7 @@ export function productJsonLd({
   const offers = {
     "@type": "Offer",
     priceCurrency: "INR",
-    price: product.price,
+    price: calculateCustomerPrice(product.price, product.gstRate ?? detail.gstRate),
     availability: product.inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
     url: absoluteUrl(pathname),
   };

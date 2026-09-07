@@ -30,6 +30,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { Modal } from "@/components/ui/modal";
 import { cn, formatPrice } from "@/lib/utils";
+import { calculateCustomerPrice } from "@/lib/pricing-engine";
 
 type CatalogProduct = Product & {
   brand: string;
@@ -41,6 +42,12 @@ type AvailabilityFilter = "all" | "in-stock" | "out-of-stock";
 type SortMode = "featured" | "price-asc" | "price-desc" | "rating-desc" | "newest";
 type ViewMode = "grid" | "list";
 type BadgeVariant = "accent" | "neutral" | "success" | "warning" | "danger";
+
+const CUSTOMER_FILTER_GST_RATE = 18;
+
+function customerFilterPrice(value: number) {
+  return calculateCustomerPrice(value, CUSTOMER_FILTER_GST_RATE);
+}
 
 const PAGE_SIZE = 4;
 
@@ -317,7 +324,7 @@ function CategoryLandingPage({
 
   const filterSummary = [
     selectedBrands.length > 0 ? `${selectedBrands.length} brand${selectedBrands.length > 1 ? "s" : ""}` : null,
-    priceCap < maxPrice ? `Under ${formatPrice(priceCap)}` : null,
+    priceCap < maxPrice ? `Under ${formatPrice(customerFilterPrice(priceCap))}` : null,
     availability !== "all" ? availability.replace("-", " ") : null,
     discountOnly ? "Discounted" : null,
   ].filter(Boolean) as string[];
@@ -907,7 +914,7 @@ function FilterContent({
 
       <FilterGroup
         title="Price range"
-        action={<span className="text-xs font-semibold text-muted">{formatPrice(priceCap)}</span>}
+        action={<span className="text-xs font-semibold text-muted">{formatPrice(customerFilterPrice(priceCap))}</span>}
       >
         <div className="space-y-3">
           <input
@@ -920,8 +927,8 @@ function FilterContent({
             className="h-2 w-full cursor-pointer appearance-none rounded-full bg-background-secondary accent-[color:var(--color-accent)]"
           />
           <div className="flex items-center justify-between text-xs font-semibold text-muted">
-            <span>{formatPrice(minPrice)}</span>
-            <span>{formatPrice(priceCap)}</span>
+            <span>{formatPrice(customerFilterPrice(minPrice))}</span>
+            <span>{formatPrice(customerFilterPrice(priceCap))}</span>
           </div>
         </div>
       </FilterGroup>

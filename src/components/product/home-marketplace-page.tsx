@@ -27,6 +27,7 @@ import { SearchBar } from "@/components/layout/navbar/search-bar";
 import { buildLoginRedirectPath } from "@/lib/auth";
 import { loadUserAddresses, type CheckoutAddress } from "@/lib/address-service";
 import { cn, formatPrice } from "@/lib/utils";
+import { calculateCustomerPrice } from "@/lib/pricing-engine";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { addValidatedCartItem } from "@/lib/cart-service";
 import { NotificationBell } from "@/components/notifications/notification-bell";
@@ -39,6 +40,7 @@ type HomeProduct = {
   image: string;
   href: string;
   price: number;
+  gstRate?: number;
   compareAtPrice?: number;
   rating?: number;
   reviewCount?: number;
@@ -98,6 +100,7 @@ function toHomeProduct(product: CatalogProduct, badge: HomeProduct["badge"] = pr
     image: product.primaryImageUrl || product.image,
     href: `/product/${product.slug}`,
     price: product.price,
+    gstRate: product.gstRate,
     compareAtPrice: product.compareAtPrice,
     rating: product.rating,
     reviewCount: product.reviewCount,
@@ -140,6 +143,8 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
     product.compareAtPrice && product.compareAtPrice > product.price
       ? Math.round(((product.compareAtPrice - product.price) / product.compareAtPrice) * 100)
       : null;
+  const customerPrice = calculateCustomerPrice(product.price, product.gstRate ?? 18);
+  const customerMrp = product.compareAtPrice == null ? null : calculateCustomerPrice(product.compareAtPrice, product.gstRate ?? 18);
 
   const handleAdd = async () => {
     if (isOutOfStock) {
@@ -156,6 +161,7 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
         productId: product.id,
         name: product.title,
         price: product.price,
+        gstRate: product.gstRate,
         image: product.image,
         slug: product.href.replace("/product/", ""),
         category: product.subtitle,
@@ -230,10 +236,10 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
               <div className="mt-4 flex items-end gap-2">
                 {product.compareAtPrice && product.compareAtPrice > product.price ? (
                   <span className="text-[0.95rem] font-semibold text-muted line-through">
-                    {formatPrice(product.compareAtPrice)}
+                    {formatPrice(customerMrp ?? product.compareAtPrice)}
                   </span>
                 ) : null}
-                <span className="text-[1.05rem] font-black text-text">{formatPrice(product.price)}</span>
+                <span className="text-[1.05rem] font-black text-text">{formatPrice(customerPrice)}</span>
               </div>
             </div>
           </Link>

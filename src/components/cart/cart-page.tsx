@@ -36,6 +36,7 @@ import { useCartStore } from "@/store/cart-store";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { toast } from "@/hooks/use-toast";
 import { buildCartItemKey } from "@/lib/variant-pricing";
+import { calculateCustomerPrice } from "@/lib/pricing-engine";
 import { checkDeliveryPincode, getConfiguredShippingAmount, getResolvedCartTaxableAmount, INVALID_PINCODE_MESSAGE, loadFreeDeliveryConfig, UNAVAILABLE_PINCODE_MESSAGE, type FreeDeliveryConfig } from "@/lib/delivery-service";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -164,6 +165,8 @@ function CartLineItem({
   const savePercent = getSavePercent(product);
   const variants = getVariantOptions(product.category);
   const originalPrice = product.compareAtPrice ?? product.price;
+  const customerPrice = calculateCustomerPrice(product.price, product.gstRate ?? 18);
+  const customerOriginalPrice = calculateCustomerPrice(originalPrice, product.gstRate ?? 18);
   const stockCount = product.stockCount ?? 0;
   const lowStockThreshold = product.lowStockThreshold ?? 10;
   const stockLabel =
@@ -210,10 +213,10 @@ function CartLineItem({
           ) : null}
 
           <div className="flex items-baseline gap-1.5">
-            <p className="text-text text-sm font-bold">{formatPrice(product.price)}</p>
+            <p className="text-text text-sm font-bold">{formatPrice(customerPrice)}</p>
             {originalPrice > product.price && (
               <span className="text-muted text-[11px] font-medium line-through">
-                {formatPrice(originalPrice)}
+                {formatPrice(customerOriginalPrice)}
               </span>
             )}
           </div>
@@ -323,12 +326,12 @@ function CartLineItem({
 
               <div className="shrink-0 text-right">
                 <p className="text-text text-lg font-bold sm:text-xl">
-                  {formatPrice(product.price)}
+                  {formatPrice(customerPrice)}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
                   {originalPrice > product.price && (
                     <span className="text-muted text-xs font-medium line-through">
-                      {formatPrice(originalPrice)}
+                      {formatPrice(customerOriginalPrice)}
                     </span>
                   )}
                   {savePercent && (
@@ -478,6 +481,7 @@ function SummaryRow({
 
 function OrderSummaryCard({
   subtotal,
+  taxableAmount,
   discount,
   gst,
   shipping,
@@ -487,6 +491,7 @@ function OrderSummaryCard({
   onProceed,
 }: {
   subtotal: number;
+  taxableAmount: number;
   discount: number;
   gst: number;
   shipping: number | null;
@@ -503,7 +508,8 @@ function OrderSummaryCard({
       </div>
 
       <div className="space-y-2.5">
-        <SummaryRow label="Subtotal" value={formatPrice(subtotal)} />
+        <SummaryRow label="Taxable SP" value={formatPrice(taxableAmount)} />
+        <SummaryRow label="Items Total (incl. GST)" value={formatPrice(subtotal)} />
         <SummaryRow label="Discount" value={`- ${formatPrice(discount)}`} />
         <SummaryRow
           label="Shipping"
@@ -625,6 +631,7 @@ function CartPageShell() {
           id: item.productId,
           name: item.name,
           price: item.finalUnitPrice ?? item.price,
+          gstRate: item.gstRate,
           image: item.image || "/images/placeholders/department-plumbing.svg",
           category: item.category ?? "",
           compareAtPrice: item.compareAtPrice,
@@ -1085,6 +1092,7 @@ function CartPageShell() {
               <div className="hidden lg:sticky lg:top-24 lg:block">
                 <OrderSummaryCard
                   subtotal={displayPricing.subtotal}
+                  taxableAmount={displayPricing.taxableAmount}
                   discount={displayPricing.discount}
                   gst={displayPricing.gst}
                   shipping={displayPricing.shipping}
@@ -1109,6 +1117,7 @@ function CartPageShell() {
                 <div className="mt-4">
                   <OrderSummaryCard
                     subtotal={displayPricing.subtotal}
+                    taxableAmount={displayPricing.taxableAmount}
                     discount={displayPricing.discount}
                     gst={displayPricing.gst}
                     shipping={displayPricing.shipping}

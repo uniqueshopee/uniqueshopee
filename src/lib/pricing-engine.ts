@@ -76,6 +76,15 @@ export function calculatePricingLine(
   };
 }
 
+/** Convert a taxable, pre-GST unit price to a customer-facing price. */
+export function calculateCustomerPrice(
+  sellingPrice: number | string | null | undefined,
+  gstRate: number | string | null | undefined,
+  quantity = 1,
+) {
+  return calculatePricingLine({ sellingPrice, gstRate, quantity }).lineTotal;
+}
+
 export function calculateCanonicalCart(
   lines: CanonicalPricingLineInput[],
   options?: { deliveryAmount?: number; couponDiscount?: number },

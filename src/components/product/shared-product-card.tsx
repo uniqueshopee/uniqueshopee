@@ -7,6 +7,7 @@ import { Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatPrice } from "@/lib/utils";
+import { calculateCustomerPrice } from "@/lib/pricing-engine";
 
 type SharedProductCardProps = {
   image: string;
@@ -16,6 +17,7 @@ type SharedProductCardProps = {
   subtitle?: string;
   quantity: number;
   price: number;
+  gstRate?: number | null;
   compareAtPrice?: number | null;
   shadeName?: string;
   shadeCode?: string;
@@ -39,6 +41,7 @@ function SharedProductCard({
   subtitle,
   quantity,
   price,
+  gstRate,
   compareAtPrice: _compareAtPrice,
   shadeName,
   shadeCode,
@@ -54,6 +57,8 @@ function SharedProductCard({
 }: SharedProductCardProps) {
   const [shadeOpen, setShadeOpen] = useState(false);
   const hasShade = Boolean(shadeName || shadeCode || shadeFamily || shadeHexColor);
+  const customerUnitPrice = calculateCustomerPrice(price, gstRate ?? 18);
+  const customerLineTotal = calculateCustomerPrice(price, gstRate ?? 18, quantity);
 
   return (
     <div className="overflow-hidden rounded-[1.1rem] border border-border/70 bg-white/96 shadow-[var(--shadow-sm)]">
@@ -117,7 +122,7 @@ function SharedProductCard({
           ) : null}
           {mode === "checkout" ? (
             <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-muted">
-              <span className="font-semibold text-text">{formatPrice(price * quantity)}</span>
+              <span className="font-semibold text-text">{formatPrice(customerLineTotal)}</span>
             </div>
           ) : null}
         </div>
@@ -144,7 +149,7 @@ function SharedProductCard({
                 <Plus className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
-            <span className="text-[1rem] font-black leading-none text-text">{formatPrice(price * quantity)}</span>
+            <span className="text-[1rem] font-black leading-none text-text">{formatPrice(customerLineTotal)}</span>
             {onRemove ? (
               <Button
                 type="button"
@@ -160,7 +165,7 @@ function SharedProductCard({
           </div>
         ) : (
           <div className="col-span-2 flex flex-row flex-wrap items-center justify-between gap-2 sm:col-span-1 sm:flex-col sm:items-end">
-            <span className="text-[0.92rem] font-black leading-none text-text sm:text-[1rem]">{formatPrice(price)}</span>
+            <span className="text-[0.92rem] font-black leading-none text-text sm:text-[1rem]">{formatPrice(customerUnitPrice)}</span>
             <Badge variant="neutral" className="rounded-full px-2.5 py-1 text-[9px] sm:text-[10px]">
               Qty {quantity}
             </Badge>

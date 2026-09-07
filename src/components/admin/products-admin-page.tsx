@@ -154,6 +154,7 @@ type ProductVariantDraft = {
   optionValue: string;
   sku: string;
   price: string;
+  mrp: string;
   stock: string;
   imageUrl: string;
   active: boolean;
@@ -425,6 +426,7 @@ function createVariantDraft(seed?: Partial<ProductVariantDraft>): ProductVariant
     optionValue: seed?.optionValue ?? "",
     sku: seed?.sku ?? "",
     price: seed?.price ?? "",
+    mrp: seed?.mrp ?? "",
     stock: seed?.stock ?? "",
     imageUrl: seed?.imageUrl ?? "",
     active: seed?.active ?? true,
@@ -499,6 +501,7 @@ function buildProductFormFromSummary(
         optionValue: variant.option_value ?? "",
         sku: variant.sku,
         price: String(variant.selling_price_override ?? ""),
+        mrp: String(variant.mrp_override ?? ""),
         stock: String(inventory?.current_quantity ?? 0),
         imageUrl:
           typeof variant.variant_options?.image_url === "string"
@@ -1628,6 +1631,18 @@ function ProductsAdminPage() {
     if (form.images.length > 4) errors.images = "Maximum 4 images allowed";
     if (stock < 0 || reserved < 0 || threshold < 0)
       errors.stockQuantity = "Stock values must be zero or higher";
+    if (form.showVariants) {
+      form.variants.forEach((variant, index) => {
+        const variantSellingPrice = parseNumber(
+          variant.basePrice || variant.price || form.sellingPrice,
+        );
+        const variantMrp = parseNumber(variant.mrp);
+        if (variant.mrp.trim() && variantMrp < variantSellingPrice) {
+          errors[`variant_${index}_mrp`] =
+            "Variant MRP must be greater than or equal to selling price";
+        }
+      });
+    }
     if (isPaintProduct && form.showVariants) {
       const variants =
         form.variants.length > 0
@@ -1648,6 +1663,7 @@ function ProductsAdminPage() {
         const unit = variant.unit.trim();
         const packSize = parseNumber(variant.packSize);
         const basePrice = parseNumber(variant.basePrice || variant.price);
+        const variantMrp = parseNumber(variant.mrp);
         const variantStock = parseNumber(variant.stock);
         if (!finish) errors[`variant_${index}_finish`] = "Finish is required";
         if (!variant.packSize.trim() || packSize <= 0)
@@ -1656,6 +1672,8 @@ function ProductsAdminPage() {
           errors[`variant_${index}_unit`] = "Choose L, ml, kg, or g";
         if (basePrice < 0)
           errors[`variant_${index}_basePrice`] = "Base price must be zero or higher";
+        if (variant.mrp.trim() && variantMrp < basePrice)
+          errors[`variant_${index}_mrp`] = "Variant MRP must be greater than or equal to selling price";
         if (variantStock < 0)
           errors[`variant_${index}_stock`] = "Stock must be zero or higher";
         const key = `${finish}|${variant.packSize.trim()}|${unit}`;
@@ -1759,7 +1777,7 @@ function ProductsAdminPage() {
           option_label: variant.optionLabel.trim() || null,
           option_value: variant.optionValue.trim() || null,
           variant_options: variantOptions,
-          mrp_override: null,
+          mrp_override: variant.mrp.trim() ? parseNumber(variant.mrp) : null,
           selling_price_override: basePrice,
           pack_size: isPaintProduct ? variant.packSize.trim() || null : null,
           unit: isPaintProduct ? variant.unit.trim() || null : null,
@@ -3417,6 +3435,31 @@ function ProductsAdminPage() {
                                 placeholder="0"
                               />
                             </FormField>
+                            <FormField
+                              label="MRP"
+                              htmlFor={`variant-${index}-mrp`}
+                              error={formErrors[`variant_${index}_mrp`]}
+                              hint="Optional; falls back to product MRP when blank"
+                            >
+                              <Input
+                                id={`variant-${index}-mrp`}
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={variant.mrp}
+                                onChange={(event) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    variants: current.variants.map((item) =>
+                                      item.id === variant.id
+                                        ? { ...item, mrp: cleanNumberInput(event.target.value) }
+                                        : item,
+                                    ),
+                                  }))
+                                }
+                                placeholder="Product MRP fallback"
+                              />
+                            </FormField>
                             <FormField label="SKU">
                               <Input
                                 value={variant.sku}
@@ -3532,6 +3575,28 @@ function ProductsAdminPage() {
                               }
                               placeholder="Price"
                             />
+                            <FormField
+                              label="MRP"
+                              htmlFor={`variant-${index}-mrp`}
+                              error={formErrors[`variant_${index}_mrp`]}
+                              hint="Optional; falls back to product MRP when blank"
+                            >
+                              <Input
+                                id={`variant-${index}-mrp`}
+                                value={variant.mrp}
+                                onChange={(event) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    variants: current.variants.map((item) =>
+                                      item.id === variant.id
+                                        ? { ...item, mrp: cleanNumberInput(event.target.value) }
+                                        : item,
+                                    ),
+                                  }))
+                                }
+                                placeholder="Product MRP fallback"
+                              />
+                            </FormField>
                             <Input
                               value={variant.stock}
                               onChange={(event) =>

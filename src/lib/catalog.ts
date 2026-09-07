@@ -112,6 +112,38 @@ type ProductVariantRow = {
   deleted_at: string | null;
 };
 
+function readVariantOptionValues(variant: ProductVariantRow) {
+  const values: Record<string, string> = {};
+  const normalizedKey = (key: string) => key.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const setValue = (key: string, value: string) => {
+    const existingKey = Object.keys(values).find((item) => normalizedKey(item) === normalizedKey(key));
+    values[existingKey ?? key.trim()] = value;
+  };
+  const addValues = (record: JsonRecord | null | undefined) => {
+    if (!record) return;
+    for (const [key, value] of Object.entries(record)) {
+      if (key === "image_url" || typeof value === "object" || value == null) continue;
+      const text = String(value).trim();
+      if (text) setValue(key, text);
+    }
+  };
+
+  const nestedOptions = variant.variant_options?.options;
+  if (nestedOptions && typeof nestedOptions === "object" && !Array.isArray(nestedOptions)) {
+    addValues(nestedOptions as JsonRecord);
+  }
+  addValues(variant.variant_options);
+
+  if (variant.option_label?.trim() && variant.option_value?.trim()) {
+    const label = variant.option_label.trim();
+    const existingKey = Object.keys(values).find((item) => normalizedKey(item) === normalizedKey(label));
+    if (existingKey && existingKey !== label) delete values[existingKey];
+    values[label] = variant.option_value.trim();
+  }
+
+  return values;
+}
+
 type ShadeRow = {
   id: string;
   brand_id: string | null;
@@ -493,6 +525,7 @@ type ProductVariant = {
   label: string;
   value: string;
   group: string | null;
+  optionValues?: Record<string, string>;
   isDefault: boolean;
   shadeId?: string | null;
   shadeCode?: string | null;
@@ -826,6 +859,7 @@ function buildProductFromRow(
     name: row.name,
     slug: row.slug,
     price,
+    gstRate: toNumber(row.gst_rate, 18),
     compareAtPrice,
     image: primaryImageUrl,
     category: category.name,
@@ -856,7 +890,6 @@ function buildProductFromRow(
     brandName: brand.name,
     description: row.description ?? "",
     shortDescription: row.short_description ?? "",
-    gstRate: toNumber(row.gst_rate, 18),
     specification: row.specification,
     attributes: row.attributes,
     status: row.status,
@@ -1797,6 +1830,7 @@ export async function getLiveProductBySlug(slug: string) {
                 label,
                 value: variant.id,
                 group: variant.shade_id ? "Shade" : variant.option_label?.trim() || null,
+                optionValues: readVariantOptionValues(variant),
                 isDefault: variant.is_default,
                 shadeId: variant.shade_id,
                 shadeCode: shade?.shade_code ?? variant.shade_code_snapshot ?? null,

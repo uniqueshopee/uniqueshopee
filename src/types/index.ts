@@ -4,6 +4,7 @@ export interface Product {
   slug: string;
   sku?: string;
   price: number;
+  gstRate?: number;
   compareAtPrice?: number;
   image: string;
   category: string;

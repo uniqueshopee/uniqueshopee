@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn, formatPrice } from "@/lib/utils";
+import { calculateCustomerPrice } from "@/lib/pricing-engine";
 import {
   POPULAR_SEARCHES,
   RECENT_SEARCHES,
@@ -46,6 +47,12 @@ import {
 type ViewMode = "grid" | "list";
 type ProductSortMode = "relevance" | "featured" | "price-asc" | "price-desc" | "rating-desc" | "newest";
 type CatalogSortMode = "az" | "za";
+
+const CUSTOMER_FILTER_GST_RATE = 18;
+
+function customerFilterPrice(value: number) {
+  return calculateCustomerPrice(value, CUSTOMER_FILTER_GST_RATE);
+}
 type AvailabilityFilter = "all" | "in-stock" | "out-of-stock";
 
 type SearchExperienceProps = {
@@ -799,7 +806,7 @@ function SearchFilters({
               <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
                 Price cap
               </h4>
-              <span className="text-xs font-semibold text-text">{formatPrice(priceCap)}</span>
+              <span className="text-xs font-semibold text-text">{formatPrice(customerFilterPrice(priceCap))}</span>
             </div>
             <input
               type="range"
@@ -811,8 +818,8 @@ function SearchFilters({
               className="h-2 w-full cursor-pointer appearance-none rounded-full bg-background-secondary accent-[color:var(--color-accent)]"
             />
             <div className="flex items-center justify-between text-xs font-medium text-muted">
-              <span>{formatPrice(minPrice)}</span>
-              <span>{formatPrice(maxPrice)}</span>
+              <span>{formatPrice(customerFilterPrice(minPrice))}</span>
+              <span>{formatPrice(customerFilterPrice(maxPrice))}</span>
             </div>
           </section>
 
