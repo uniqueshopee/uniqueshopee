@@ -1,7 +1,5 @@
 "use client";
 
-import { readEnvironmentValue } from "@/lib/environment";
-
 const RAZORPAY_SCRIPT_ID = "razorpay-checkout-js";
 const RAZORPAY_SCRIPT_URL = "https://checkout.razorpay.com/v1/checkout.js";
 
@@ -53,7 +51,7 @@ export type RazorpayWindow = Window & {
 let razorpayScriptPromise: Promise<void> | null = null;
 
 export function getRazorpayKeyId() {
-  return readEnvironmentValue("NEXT_PUBLIC_RAZORPAY_KEY_ID");
+  return process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID?.trim() || null;
 }
 
 export function formatRazorpayContact(phone: string | null | undefined) {

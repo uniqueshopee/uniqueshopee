@@ -834,17 +834,32 @@ function buildProductFromRow(
     images[0]?.image_url ??
     row.og_image_url ??
     DEFAULT_PRODUCT_IMAGE;
-  const variantBasePrices = variants
-    .map((variant) =>
-      toNumber(variant.base_price ?? variant.selling_price_override ?? row.selling_price),
+  const displayVariants = variants
+    .filter(
+      (variant) =>
+        toBoolean(variant.is_active, true) &&
+        toBoolean(variant.is_available, true) &&
+        (lookups.inventoriesByVariantId.get(variant.id) ?? []).some(
+          (inventory) =>
+            inventory.deleted_at === null &&
+            toNumber(inventory.current_quantity) > 0,
+        ) &&
+        variant.mrp_override !== null &&
+        toNumber(variant.mrp_override) >= 0,
     )
-    .filter((value) => value >= 0);
-  const price =
-    variantBasePrices.length > 0
-      ? Math.min(...variantBasePrices)
-      : toNumber(row.selling_price);
-  const mrp = toNumber(row.mrp);
-  const compareAtPrice = mrp > price ? mrp : undefined;
+    .map((variant) => ({
+      variant,
+      sellingPrice: toNumber(
+        variant.base_price ?? variant.selling_price_override ?? row.selling_price,
+      ),
+      mrp: toNumber(variant.mrp_override),
+    }))
+    .filter(({ sellingPrice, mrp }) => sellingPrice >= 0 && mrp >= 0)
+    .sort((left, right) => left.sellingPrice - right.sellingPrice);
+  const cheapestVariant = displayVariants[0];
+  const price = cheapestVariant?.sellingPrice ?? toNumber(row.selling_price);
+  const compareAtPrice =
+    cheapestVariant && cheapestVariant.mrp > price ? cheapestVariant.mrp : undefined;
   const isNew =
     new Date(row.created_at).getTime() > Date.now() - 1000 * 60 * 60 * 24 * 45;
   const exclusiveOffer = buildProductExclusiveOffer(row.attributes);
@@ -859,6 +874,7 @@ function buildProductFromRow(
     name: row.name,
     slug: row.slug,
     price,
+    cheapestVariantId: cheapestVariant?.variant.id,
     gstRate: toNumber(row.gst_rate, 18),
     compareAtPrice,
     image: primaryImageUrl,
@@ -1847,9 +1863,10 @@ export async function getLiveProductBySlug(slug: string) {
                 // and adjustment fields so shade/group pricing is reflected
                 // immediately on the customer product page.
                 finalPrice: price.finalPrice,
-                mrp: toNumber(
-                  variant.mrp_override ?? product.compareAtPrice ?? product.price,
-                ),
+                mrp:
+                  variant.mrp_override === null
+                    ? undefined
+                    : toNumber(variant.mrp_override),
                 sku: variant.sku,
                 stock: Math.max(
                   0,

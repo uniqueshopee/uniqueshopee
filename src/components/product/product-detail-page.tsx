@@ -192,10 +192,15 @@ function findShadeVariant(
   );
 }
 
-function buildDefaultSelections(groups: VariantGroup[]) {
+function buildDefaultSelections(
+  groups: VariantGroup[],
+  preferredVariantId?: string,
+) {
   return groups.reduce<Record<string, string>>((accumulator, group) => {
     const defaultOption =
-      group.options.find((option) => option.isDefault) ?? group.options[0];
+      group.options.find((option) => option.id === preferredVariantId) ??
+      group.options.find((option) => option.isDefault) ??
+      group.options[0];
 
     accumulator[group.label] = defaultOption?.value ?? "";
 
@@ -203,8 +208,12 @@ function buildDefaultSelections(groups: VariantGroup[]) {
   }, {});
 }
 
-function syncSelections(current: Record<string, string>, groups: VariantGroup[]) {
-  const next = buildDefaultSelections(groups);
+function syncSelections(
+  current: Record<string, string>,
+  groups: VariantGroup[],
+  preferredVariantId?: string,
+) {
+  const next = buildDefaultSelections(groups, preferredVariantId);
   let changed = Object.keys(current).length !== Object.keys(next).length;
 
   for (const group of groups) {
@@ -332,8 +341,10 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
       ? selectedShadeOverride
       : (detail.shades.find((shade) => shade.id === selectedShadeId) ?? null);
   const selectedVariantId = selectedProductVariant?.id ?? "";
+  const fallbackProductMrp =
+    detail.variants.length === 0 ? product.compareAtPrice ?? product.price : 0;
   const selectedPricingLine = calculatePricingLine({
-    mrp: selectedProductVariant?.mrp ?? product.compareAtPrice ?? product.price,
+    mrp: selectedProductVariant?.mrp ?? fallbackProductMrp,
     sellingPrice:
       resolvedConfigurationPrice?.final_price ??
       selectedProductVariant?.finalPrice ??
@@ -352,7 +363,10 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
   const compareAtPrice =
     selectedProductVariant?.mrp && selectedProductVariant.mrp > taxableDisplayPrice
       ? selectedProductVariant.mrp
-      : product.compareAtPrice && product.compareAtPrice > taxableDisplayPrice
+      : !selectedProductVariant &&
+          detail.variants.length === 0 &&
+          product.compareAtPrice &&
+          product.compareAtPrice > taxableDisplayPrice
         ? product.compareAtPrice
         : undefined;
   const discountPercent = compareAtPrice
@@ -393,8 +407,10 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
   const visibleRelatedProducts = relatedProducts.slice(0, 4);
 
   useEffect(() => {
-    setSelectedVariants((current) => syncSelections(current, variantGroups));
-  }, [variantGroups]);
+    setSelectedVariants((current) =>
+      syncSelections(current, variantGroups, product.cheapestVariantId),
+    );
+  }, [product.cheapestVariantId, variantGroups]);
 
   useEffect(() => {
     if (!shadeMode || !selectedVariantId) {
@@ -432,12 +448,15 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
     }
 
     const defaultVariant =
-      shadeVariants.find((variant) => variant.isDefault) ?? shadeVariants[0] ?? null;
+      shadeVariants.find((variant) => variant.id === product.cheapestVariantId) ??
+      shadeVariants.find((variant) => variant.isDefault) ??
+      shadeVariants[0] ??
+      null;
     const defaultShadeId = defaultVariant?.shadeId ?? detail.shades[0]?.id ?? "";
     setSelectedShadeId((current) => current || defaultShadeId);
     setSelectedPackSize((current) => current || defaultVariant?.packSize || "");
     setSelectedFinish((current) => current || defaultVariant?.finish || "");
-  }, [detail.shades, shadeMode, shadeVariants]);
+  }, [detail.shades, product.cheapestVariantId, shadeMode, shadeVariants]);
 
   useEffect(() => {
     if (selectedShadeOverride && selectedShadeOverride.id !== selectedShadeId)

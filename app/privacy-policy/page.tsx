@@ -30,7 +30,7 @@ const SECTIONS: PolicySection[] = [
     bullets: [
       "Account and identity details such as your name, email address, phone number, account ID, profile status, and internal account role. Authentication is provided through Supabase; the app does not expose your password to us in readable form.",
       "Shopping and service information such as cart and wishlist items, saved addresses, delivery PIN code, order items, selected product options, coupon usage, reviews, consultations, support tickets, notifications, and return-related information.",
-      "Payment and checkout information such as amount, currency, payment method, order identifiers, payment status, and the identifiers/signature data needed to verify a Razorpay payment. We do not claim to store card numbers, CVV, UPI credentials, or bank passwords.",
+      "Payment and checkout information such as amount, currency, payment method, order identifiers, payment status, and the verification metadata needed to confirm a Cashfree payment. We do not claim to store card numbers, CVV, UPI credentials, or bank passwords.",
       "Tool information such as paint-calculator values and room-visualizer selections. A room image selected for the visualizer is used for the in-session preview; the website uses a temporary browser object URL and does not upload that image through the visualizer.",
       "Technical and preference information needed to operate the service, including session state, language preferences, guest-cart state, browser/app information, and search or navigation activity. We have not identified an advertising, analytics, or crash-reporting SDK in the reviewed application paths.",
     ],
@@ -48,7 +48,7 @@ const SECTIONS: PolicySection[] = [
     title: "Service Providers and Sharing",
     bullets: [
       "Supabase hosts the application data and authentication services used for accounts, commerce, support, and related records.",
-      "Razorpay processes online payment checkout. UniqueShopee receives the payment and verification metadata needed to confirm and fulfil an order.",
+      "Cashfree processes online payment checkout. UniqueShopee receives the payment and verification metadata needed to confirm and fulfil an order.",
       "2Factor is used by the website for phone OTP delivery and verification, including the deletion-specific phone verification flow, when that flow is used.",
       "Cloudinary is used for certain catalogue, category, brand, or banner images managed by authorised administrators. The reviewed customer room-visualizer flow does not upload room images to Cloudinary.",
       "We may share information with delivery, technology, communications, professional, legal, or regulatory parties when needed to provide the service, protect users, investigate misuse, resolve disputes, or comply with law. We do not sell personal information for advertising.",

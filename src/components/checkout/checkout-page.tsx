@@ -39,18 +39,16 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getSupabaseEnvironment } from "@/lib/supabase/env";
 import { checkDeliveryPincode, ADDRESS_UNAVAILABLE_PINCODE_MESSAGE, UNAVAILABLE_PINCODE_MESSAGE } from "@/lib/delivery-service";
 import {
-  formatRazorpayContact,
-  getRazorpayKeyId,
-  loadRazorpayCheckoutScript,
-  type RazorpaySuccessResponse,
-  type RazorpayWindow,
-} from "@/lib/razorpay";
+  getCashfreeCheckout,
+  getCashfreeMode,
+  loadCashfreeCheckoutScript,
+} from "@/lib/cashfree";
 import { toast } from "@/hooks/use-toast";
 import { useCartStore } from "@/store/cart-store";
 import { UI_MESSAGES, getFriendlyErrorMessage } from "@/lib/messages";
 import { buildCartItemKey } from "@/lib/variant-pricing";
 
-type PaymentMethod = "cod" | "razorpay";
+type PaymentMethod = "cod" | "cashfree";
 
 type DraftAddressState = {
   name: string;
@@ -580,10 +578,11 @@ function CheckoutShell() {
   const [availableCouponsLoading, setAvailableCouponsLoading] = useState(false);
   const [notes, setNotes] = useState("");
   const [placingOrder, setPlacingOrder] = useState(false);
-  const [razorpayLoading, setRazorpayLoading] = useState(false);
+  const [cashfreeLoading, setCashfreeLoading] = useState(false);
   const [metaByProductId, setMetaByProductId] = useState<Record<string, ProductMeta>>({});
   const [resolvedAccountId, setResolvedAccountId] = useState<string | null>(null);
   const navigationTargetRef = useRef<string | null>(null);
+  const cashfreeRequestIdRef = useRef<string | null>(null);
   const pricingRequestIdRef = useRef(0);
   const skipNextPricingRefreshRef = useRef<string | null>(null);
   const lastBasePricingRef = useRef<CheckoutPricingSummary | null>(null);
@@ -598,10 +597,10 @@ function CheckoutShell() {
       authLoading,
       cartLoaded,
       placingOrder,
-      razorpayLoading,
+      cashfreeLoading,
       addressBusy,
     });
-  }, [addressBusy, authLoading, cartLoaded, placingOrder, razorpayLoading]);
+  }, [addressBusy, authLoading, cartLoaded, placingOrder, cashfreeLoading]);
 
   useEffect(() => {
     const expected = navigationTargetRef.current;
@@ -699,7 +698,7 @@ function CheckoutShell() {
     const restoredNotes = storage.getItem(STORAGE_KEYS.notes) ?? "";
     const restoredCouponInput = storage.getItem(STORAGE_KEYS.couponInput) ?? "";
 
-    if (restoredPayment === "cod" || restoredPayment === "razorpay") {
+    if (restoredPayment === "cod" || restoredPayment === "cashfree") {
       setPaymentMethod(restoredPayment);
     }
 
@@ -1653,10 +1652,10 @@ function CheckoutShell() {
       return;
     }
 
-    const razorpayKeyId = getRazorpayKeyId();
-    if (!razorpayKeyId) {
+    const cashfreeMode = getCashfreeMode();
+    if (!cashfreeMode) {
       toast({
-        title: "Razorpay not ready",
+        title: "Cashfree not ready",
         description: UI_MESSAGES.checkout.checkoutUnavailable,
         variant: "warning",
       });
@@ -1664,41 +1663,49 @@ function CheckoutShell() {
     }
 
     setPlacingOrder(true);
-    setRazorpayLoading(true);
+    setCashfreeLoading(true);
     devCheckoutLog("order submission start", {
-      method: "razorpay",
+      method: "cashfree",
       itemCount: items.length,
     });
     if (isDev) {
       console.log("ORDER_START", {
-        method: "razorpay",
-        phase: "create_razorpay_order",
+        method: "cashfree",
+        phase: "create_cashfree_order",
         ...rawCheckoutMetrics,
       });
     }
 
     try {
+      const requestId = cashfreeRequestIdRef.current ?? crypto.randomUUID();
+      cashfreeRequestIdRef.current = requestId;
       if (isDev) {
         console.log("ORDER_START", {
-          method: "razorpay",
-          phase: "create_razorpay_order",
+          method: "cashfree",
+          phase: "create_cashfree_order",
           ...rawCheckoutMetrics,
         });
         console.log("ORDER_REQUEST", {
           component: "CheckoutShell",
-          method: "razorpay",
-          endpoint: "/api/razorpay/orders",
-          request: { couponCode },
+          method: "cashfree",
+          endpoint: "/api/cashfree/orders",
+          request: { couponCode, requestId },
           ...rawCheckoutMetrics,
         });
       }
-      const createResponse = await fetch("/api/razorpay/orders", {
+      const createResponse = await fetch("/api/cashfree/orders", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           couponCode,
+          requestId,
+          shippingAddressId: selectedAddress.id,
+          billingAddressId: selectedAddress.id,
+          notes: notes.trim() || null,
+          shippingAddressSnapshot: snapshot,
+          billingAddressSnapshot: snapshot,
         }),
       });
 
@@ -1709,10 +1716,12 @@ function CheckoutShell() {
               try {
                 return JSON.parse(createResponseText) as {
                   error?: string;
-                  razorpayOrderId?: string;
+                  cashfreeOrderId?: string;
+                  paymentIntentId?: string;
+                  paymentSessionId?: string;
                   amount?: number;
                   currency?: string;
-                  keyId?: string;
+                  mode?: "sandbox" | "production";
                   customer?: { name?: string; email?: string; contact?: string };
                 };
               } catch {
@@ -1722,18 +1731,20 @@ function CheckoutShell() {
           : null
       ) as {
         error?: string;
-        razorpayOrderId?: string;
+        cashfreeOrderId?: string;
+        paymentIntentId?: string;
+        paymentSessionId?: string;
         amount?: number;
         currency?: string;
-        keyId?: string;
+        mode?: "sandbox" | "production";
         customer?: { name?: string; email?: string; contact?: string };
       } | null;
 
       if (isDev) {
         console.log("ORDER_RESPONSE", {
           component: "CheckoutShell",
-          method: "razorpay",
-          endpoint: "/api/razorpay/orders",
+          method: "cashfree",
+          endpoint: "/api/cashfree/orders",
           status: createResponse.status,
           ok: createResponse.ok,
           responseText: createResponseText,
@@ -1744,15 +1755,17 @@ function CheckoutShell() {
 
       if (
         !createResponse.ok ||
-        !createData?.razorpayOrderId ||
+        !createData?.cashfreeOrderId ||
+        !createData.paymentIntentId ||
+        !createData.paymentSessionId ||
         !createData.amount ||
         !createData.currency
       ) {
         const requestError = new Error(createData?.error ?? UI_MESSAGES.generic.server);
         if (isDev) {
           console.error("ORDER_FAILURE", requestError, {
-            method: "razorpay",
-            phase: "create_razorpay_order",
+            method: "cashfree",
+            phase: "create_cashfree_order",
             status: createResponse.status,
             response: createData,
             request: { couponCode },
@@ -1762,89 +1775,38 @@ function CheckoutShell() {
         throw requestError;
       }
 
-      await loadRazorpayCheckoutScript();
-
-      const resolvedKey = createData.keyId ?? razorpayKeyId;
-      if (!resolvedKey) {
+      await loadCashfreeCheckoutScript();
+      const cashfree = getCashfreeCheckout(createData.mode ?? cashfreeMode);
+      if (!cashfree) {
         throw new Error(UI_MESSAGES.checkout.checkoutUnavailable);
       }
 
-      const paymentReference = createData.razorpayOrderId;
-      const contact = formatRazorpayContact(
-        createData.customer?.contact || selectedAddress.phone,
-      );
-      const RazorpayConstructor = (window as RazorpayWindow).Razorpay;
-
-      if (!RazorpayConstructor) {
-        throw new Error(UI_MESSAGES.checkout.checkoutUnavailable);
+      const checkoutResult = await cashfree.checkout({
+        paymentSessionId: createData.paymentSessionId,
+        redirectTarget: "_modal",
+      });
+      const checkoutError = checkoutResult && "error" in checkoutResult ? checkoutResult.error : null;
+      if (checkoutError) {
+        throw new Error(typeof checkoutError === "string" ? checkoutError : checkoutError.message ?? "Payment cancelled.");
       }
-
-      const paymentResult = await new Promise<RazorpaySuccessResponse>(
-        (resolve, reject) => {
-          const razorpay = new RazorpayConstructor({
-            key: resolvedKey,
-            amount: createData.amount ?? Math.round(pricing.totalAmount * 100),
-            currency: createData.currency ?? "INR",
-            order_id: paymentReference,
-            name: "UniqueShopee",
-            description: `Checkout for ${items.length} item${items.length === 1 ? "" : "s"}`,
-            prefill: {
-              name: createData.customer?.name ?? profileName ?? selectedAddress.name,
-              email: createData.customer?.email ?? user?.email ?? "",
-              contact: contact || formatRazorpayContact(selectedAddress.phone),
-            },
-            notes: {
-              coupon_code: couponCode ?? "",
-              payment_method: "Razorpay",
-            },
-            theme: {
-              color: "#1d4ed8",
-            },
-            retry: {
-              enabled: true,
-              max_count: 3,
-            },
-            modal: {
-              confirm_close: true,
-              escape: false,
-              backdropclose: false,
-              animation: true,
-              ondismiss: () => {
-                setPlacingOrder(false);
-                setRazorpayLoading(false);
-                reject(new Error("Payment cancelled."));
-              },
-            },
-            handler: (response) => {
-              resolve(response);
-            },
-          });
-
-          razorpay.open();
-        },
-      );
 
       if (isDev) {
         console.log("ORDER_START", {
-          method: "razorpay",
-          phase: "verify_razorpay_payment",
+          method: "cashfree",
+          phase: "verify_cashfree_payment",
           ...rawCheckoutMetrics,
         });
       }
-      const verifyResponse = await fetch("/api/razorpay/verify", {
+      const verifyResponse = await fetch("/api/cashfree/verify", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          razorpayPaymentId: paymentResult.razorpay_payment_id,
-          razorpayOrderId: paymentResult.razorpay_order_id,
-          razorpaySignature: paymentResult.razorpay_signature,
-          expectedAmount: createData.amount,
-          currency: createData.currency,
+          paymentIntentId: createData.paymentIntentId,
+          cashfreeOrderId: createData.cashfreeOrderId,
           shippingAddressId: selectedAddress.id,
           billingAddressId: selectedAddress.id,
-          paymentMethod: "Razorpay",
           couponCode,
           notes: notes.trim() || null,
           shippingAddressSnapshot: snapshot,
@@ -1876,15 +1838,14 @@ function CheckoutShell() {
       if (isDev) {
         console.log("ORDER_RESPONSE", {
           component: "CheckoutShell",
-          method: "razorpay",
-          endpoint: "/api/razorpay/verify",
+          method: "cashfree",
+          endpoint: "/api/cashfree/verify",
           status: verifyResponse.status,
           ok: verifyResponse.ok,
           responseText: verifyResponseText,
           response: verifyData,
           request: {
-            razorpayPaymentId: paymentResult.razorpay_payment_id,
-            razorpayOrderId: paymentResult.razorpay_order_id,
+            cashfreeOrderId: createData.cashfreeOrderId,
           },
           ...rawCheckoutMetrics,
         });
@@ -1894,13 +1855,12 @@ function CheckoutShell() {
         const verifyError = new Error(verifyData?.error ?? UI_MESSAGES.generic.server);
         if (isDev) {
           console.error("ORDER_FAILURE", verifyError, {
-            method: "razorpay",
-            phase: "verify_razorpay_payment",
+            method: "cashfree",
+            phase: "verify_cashfree_payment",
             status: verifyResponse.status,
             response: verifyData,
             request: {
-              razorpayPaymentId: paymentResult.razorpay_payment_id,
-              razorpayOrderId: paymentResult.razorpay_order_id,
+              cashfreeOrderId: createData.cashfreeOrderId,
             },
             ...rawCheckoutMetrics,
           });
@@ -1909,6 +1869,7 @@ function CheckoutShell() {
       }
 
       clearCart();
+      cashfreeRequestIdRef.current = null;
       setCouponCode(null);
       if (typeof window !== "undefined") {
         window.localStorage.removeItem(STORAGE_KEYS.addressId);
@@ -1928,19 +1889,19 @@ function CheckoutShell() {
       }
       if (isDev) {
         console.log("ORDER_SUCCESS", {
-          method: "razorpay",
+          method: "cashfree",
           orderId: verifyData.orderId,
           orderNumber: verifyData.orderNumber,
           ...rawCheckoutMetrics,
         });
         console.log("NAV_START", {
           to: nextHref,
-          method: "razorpay",
+          method: "cashfree",
           ...rawCheckoutMetrics,
         });
       }
       devCheckoutLog("order submission success", {
-        method: "razorpay",
+        method: "cashfree",
         orderId: verifyData.orderId,
         orderNumber: verifyData.orderNumber,
       });
@@ -1948,13 +1909,13 @@ function CheckoutShell() {
     } catch (error) {
       if (isDev) {
         console.error("ORDER_FAILURE", error, {
-          method: "razorpay",
-          phase: "verify_razorpay_payment",
+          method: "cashfree",
+          phase: "verify_cashfree_payment",
           ...rawCheckoutMetrics,
         });
       }
       devCheckoutLog("order submission failure", {
-        method: "razorpay",
+        method: "cashfree",
         error: error instanceof Error ? error.message : String(error),
       });
       const message = isDev
@@ -1967,7 +1928,7 @@ function CheckoutShell() {
       });
     } finally {
       setPlacingOrder(false);
-      setRazorpayLoading(false);
+      setCashfreeLoading(false);
     }
   };
 
@@ -2132,7 +2093,7 @@ function CheckoutShell() {
                 <SectionTitle
                   eyebrow="Payment Method"
                   title="Choose payment"
-                  description="Cash on Delivery or Razorpay. We remember your last choice."
+                  description="Cash on Delivery or Cashfree. We remember your last choice."
                 />
 
                 <div className="mt-3 grid gap-2.5 sm:mt-4 sm:gap-3">
@@ -2169,10 +2130,10 @@ function CheckoutShell() {
 
                   <button
                     type="button"
-                    onClick={() => setPaymentMethod("razorpay")}
+                    onClick={() => setPaymentMethod("cashfree")}
                     className={cn(
                       "focus-visible:ring-accent flex items-start gap-3 rounded-[1.25rem] border p-4 text-left transition-all duration-200 focus-visible:ring-2 focus-visible:outline-none",
-                      paymentMethod === "razorpay"
+                      paymentMethod === "cashfree"
                         ? "border-accent/30 bg-accent/5 shadow-[var(--shadow-sm)]"
                         : "border-border/70 hover:border-accent/20 bg-white",
                     )}
@@ -2180,7 +2141,7 @@ function CheckoutShell() {
                     <span
                       className={cn(
                         "mt-1 inline-flex h-5 w-5 items-center justify-center rounded-full border",
-                        paymentMethod === "razorpay"
+                        paymentMethod === "cashfree"
                           ? "border-accent bg-accent text-white"
                           : "border-border text-transparent",
                       )}
@@ -2190,7 +2151,7 @@ function CheckoutShell() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <CreditCard className="text-accent h-4 w-4" aria-hidden="true" />
-                        <p className="text-text text-sm font-bold">Razorpay</p>
+                        <p className="text-text text-sm font-bold">Cashfree</p>
                       </div>
                       <p className="text-muted mt-1 text-sm font-medium">
                         UPI, cards, wallet, and net banking.
@@ -2466,12 +2427,12 @@ function CheckoutShell() {
                     size="lg"
                     className="mt-3 hidden h-11 w-full rounded-full px-4 text-sm shadow-[0_16px_30px_-16px_rgba(16,33,58,0.6)] lg:inline-flex"
                     onClick={handlePlaceOrder}
-                    loading={placingOrder || razorpayLoading || addressBusy}
+                    loading={placingOrder || cashfreeLoading || addressBusy}
                     disabled={
-                      placingOrder || razorpayLoading || addressBusy || hasOutOfStockItems || !pricingReady
+                      placingOrder || cashfreeLoading || addressBusy || hasOutOfStockItems || !pricingReady
                     }
                   >
-                    {paymentMethod === "razorpay" ? `Pay ${checkoutPrice(pricing.totalAmount)}` : "Place Order"}
+                    {paymentMethod === "cashfree" ? `Pay ${checkoutPrice(pricing.totalAmount)}` : "Place Order"}
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </Card>
@@ -2499,12 +2460,12 @@ function CheckoutShell() {
                 size="lg"
                 className="h-11 w-full rounded-full px-4 text-sm shadow-[0_16px_30px_-16px_rgba(16,33,58,0.6)]"
                 onClick={handlePlaceOrder}
-                loading={placingOrder || razorpayLoading || addressBusy}
+                loading={placingOrder || cashfreeLoading || addressBusy}
                 disabled={
-                  placingOrder || razorpayLoading || addressBusy || hasOutOfStockItems || !pricingReady
+                  placingOrder || cashfreeLoading || addressBusy || hasOutOfStockItems || !pricingReady
                 }
               >
-                {paymentMethod === "razorpay" ? `Pay ${checkoutPrice(pricing.totalAmount)}` : "Place Order"}
+                {paymentMethod === "cashfree" ? `Pay ${checkoutPrice(pricing.totalAmount)}` : "Place Order"}
                 <ArrowRight className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>

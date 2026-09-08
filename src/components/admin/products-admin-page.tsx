@@ -350,6 +350,10 @@ function parseNumber(value: string) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function normalizedVariantSku(variant: ProductVariantDraft, index: number, productSku: string) {
+  return variant.sku.trim() || `${productSku}-${index + 1}`;
+}
+
 function getBooleanValue(value: unknown, fallback: boolean) {
   return typeof value === "boolean" ? value : fallback;
 }
@@ -1609,6 +1613,7 @@ function ProductsAdminPage() {
 
   const validateForm = () => {
     const errors: Partial<Record<string, string>> = {};
+    let duplicateVariantSku = false;
     const normalizedSlug = slugifyProduct(form.slug || form.name);
     const normalizedSku = form.sku.trim() || generateFallbackSku(form.name);
     const mrp = parseNumber(form.mrp);
@@ -1632,11 +1637,18 @@ function ProductsAdminPage() {
     if (stock < 0 || reserved < 0 || threshold < 0)
       errors.stockQuantity = "Stock values must be zero or higher";
     if (form.showVariants) {
+      const seenVariantSkus = new Set<string>();
       form.variants.forEach((variant, index) => {
+        const variantSku = normalizedVariantSku(variant, index, normalizedSku);
         const variantSellingPrice = parseNumber(
           variant.basePrice || variant.price || form.sellingPrice,
         );
         const variantMrp = parseNumber(variant.mrp);
+        if (seenVariantSkus.has(variantSku)) {
+          duplicateVariantSku = true;
+          errors[`variant_${index}_sku`] = "Variant SKU must be unique";
+        }
+        seenVariantSkus.add(variantSku);
         if (variant.mrp.trim() && variantMrp < variantSellingPrice) {
           errors[`variant_${index}_mrp`] =
             "Variant MRP must be greater than or equal to selling price";
@@ -1708,7 +1720,12 @@ function ProductsAdminPage() {
     }
 
     setFormErrors(errors);
-    return { valid: Object.keys(errors).length === 0, normalizedSlug, normalizedSku };
+    return {
+      valid: Object.keys(errors).length === 0,
+      normalizedSlug,
+      normalizedSku,
+      duplicateVariantSku,
+    };
   };
 
   const hasDuplicateProductSlugOrSku = async (
@@ -1757,7 +1774,7 @@ function ProductsAdminPage() {
     const isPaintProduct = selectedDepartmentSlug === "paints";
     const defaultIndex = variants.findIndex((variant) => variant.primary);
     const normalizedVariants = variants.map((variant, index) => {
-      const sku = variant.sku.trim() || `${productSku}-${index + 1}`;
+      const sku = normalizedVariantSku(variant, index, productSku);
       const basePrice = isPaintProduct
         ? parseNumber(variant.basePrice || variant.price)
         : parseNumber(variant.price || form.sellingPrice);
@@ -1791,6 +1808,7 @@ function ProductsAdminPage() {
           weight: null,
           is_default: index === (defaultIndex >= 0 ? defaultIndex : 0),
           is_active: variant.active,
+          deleted_at: null,
         },
       };
     });
@@ -1812,8 +1830,9 @@ function ProductsAdminPage() {
     if (!validation.valid) {
       toast({
         title: "Fix the highlighted fields",
-        description:
-          "Product name, department, category, brand, selling price, images, and status are required.",
+        description: validation.duplicateVariantSku
+          ? "Variant SKUs must be unique within the product."
+          : "Product name, department, category, brand, selling price, images, and status are required.",
         variant: "warning",
       });
       return;
@@ -1852,6 +1871,62 @@ function ProductsAdminPage() {
         toast({
           title: "Duplicate SKU",
           description: "Choose a different SKU.",
+          variant: "warning",
+        });
+        setSaving(false);
+        return;
+      }
+
+      const variantsToValidate =
+        form.variants.length > 0
+          ? form.variants
+          : [
+              createVariantDraft({
+                sku: validation.normalizedSku,
+                price: form.sellingPrice,
+                stock: form.stockQuantity,
+                primary: true,
+              }),
+            ];
+      const submittedVariantSkus = variantsToValidate.map((variant, index) =>
+        normalizedVariantSku(variant, index, validation.normalizedSku),
+      );
+      const variantSkuQuery = client
+        .from("product_variants")
+        .select("id, sku")
+        .in("sku", submittedVariantSkus);
+      const variantSkuResult =
+        submittedVariantSkus.length > 0
+          ? await variantSkuQuery
+          : { data: [], error: null };
+      if (variantSkuResult.error) throw variantSkuResult.error;
+      const conflictingVariants = (variantSkuResult.data ?? []) as Array<{
+        id: string;
+        sku: string;
+      }>;
+      const existingVariantIds = new Set(
+        editingProductId
+          ? productVariants
+              .filter((variant) => variant.product_id === editingProductId)
+              .map((variant) => variant.id)
+          : [],
+      );
+      const submittedExistingVariantIds = new Set(
+        variantsToValidate
+          .map((variant) => variant.id)
+          .filter((variantId) => existingVariantIds.has(variantId)),
+      );
+      const crossProductConflict = (conflictingVariants ?? []).find(
+        (variant) => !submittedExistingVariantIds.has(variant.id),
+      );
+      if (crossProductConflict) {
+        setFormErrors((current) => ({
+          ...current,
+          variants: `Variant SKU must be unique: ${crossProductConflict.sku}`,
+        }));
+        toast({
+          title: "Duplicate variant SKU",
+          description: `SKU ${crossProductConflict.sku} is already used by another variant.`,
           variant: "warning",
         });
         setSaving(false);
@@ -1927,16 +2002,29 @@ function ProductsAdminPage() {
           .update(payload)
           .eq("id", editingProductId);
         if (error) throw error;
-        await Promise.all([
-          client.from("product_images").delete().eq("product_id", editingProductId),
-          client.from("product_variants").delete().eq("product_id", editingProductId),
-        ]);
+        const { error: imageDeleteError } = await client
+          .from("product_images")
+          .delete()
+          .eq("product_id", editingProductId);
+        if (imageDeleteError) throw imageDeleteError;
+
         const existingVariants = productVariants.filter(
           (variant) => variant.product_id === editingProductId,
         );
-        if (existingVariants.length > 0) {
-          const variantIds = existingVariants.map((variant) => variant.id);
-          await client.from("inventory").delete().in("product_variant_id", variantIds);
+        const submittedExistingIds = new Set(
+          variantsToValidate
+            .map((variant) => variant.id)
+            .filter((variantId) => existingVariants.some((variant) => variant.id === variantId)),
+        );
+        const removedVariantIds = existingVariants
+          .map((variant) => variant.id)
+          .filter((variantId) => !submittedExistingIds.has(variantId));
+        if (removedVariantIds.length > 0) {
+          const { error: variantDeleteError } = await client
+            .from("product_variants")
+            .delete()
+            .in("id", removedVariantIds);
+          if (variantDeleteError) throw variantDeleteError;
         }
       } else {
         const { data, error } = await client
@@ -1965,13 +2053,58 @@ function ProductsAdminPage() {
       }
 
       const variantsToInsert = buildVariantPayloads(productId, validation.normalizedSku);
-      const { data: createdVariants, error: variantError } = await client
-        .from("product_variants")
-        .insert(variantsToInsert.map((item) => item.payload))
-        .select("id, sku");
-      if (variantError) throw variantError;
+      const existingVariantIdsForProduct = new Set(
+        editingProductId
+          ? productVariants
+              .filter((variant) => variant.product_id === editingProductId)
+              .map((variant) => variant.id)
+          : [],
+      );
+      const savedVariants: Array<{ id: string; sku: string }> = [];
+      for (const item of variantsToInsert) {
+        if (existingVariantIdsForProduct.has(item.draft.id)) {
+          const variantUpdatePayload = {
+            sku: item.payload.sku,
+            variant_name: item.payload.variant_name,
+            option_label: item.payload.option_label,
+            option_value: item.payload.option_value,
+            variant_options: item.payload.variant_options,
+            mrp_override: item.payload.mrp_override,
+            selling_price_override: item.payload.selling_price_override,
+            pack_size: item.payload.pack_size,
+            unit: item.payload.unit,
+            finish: item.payload.finish,
+            base_price: item.payload.base_price,
+            final_price: item.payload.final_price,
+            is_available: item.payload.is_available,
+            barcode: item.payload.barcode,
+            weight: item.payload.weight,
+            is_default: item.payload.is_default,
+            is_active: item.payload.is_active,
+            deleted_at: item.payload.deleted_at,
+          };
+          const { data, error } = await client
+            .from("product_variants")
+            .update(variantUpdatePayload)
+            .eq("id", item.draft.id)
+            .select("id, sku")
+            .single();
+          if (error) throw error;
+          const savedVariant = data as { id: string; sku: string } | null;
+          if (savedVariant) savedVariants.push(savedVariant);
+        } else {
+          const { data, error } = await client
+            .from("product_variants")
+            .insert([item.payload])
+            .select("id, sku")
+            .single();
+          if (error) throw error;
+          const savedVariant = data as { id: string; sku: string } | null;
+          if (savedVariant) savedVariants.push(savedVariant);
+        }
+      }
 
-      const inventoryPayload = (createdVariants ?? []).map((variant, index) => {
+      const inventoryPayload = savedVariants.map((variant, index) => {
         const sourceDraft = variantsToInsert[index]?.draft;
         const isPrimaryVariant = Boolean(sourceDraft?.primary) || index === 0;
         const isPaintProduct = selectedDepartmentSlug === "paints";
@@ -1999,9 +2132,20 @@ function ProductsAdminPage() {
         };
       });
 
-      if (inventoryPayload.length > 0) {
-        const { error } = await client.from("inventory").insert(inventoryPayload);
-        if (error) throw error;
+      for (const [index, inventoryRow] of inventoryPayload.entries()) {
+        const existingInventory = inventories.find(
+          (inventory) => inventory.product_variant_id === savedVariants[index]?.id,
+        );
+        if (existingInventory) {
+          const { error } = await client
+            .from("inventory")
+            .update(inventoryRow)
+            .eq("id", existingInventory.id);
+          if (error) throw error;
+        } else {
+          const { error } = await client.from("inventory").insert([inventoryRow]);
+          if (error) throw error;
+        }
       }
 
       toast({
@@ -3460,7 +3604,10 @@ function ProductsAdminPage() {
                                 placeholder="Product MRP fallback"
                               />
                             </FormField>
-                            <FormField label="SKU">
+                            <FormField
+                              label="SKU"
+                              error={formErrors[`variant_${index}_sku`]}
+                            >
                               <Input
                                 value={variant.sku}
                                 onChange={(event) =>
@@ -3543,20 +3690,25 @@ function ProductsAdminPage() {
                               }
                               placeholder="Option value"
                             />
-                            <Input
-                              value={variant.sku}
-                              onChange={(event) =>
-                                setForm((current) => ({
-                                  ...current,
-                                  variants: current.variants.map((item) =>
-                                    item.id === variant.id
-                                      ? { ...item, sku: event.target.value }
-                                      : item,
-                                  ),
-                                }))
-                              }
-                              placeholder="Variant SKU"
-                            />
+                            <FormField
+                              label="SKU"
+                              error={formErrors[`variant_${index}_sku`]}
+                            >
+                              <Input
+                                value={variant.sku}
+                                onChange={(event) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    variants: current.variants.map((item) =>
+                                      item.id === variant.id
+                                        ? { ...item, sku: event.target.value }
+                                        : item,
+                                    ),
+                                  }))
+                                }
+                                placeholder="Variant SKU"
+                              />
+                            </FormField>
                             <Input
                               value={variant.price}
                               onChange={(event) =>

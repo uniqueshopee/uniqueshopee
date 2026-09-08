@@ -2,8 +2,11 @@ const REQUIRED_ENV_KEYS = [
   "NEXT_PUBLIC_SUPABASE_URL",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
-  "NEXT_PUBLIC_RAZORPAY_KEY_ID",
-  "RAZORPAY_KEY_SECRET",
+  "CASHFREE_CLIENT_ID",
+  "CASHFREE_CLIENT_SECRET",
+  "CASHFREE_ENVIRONMENT",
+  "NEXT_PUBLIC_CASHFREE_ENVIRONMENT",
+  "CASHFREE_API_VERSION",
   "TWOFACTOR_API_KEY",
   "PHONE_AUTH_CREDENTIALS_SECRET",
   "NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME",
@@ -31,10 +34,16 @@ export function readEnvironmentValue(key: EnvironmentKey) {
         return process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
       case "SUPABASE_SERVICE_ROLE_KEY":
         return process.env.SUPABASE_SERVICE_ROLE_KEY;
-      case "NEXT_PUBLIC_RAZORPAY_KEY_ID":
-        return process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-      case "RAZORPAY_KEY_SECRET":
-        return process.env.RAZORPAY_KEY_SECRET;
+      case "CASHFREE_CLIENT_ID":
+        return process.env.CASHFREE_CLIENT_ID;
+      case "CASHFREE_CLIENT_SECRET":
+        return process.env.CASHFREE_CLIENT_SECRET;
+      case "CASHFREE_ENVIRONMENT":
+        return process.env.CASHFREE_ENVIRONMENT;
+      case "NEXT_PUBLIC_CASHFREE_ENVIRONMENT":
+        return process.env.NEXT_PUBLIC_CASHFREE_ENVIRONMENT;
+      case "CASHFREE_API_VERSION":
+        return process.env.CASHFREE_API_VERSION;
       case "TWOFACTOR_API_KEY":
         return process.env.TWOFACTOR_API_KEY;
       case "PHONE_AUTH_CREDENTIALS_SECRET":

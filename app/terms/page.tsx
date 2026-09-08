@@ -30,7 +30,7 @@ const SECTIONS = [
   },
   {
     title: "Orders and Payments",
-    body: "Adding an item to a cart does not guarantee stock or create a contract. An order is subject to inventory, address/serviceability, and payment checks. We may refuse or cancel an order that is unavailable, duplicated, suspicious, affected by an obvious pricing error, or otherwise cannot be fulfilled. Online payments use Razorpay; UniqueShopee receives the payment and verification metadata needed to process the order. Cash on delivery, where offered, is recorded as the selected payment method and remains subject to order confirmation and delivery rules.",
+    body: "Adding an item to a cart does not guarantee stock or create a contract. An order is subject to inventory, address/serviceability, and payment checks. We may refuse or cancel an order that is unavailable, duplicated, suspicious, affected by an obvious pricing error, or otherwise cannot be fulfilled. Online payments use Cashfree; UniqueShopee receives the payment and verification metadata needed to process the order. Cash on delivery, where offered, is recorded as the selected payment method and remains subject to order confirmation and delivery rules.",
   },
   {
     title: "Shipping and Delivery",
