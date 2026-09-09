@@ -27,6 +27,7 @@ export type OrderTimelineStep = {
 export type OrderItem = Pick<Product, "id" | "name" | "slug" | "price" | "compareAtPrice" | "image" | "category" | "badge"> & {
   brand: string;
   quantity: number;
+  discountAmount?: number | null;
   variant: string;
   shadeId?: string;
   shadeName?: string;
@@ -77,6 +78,7 @@ export type OrderRecord = {
     city: string;
     state: string;
     pincode: string;
+    phone?: string;
   };
   couponApplied?: string;
   notes?: string;

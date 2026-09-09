@@ -413,6 +413,7 @@ function buildOrderItem(
     badge: undefined,
     brand: brandName,
     quantity: toNumber(item.quantity, 1),
+    discountAmount: toNumber(item.discount_amount, 0),
     variant: variantLabel,
     shadeId: item.shade_id ?? undefined,
     shadeName: item.shade_name_snapshot ?? undefined,

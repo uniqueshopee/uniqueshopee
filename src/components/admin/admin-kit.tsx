@@ -2862,6 +2862,12 @@ function OrdersAdminPage() {
                             View
                           </Link>
                         </Button>
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={`/admin-invoice/${row.id}`} target="_blank" rel="noreferrer">
+                            <Download className="h-4 w-4" />
+                            Download Invoice
+                          </Link>
+                        </Button>
                         {row.trackingNumber ? (
                           <Button variant="outline" size="sm" onClick={() => toast({ title: "Tracking number", description: row.trackingNumber, variant: "success" })}>
                             <FileText className="h-4 w-4" />

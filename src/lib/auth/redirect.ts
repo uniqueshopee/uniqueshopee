@@ -1,7 +1,7 @@
 import { getSiteUrl } from "@/lib/seo";
 import type { AuthRoleKey } from "@/lib/supabase/auth";
 
-const ADMIN_ROLES: AuthRoleKey[] = ["admin", "manager"];
+const ADMIN_ROLES: AuthRoleKey[] = ["admin", "manager", "staff"];
 
 export function sanitizeRedirectPath(value: string | null | undefined, fallback = "/account") {
   if (!value) {
