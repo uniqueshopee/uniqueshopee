@@ -100,7 +100,7 @@ function getBrandColor(category: CategoryBrand["category"]): {
         border: "border-orange-200/70",
         accent: "from-amber-400 via-orange-500 to-red-500",
       };
-    case "Plumbing":
+    case "Hardware":
       return {
         badge: "neutral",
         border: "border-cyan-200/70",

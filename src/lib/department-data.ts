@@ -18,7 +18,7 @@ export type DepartmentCategoryItem = {
 
 export type DepartmentBrandItem = {
   name: string;
-  category: "Paint" | "Plumbing";
+  category: string;
   description: string;
   initials: string;
   href: string;

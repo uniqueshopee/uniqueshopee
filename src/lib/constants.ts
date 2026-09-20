@@ -3,46 +3,51 @@ import type { Category, Department, NavLink } from "@/types";
 export const SITE_NAME = "UniqueShopee";
 
 export const CATEGORIES: Category[] = [
-  { id: "paints", name: "Paints", slug: "paints", href: "/category/paints" },
-  { id: "power-tools", name: "Power Tools", slug: "power-tools", href: "/category/power-tools" },
-  { id: "hand-tools", name: "Hand Tools", slug: "hand-tools", href: "/category/hand-tools" },
-  { id: "fasteners", name: "Fasteners", slug: "fasteners", href: "/category/fasteners" },
-  { id: "plumbing", name: "Plumbing", slug: "plumbing", href: "/category/plumbing" },
-  { id: "electrical", name: "Electrical", slug: "electrical", href: "/category/electrical" },
+  ...[
+    ["interior", "Interior"], ["exterior", "Exterior"], ["enamel", "Enamel"],
+    ["waterproofing", "Waterproofing"], ["painting-tools", "Painting Tools"],
+    ["plumbing", "Plumbing"], ["fittings", "Fittings"], ["hardware-fittings", "Hardware Fittings"],
+    ["building-materials-safety", "Building Materials & Safety"], ["hand-tools", "Hand Tools"],
+    ["power-tools", "Power Tools"], ["wire-cable", "Wire & Cable"], ["switch-sockets", "Switch & Sockets"],
+    ["lighting", "Lighting"], ["home-improvements", "Home Improvements"], ["others", "Others"],
+  ].map(([slug, name]) => ({ id: slug, name, slug, href: `/category/${slug}` } as Category)),
 ];
 
 export const DEPARTMENTS: Department[] = [
   {
-    id: "paints",
-    title: "Paints",
-    items: [
-      "Interior Paint",
-      "Exterior Paint",
-      "Primers",
-      "Wall Putty",
-      "Waterproofing",
-      "Wood Finishes",
-      "Metal Paint",
-      "Paint Tools",
-    ],
-    ctaLabel: "Explore Paints",
-    href: "/category/paints",
+    id: "paint",
+    title: "Paint",
+    items: ["Interior", "Exterior", "Enamel", "Waterproofing", "Painting Tools"],
+    ctaLabel: "Explore Paint",
+    href: "/department/paint",
   },
   {
-    id: "plumbing",
-    title: "Plumbing",
-    items: [
-      "PVC Pipes",
-      "CPVC Pipes",
-      "Fittings",
-      "Faucets",
-      "Valves",
-      "Pumps",
-      "Bathroom Accessories",
-      "Water Storage",
-    ],
-    ctaLabel: "Explore Plumbing",
-    href: "/category/plumbing",
+    id: "hardware",
+    title: "Hardware",
+    items: ["Plumbing", "Fittings", "Hardware Fittings", "Building Materials & Safety", "Hand Tools", "Power Tools"],
+    ctaLabel: "Explore Hardware",
+    href: "/department/hardware",
+  },
+  {
+    id: "electric",
+    title: "Electric",
+    items: ["Wire & Cable", "Switch & Sockets", "Lighting"],
+    ctaLabel: "Explore Electric",
+    href: "/department/electric",
+  },
+  {
+    id: "home-improvement",
+    title: "Home Improvement",
+    items: ["Home Improvements"],
+    ctaLabel: "Explore Home Improvement",
+    href: "/department/home-improvement",
+  },
+  {
+    id: "others",
+    title: "Others",
+    items: ["Others"],
+    ctaLabel: "Explore Others",
+    href: "/department/others",
   },
 ];
 
@@ -58,7 +63,7 @@ export const FOOTER_LINKS: { title: string; links: NavLink[] }[] = [
   {
     title: "Shop",
     links: [
-      { label: "Paints", href: "/category/paints" },
+      { label: "Paint", href: "/department/paint" },
       { label: "Offers", href: "/coupons" },
     ],
   },

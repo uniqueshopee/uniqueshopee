@@ -287,7 +287,7 @@ type CatalogShade = {
 type SearchBrand = {
   slug: string;
   name: string;
-  category: "Paint" | "Plumbing";
+  category: string;
   tagline: string;
   href: string;
   logo: string;
@@ -335,7 +335,7 @@ type SearchResults = {
 
 type CategoryBrand = {
   name: string;
-  category: "Paint" | "Plumbing" | "Tools" | "Hardware" | "Electrical";
+  category: string;
   description: string;
   href: string;
   logo?: string;
@@ -393,7 +393,7 @@ type CategoryContent = {
   promotionalBanner: string;
 };
 
-type BrandTheme = "paint" | "plumbing";
+type BrandTheme = "paint" | "hardware";
 
 type BrandCategoryItem = {
   name: string;
@@ -503,7 +503,7 @@ type DepartmentCategoryItem = {
 
 type DepartmentBrandItem = {
   name: string;
-  category: "Paint" | "Plumbing";
+  category: string;
   description: string;
   initials: string;
   href: string;
@@ -571,7 +571,7 @@ type ProductFaq = {
 type ProductDetail = {
   slug: string;
   brand: string;
-  brandAccent: "paint" | "plumbing" | "tools";
+  brandAccent: "paint" | "hardware" | "tools";
   brandDescription: string;
   gallery: string[];
   showVariants: boolean;
@@ -662,7 +662,7 @@ function initialsFrom(value: string) {
 }
 
 function departmentTone(slug: string): DepartmentTone {
-  if (slug === "plumbing") {
+  if (slug === "hardware") {
     return {
       fill: "from-cyan-50 via-white to-sky-50",
       ring: "ring-cyan-200",
@@ -682,7 +682,7 @@ function departmentTone(slug: string): DepartmentTone {
 function categoryScene(name: string, departmentSlug: string): BrandCategoryItem["scene"] {
   const lower = normalize(name);
 
-  if (departmentSlug === "plumbing") {
+  if (departmentSlug === "hardware") {
     if (lower.includes("cpvc")) return "pipes-cold";
     if (lower.includes("fitting")) return "fittings";
     if (lower.includes("faucet")) return "faucet";
@@ -693,7 +693,10 @@ function categoryScene(name: string, departmentSlug: string): BrandCategoryItem[
     return "pipes";
   }
 
+  if (lower.includes("interior") || lower.includes("home improvement")) return "living-room";
+  if (lower.includes("exterior")) return "house";
   if (lower.includes("wood")) return "wood";
+  if (lower.includes("enamel")) return "metal";
   if (lower.includes("metal")) return "metal";
   if (lower.includes("primer") || lower.includes("putty")) return "bucket";
   if (lower.includes("waterproof")) return "roof";
@@ -703,7 +706,7 @@ function categoryScene(name: string, departmentSlug: string): BrandCategoryItem[
 }
 
 function brandThemeFromDepartment(slug: string): BrandTheme {
-  return slug === "plumbing" ? "plumbing" : "paint";
+  return slug === "paint" ? "paint" : "hardware";
 }
 
 function buildProductReviewCount(attributes: JsonRecord | null) {
@@ -865,7 +868,7 @@ function buildProductFromRow(
   const exclusiveOffer = buildProductExclusiveOffer(row.attributes);
   const exclusiveOfferPercent = buildProductOfferPercent(row.attributes);
   const supportsShades =
-    department.slug === "paints" ||
+    department.slug === "paint" ||
     productShades.length > 0 ||
     variants.some((variant) => Boolean(variant.shade_id));
 
@@ -930,327 +933,22 @@ function makeBrandTagline(brand: Pick<CatalogBrand, "name" | "description">) {
   return brand.description || `${brand.name} products for modern projects.`;
 }
 
-type CategoryFallbackConfig = {
-  slug: string;
-  title: string;
-  departmentSlug: "paints" | "plumbing";
-  description: string;
-  subtitle: string;
-  scene: RelatedCategory["scene"];
-  related: Array<{ slug: string; name: string; scene: RelatedCategory["scene"] }>;
-};
-
-const CATEGORY_FALLBACKS: Record<string, CategoryFallbackConfig> = {
-  paints: {
-    slug: "paints",
-    title: "Paints",
-    departmentSlug: "paints",
-    description:
-      "Explore interior, exterior, primer, putty, and waterproofing essentials in one paint hub.",
-    subtitle:
-      "Browse premium paint systems and preparation essentials for modern walls and surfaces.",
-    scene: "living-room",
-    related: [
-      { slug: "interior-paint", name: "Interior Paint", scene: "living-room" },
-      { slug: "exterior-paint", name: "Exterior Paint", scene: "house" },
-      { slug: "primer", name: "Primer", scene: "bucket" },
-      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
-      { slug: "waterproofing", name: "Waterproofing", scene: "roof" },
-      { slug: "paint-accessories", name: "Paint Accessories", scene: "tools" },
-    ],
-  },
-  "interior-paint": {
-    slug: "interior-paint",
-    title: "Interior Paint",
-    departmentSlug: "paints",
-    description: "Discover interior paint systems for smooth, premium wall finishes.",
-    subtitle: "Choose the right finish for living rooms, bedrooms, and everyday spaces.",
-    scene: "living-room",
-    related: [
-      { slug: "paints", name: "Paints", scene: "living-room" },
-      { slug: "exterior-paint", name: "Exterior Paint", scene: "house" },
-      { slug: "primer", name: "Primer", scene: "bucket" },
-      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
-    ],
-  },
-  "exterior-paint": {
-    slug: "exterior-paint",
-    title: "Exterior Paint",
-    departmentSlug: "paints",
-    description: "Weather-safe exterior paint solutions for homes and commercial spaces.",
-    subtitle: "Protect exterior walls with durable colour and coating systems.",
-    scene: "house",
-    related: [
-      { slug: "paints", name: "Paints", scene: "living-room" },
-      { slug: "waterproofing", name: "Waterproofing", scene: "roof" },
-      { slug: "primer", name: "Primer", scene: "bucket" },
-      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
-    ],
-  },
-  primer: {
-    slug: "primer",
-    title: "Primer",
-    departmentSlug: "paints",
-    description: "Base coat primers that improve adhesion and finish quality.",
-    subtitle: "Prepare walls properly before the final paint coat.",
-    scene: "bucket",
-    related: [
-      { slug: "paints", name: "Paints", scene: "living-room" },
-      { slug: "interior-paint", name: "Interior Paint", scene: "living-room" },
-      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
-      { slug: "waterproofing", name: "Waterproofing", scene: "roof" },
-    ],
-  },
-  "wall-putty": {
-    slug: "wall-putty",
-    title: "Wall Putty",
-    departmentSlug: "paints",
-    description:
-      "Smooth and repair walls before painting with trusted wall putty options.",
-    subtitle: "Create a cleaner, more polished surface for premium paint finishes.",
-    scene: "wall",
-    related: [
-      { slug: "paints", name: "Paints", scene: "living-room" },
-      { slug: "primer", name: "Primer", scene: "bucket" },
-      { slug: "exterior-paint", name: "Exterior Paint", scene: "house" },
-      { slug: "waterproofing", name: "Waterproofing", scene: "roof" },
-    ],
-  },
-  waterproofing: {
-    slug: "waterproofing",
-    title: "Waterproofing",
-    departmentSlug: "paints",
-    description:
-      "Protect roofs and walls from moisture with reliable waterproofing products.",
-    subtitle: "Choose the right coating and protection system for damp-prone areas.",
-    scene: "roof",
-    related: [
-      { slug: "paints", name: "Paints", scene: "living-room" },
-      { slug: "primer", name: "Primer", scene: "bucket" },
-      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
-      { slug: "exterior-paint", name: "Exterior Paint", scene: "house" },
-    ],
-  },
-  "paint-accessories": {
-    slug: "paint-accessories",
-    title: "Paint Accessories",
-    departmentSlug: "paints",
-    description:
-      "Brushes, rollers, and tools to make every paint job cleaner and faster.",
-    subtitle: "Finish the job with the right tools and accessories.",
-    scene: "tools",
-    related: [
-      { slug: "paints", name: "Paints", scene: "living-room" },
-      { slug: "primer", name: "Primer", scene: "bucket" },
-      { slug: "wall-putty", name: "Wall Putty", scene: "wall" },
-      { slug: "waterproofing", name: "Waterproofing", scene: "roof" },
-    ],
-  },
-  plumbing: {
-    slug: "plumbing",
-    title: "Plumbing",
-    departmentSlug: "plumbing",
-    description:
-      "Browse plumbing, fittings, faucets, valves, and water storage essentials in one place.",
-    subtitle: "Reliable plumbing essentials for modern homes and installations.",
-    scene: "pipes",
-    related: [
-      { slug: "pvc-pipes", name: "PVC Pipes", scene: "pipes" },
-      { slug: "cpvc-pipes", name: "CPVC Pipes", scene: "pipes-cold" },
-      { slug: "fittings", name: "Fittings", scene: "fittings" },
-      { slug: "faucets", name: "Faucets", scene: "faucet" },
-      { slug: "valves", name: "Valves", scene: "valve" },
-      { slug: "water-tanks", name: "Water Tanks", scene: "tank" },
-    ],
-  },
-  "pvc-pipes": {
-    slug: "pvc-pipes",
-    title: "PVC Pipes",
-    departmentSlug: "plumbing",
-    description: "Reliable PVC pipe essentials for everyday water supply and drainage.",
-    subtitle: "Choose dependable pipe systems for clean installations.",
-    scene: "pipes",
-    related: [
-      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
-      { slug: "cpvc-pipes", name: "CPVC Pipes", scene: "pipes-cold" },
-      { slug: "fittings", name: "Fittings", scene: "fittings" },
-      { slug: "faucets", name: "Faucets", scene: "faucet" },
-    ],
-  },
-  "cpvc-pipes": {
-    slug: "cpvc-pipes",
-    title: "CPVC Pipes",
-    departmentSlug: "plumbing",
-    description: "Heat-ready CPVC pipe options for pressure-aware plumbing work.",
-    subtitle: "Useful for installations that need extra temperature resilience.",
-    scene: "pipes-cold",
-    related: [
-      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
-      { slug: "pvc-pipes", name: "PVC Pipes", scene: "pipes" },
-      { slug: "fittings", name: "Fittings", scene: "fittings" },
-      { slug: "valves", name: "Valves", scene: "valve" },
-    ],
-  },
-  fittings: {
-    slug: "fittings",
-    title: "Fittings",
-    departmentSlug: "plumbing",
-    description: "Secure joints and clean connectors for plumbing installations.",
-    subtitle: "Complete the system with matching connectors and joins.",
-    scene: "fittings",
-    related: [
-      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
-      { slug: "pvc-pipes", name: "PVC Pipes", scene: "pipes" },
-      { slug: "faucets", name: "Faucets", scene: "faucet" },
-      { slug: "valves", name: "Valves", scene: "valve" },
-    ],
-  },
-  faucets: {
-    slug: "faucets",
-    title: "Faucets",
-    departmentSlug: "plumbing",
-    description: "Premium faucets and fixtures for daily touchpoints.",
-    subtitle: "Add function and finish to bathrooms and kitchens.",
-    scene: "faucet",
-    related: [
-      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
-      { slug: "fittings", name: "Fittings", scene: "fittings" },
-      { slug: "valves", name: "Valves", scene: "valve" },
-      { slug: "water-tanks", name: "Water Tanks", scene: "tank" },
-    ],
-  },
-  valves: {
-    slug: "valves",
-    title: "Valves",
-    departmentSlug: "plumbing",
-    description: "Flow control essentials for plumbing and maintenance work.",
-    subtitle: "Control water flow with dependable valve hardware.",
-    scene: "valve",
-    related: [
-      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
-      { slug: "fittings", name: "Fittings", scene: "fittings" },
-      { slug: "faucets", name: "Faucets", scene: "faucet" },
-      { slug: "water-tanks", name: "Water Tanks", scene: "tank" },
-    ],
-  },
-  "water-tanks": {
-    slug: "water-tanks",
-    title: "Water Tanks",
-    departmentSlug: "plumbing",
-    description: "Storage solutions for steady water supply and everyday use.",
-    subtitle: "Keep storage dependable with the right tank options.",
-    scene: "tank",
-    related: [
-      { slug: "plumbing", name: "Plumbing", scene: "pipes" },
-      { slug: "fittings", name: "Fittings", scene: "fittings" },
-      { slug: "faucets", name: "Faucets", scene: "faucet" },
-      { slug: "valves", name: "Valves", scene: "valve" },
-    ],
-  },
-};
-
-function buildFallbackCategoryContent(slug: string): CategoryContent | null {
-  const config = CATEGORY_FALLBACKS[slug];
-
-  if (!config) {
-    return null;
-  }
-
-  const categoryBrands =
-    config.departmentSlug === "plumbing"
-      ? [
-          {
-            name: "Astral",
-            category: "Plumbing" as const,
-            description: "Durable water systems built for installations.",
-            href: "/brand/astral",
-          },
-          {
-            name: "Supreme",
-            category: "Plumbing" as const,
-            description: "Strong pipe and fitting essentials.",
-            href: "/brand/supreme",
-          },
-          {
-            name: "Finolex",
-            category: "Plumbing" as const,
-            description: "Utility-focused plumbing solutions.",
-            href: "/brand/finolex",
-          },
-          {
-            name: "Jaquar",
-            category: "Plumbing" as const,
-            description: "Premium fixtures with refined styling.",
-            href: "/brand/jaquar",
-          },
-        ]
-      : [
-          {
-            name: "Asian Paints",
-            category: "Paint" as const,
-            description: "Reliable coatings for interiors and exteriors.",
-            href: "/brand/asian-paints",
-          },
-          {
-            name: "Berger",
-            category: "Paint" as const,
-            description: "Finish-first systems for modern spaces.",
-            href: "/brand/berger",
-          },
-          {
-            name: "Nerolac",
-            category: "Paint" as const,
-            description: "Everyday colour with trusted performance.",
-            href: "/brand/nerolac",
-          },
-          {
-            name: "Dr. Fixit",
-            category: "Paint" as const,
-            description: "Waterproofing and repair solutions.",
-            href: "/brand/dr-fixit",
-          },
-        ];
-
-  return {
-    slug: config.slug,
-    title: config.title,
-    eyebrow: config.departmentSlug === "plumbing" ? "Flow systems" : "Surface solutions",
-    description: config.description,
-    subtitle: config.subtitle,
-    scene: config.scene,
-    tone: departmentTone(config.departmentSlug),
-    productIds: [],
-    catalog: [],
-    brands: categoryBrands,
-    relatedCategories: config.related.map((item) => ({
-      name: item.name,
-      slug: item.slug,
-      href: `/category/${item.slug}`,
-      scene: item.scene,
-    })),
-    buyingGuide: makeBuyingGuide(config.departmentSlug, config.title),
-    faq: makeFaq(config.departmentSlug, config.title),
-    promotionalBanner:
-      config.departmentSlug === "plumbing"
-        ? "Build reliable water systems with premium pipes, fittings, and bathroom hardware from top brands."
-        : "Refresh your spaces with premium paint systems, curated tools, and trusted brand collections.",
-  } satisfies CategoryContent;
-}
-
 function makeDepartmentDescription(slug: string) {
-  return slug === "plumbing"
-    ? "Premium plumbing essentials, fittings, and water management products for modern homes."
-    : "Premium paint systems, finishes, and surface prep essentials for every project.";
+  if (slug === "paint") return "Premium paint systems, finishes, and surface prep essentials for every project.";
+  if (slug === "hardware") return "Reliable hardware, plumbing, and tool essentials for modern projects.";
+  if (slug === "electric") return "Trusted electrical products for safer, smarter everyday spaces.";
+  if (slug === "home-improvement") return "Curated products for more comfortable, functional homes.";
+  return "Useful home, project, and maintenance essentials from trusted brands.";
 }
 
 function makeCategoryDescription(name: string, departmentSlug: string) {
-  return departmentSlug === "plumbing"
+  return departmentSlug === "hardware"
     ? `Browse ${name.toLowerCase()} and water-management essentials designed for clean, reliable installations.`
     : `Discover ${name.toLowerCase()} products and surface-prep essentials for premium wall finishes.`;
 }
 
 function makeBuyingGuide(departmentSlug: string, categoryName?: string) {
-  if (departmentSlug === "plumbing") {
+  if (departmentSlug === "hardware") {
     return [
       "Match pipe, fitting, and valve choices with the installation pressure and temperature.",
       "Choose compatible accessories from the same system for smoother installation.",
@@ -1266,7 +964,7 @@ function makeBuyingGuide(departmentSlug: string, categoryName?: string) {
 }
 
 function makeFaq(departmentSlug: string, categoryName?: string) {
-  if (departmentSlug === "plumbing") {
+  if (departmentSlug === "hardware") {
     return [
       {
         question: "How do I choose the right plumbing accessory?",
@@ -1296,15 +994,15 @@ function makeFaq(departmentSlug: string, categoryName?: string) {
 }
 
 function makeApplications(departmentSlug: string, categoryName: string) {
-  if (departmentSlug === "plumbing") {
+  if (departmentSlug === "hardware") {
     return [categoryName, "Bathroom", "Kitchen", "Utility Room"].filter(Boolean);
   }
 
   return [categoryName, "Living Room", "Bedroom", "Exterior"].filter(Boolean);
 }
 
-function makeBrandAccent(departmentSlug: string): "paint" | "plumbing" | "tools" {
-  return departmentSlug === "plumbing" ? "plumbing" : "paint";
+function makeBrandAccent(departmentSlug: string): "paint" | "hardware" | "tools" {
+  return departmentSlug === "paint" ? "paint" : "tools";
 }
 
 type CatalogSnapshotData = {
@@ -1318,6 +1016,24 @@ type CatalogSnapshotData = {
   productShades: ProductShadeRow[];
   inventories: InventoryRow[];
 };
+
+type CatalogQueryResult = {
+  data?: unknown;
+  error?: {
+    code?: string;
+    message?: string;
+  } | null;
+};
+
+function assertCatalogQuerySucceeded(result: CatalogQueryResult, resource: string) {
+  if (!result.error) return;
+
+  console.error(`[catalog] ${resource} query failed`, {
+    code: result.error.code ?? "unknown",
+    message: result.error.message ?? "unknown error",
+  });
+  throw new Error(`Catalog ${resource} query failed`);
+}
 
 function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
   const departmentsById = new Map(data.departments.map((item) => [item.id, item]));
@@ -1372,7 +1088,7 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
     )
     .filter((item): item is CatalogProduct => Boolean(item));
 
-  const departments = data.departments
+  const departments: CatalogDepartment[] = data.departments
     .filter((row) => row.deleted_at === null && toBoolean(row.is_active, true))
     .sort((left, right) => toNumber(left.sort_order, 0) - toNumber(right.sort_order, 0))
     .map((row) => {
@@ -1395,8 +1111,8 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
     .filter((row) => row.deleted_at === null && toBoolean(row.is_active, true))
     .map((row) => {
       const department = departmentsById.get(row.department_id);
-      const departmentSlug = department?.slug ?? "paints";
-      const departmentName = department?.name ?? "Paints";
+      const departmentSlug = department?.slug ?? "";
+      const departmentName = department?.name ?? "";
       const categoryProducts = products.filter(
         (product) => product.categoryId === row.id,
       );
@@ -1451,8 +1167,8 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
     .map((row) => {
       const department = departmentsById.get(row.department_id);
       const category = row.category_id ? categoriesById.get(row.category_id) : null;
-      const departmentSlug = department?.slug ?? "paints";
-      const departmentName = department?.name ?? "Paints";
+      const departmentSlug = department?.slug ?? "";
+      const departmentName = department?.name ?? "";
       const brandProducts = products.filter((product) => product.brandId === row.id);
       return {
         id: row.id,
@@ -1474,6 +1190,11 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
       } satisfies CatalogBrand;
     });
 
+  for (const department of departments) {
+    department.categories = categories.filter((category) => category.departmentId === department.id);
+    department.brands = brands.filter((brand) => brand.departmentId === department.id);
+  }
+
   const byDepartmentSlug = new Map(departments.map((item) => [item.slug, item]));
   const byCategorySlug = new Map(categories.map((item) => [item.slug, item]));
   const byBrandSlug = new Map(brands.map((item) => [item.slug, item]));
@@ -1491,7 +1212,7 @@ function buildSnapshot(data: CatalogSnapshotData): CatalogSnapshot {
   const searchBrands: SearchBrand[] = brands.map((brand) => ({
     slug: brand.slug,
     name: brand.name,
-    category: brand.departmentSlug === "plumbing" ? "Plumbing" : "Paint",
+    category: brand.departmentName,
     tagline: brand.description,
     href: `/brand/${brand.slug}`,
     logo: brand.logoUrl ?? "",
@@ -1542,17 +1263,8 @@ const loadCatalogSnapshotData = unstable_cache(
     const client = getSupabasePublicServerClient();
 
     if (!client) {
-      return {
-        departments: [],
-        categories: [],
-        brands: [],
-        products: [],
-        productImages: [],
-        productVariants: [],
-        shades: [],
-        productShades: [],
-        inventories: [],
-      };
+      console.error("[catalog] Supabase configuration is unavailable; live catalog cannot be loaded");
+      throw new Error("Catalog unavailable");
     }
 
     const [departmentsResult, categoriesResult, brandsResult, productsResult] =
@@ -1585,6 +1297,11 @@ const loadCatalogSnapshotData = unstable_cache(
           .eq("status", "active")
           .order("updated_at", { ascending: false }),
       ]);
+
+    assertCatalogQuerySucceeded(departmentsResult, "departments");
+    assertCatalogQuerySucceeded(categoriesResult, "categories");
+    assertCatalogQuerySucceeded(brandsResult, "brands");
+    assertCatalogQuerySucceeded(productsResult, "products");
 
     const productIds = (productsResult.data ?? []).map((row) => row.id as string);
     const variantIds: string[] = [];
@@ -1633,6 +1350,11 @@ const loadCatalogSnapshotData = unstable_cache(
           : Promise.resolve({ data: [] as ShadeRow[] }),
       ]);
 
+    assertCatalogQuerySucceeded(imagesResult, "product images");
+    assertCatalogQuerySucceeded(variantsResult, "product variants");
+    assertCatalogQuerySucceeded(shadesResult, "shades");
+    assertCatalogQuerySucceeded(productShadesResult, "product shades");
+
     for (const variant of variantsResult.data ?? []) {
       variantIds.push(variant.id as string);
     }
@@ -1648,6 +1370,8 @@ const loadCatalogSnapshotData = unstable_cache(
             .is("deleted_at", null)
             .order("created_at", { ascending: true })
         : { data: [] as InventoryRow[] };
+
+    assertCatalogQuerySucceeded(inventoriesResult, "inventory");
 
     return {
       departments: (departmentsResult.data ?? []) as DepartmentRow[],
@@ -1684,21 +1408,13 @@ export async function getLiveSearchData(): Promise<SearchResults> {
 
 export async function getLiveHomeData() {
   const snapshot = await getCatalogSnapshot();
-  const paints = snapshot.products.filter(
-    (product) => product.departmentSlug === "paints",
-  );
-  const plumbing = snapshot.products.filter(
-    (product) => product.departmentSlug === "plumbing",
-  );
   const featuredProducts = snapshot.products
     .filter((product) => product.featured)
     .slice(0, 4);
   const exclusiveProducts = snapshot.products
     .filter((product) => product.exclusiveOffer)
     .slice(0, 4);
-  const homeProducts = [paints[0], plumbing[0], paints[1], plumbing[1]].filter(
-    Boolean,
-  ) as CatalogProduct[];
+  const homeProducts = snapshot.products.slice(0, 4);
   const brandChips = snapshot.brands.slice(0, 7).map((brand) => ({
     name: brand.name,
     href: `/brand/${brand.slug}`,
@@ -1706,6 +1422,8 @@ export async function getLiveHomeData() {
 
   return {
     products: snapshot.products,
+    departments: snapshot.departments,
+    categories: snapshot.categories,
     featuredProducts:
       featuredProducts.length > 0 ? featuredProducts : snapshot.products.slice(0, 4),
     exclusiveProducts:
@@ -1931,7 +1649,7 @@ export async function getLiveCategoryBySlug(slug: string) {
   const category = snapshot.byCategorySlug.get(slug);
 
   if (!category) {
-    return buildFallbackCategoryContent(slug);
+    return null;
   }
 
   const departmentToneValue = departmentTone(category.departmentSlug);
@@ -1951,10 +1669,7 @@ export async function getLiveCategoryBySlug(slug: string) {
     category.brands.length > 0
       ? category.brands.map((brand) => ({
           name: brand.name,
-          category:
-            brand.departmentSlug === "plumbing"
-              ? ("Plumbing" as const)
-              : ("Paint" as const),
+          category: brand.departmentName,
           description: brand.description,
           href: `/brand/${brand.slug}`,
           logo: brand.logoUrl ?? undefined,
@@ -1964,10 +1679,7 @@ export async function getLiveCategoryBySlug(slug: string) {
           .slice(0, 6)
           .map((brand) => ({
             name: brand.name,
-            category:
-              brand.departmentSlug === "plumbing"
-                ? ("Plumbing" as const)
-                : ("Paint" as const),
+            category: brand.departmentName,
             description: brand.description,
             href: `/brand/${brand.slug}`,
             logo: brand.logoUrl ?? undefined,
@@ -1984,12 +1696,10 @@ export async function getLiveCategoryBySlug(slug: string) {
     slug: category.slug,
     title: category.name,
     eyebrow:
-      category.departmentSlug === "plumbing" ? "Flow systems" : "Surface solutions",
+      category.departmentSlug === "hardware" ? "Project essentials" : `${category.departmentName} solutions`,
     description: category.description,
     subtitle:
-      category.departmentSlug === "plumbing"
-        ? `Find reliable ${category.name.toLowerCase()} and plumbing essentials for modern homes.`
-        : `Explore premium ${category.name.toLowerCase()} products designed for modern walls and surfaces.`,
+      `Explore premium ${category.name.toLowerCase()} products for modern ${category.departmentName.toLowerCase()} projects.`,
     scene: categoryScene(category.name, category.departmentSlug),
     tone: departmentToneValue,
     productIds: category.products.map((product) => product.id),
@@ -1999,9 +1709,7 @@ export async function getLiveCategoryBySlug(slug: string) {
     buyingGuide: makeBuyingGuide(category.departmentSlug, category.name),
     faq: makeFaq(category.departmentSlug, category.name),
     promotionalBanner:
-      category.departmentSlug === "plumbing"
-        ? "Build reliable water systems with premium pipes, fittings, and bathroom hardware from top brands."
-        : "Refresh your spaces with premium paint systems, curated tools, and trusted brand collections.",
+      `Discover trusted ${category.departmentName.toLowerCase()} products and curated brand collections.`,
   } satisfies CategoryContent;
 }
 
@@ -2038,7 +1746,7 @@ export async function getLiveBrandBySlug(slug: string) {
     founded: new Date(
       brand.createdAt ?? brand.products[0]?.createdAt ?? Date.now(),
     ).getFullYear(),
-    headquarters: brand.departmentName === "Plumbing" ? "India" : "India",
+    headquarters: "India",
     theme,
     categories: snapshot.categories
       .filter((category) => category.departmentSlug === brand.departmentSlug)
@@ -2052,7 +1760,7 @@ export async function getLiveBrandBySlug(slug: string) {
     featuredProductIds,
     recentProductIds,
     certifications:
-      brand.departmentSlug === "plumbing"
+      brand.departmentSlug === "hardware"
         ? [
             { label: "ISO 9001", note: "Consistent manufacturing quality" },
             { label: "BIS Ready", note: "Standards-aligned installations" },
@@ -2075,7 +1783,7 @@ export async function getLiveBrandBySlug(slug: string) {
         scene: categoryScene(category.name, category.departmentSlug),
       })),
     faqs:
-      brand.departmentSlug === "plumbing"
+      brand.departmentSlug === "hardware"
         ? [
             {
               question: "How do I choose between PVC and CPVC?",
@@ -2127,20 +1835,20 @@ export async function getLiveBrandBySlug(slug: string) {
     strengths: [
       `${brand.name} is built for consistent project outcomes and repeatable results.`,
       `Trusted by teams working across ${brand.departmentName.toLowerCase()} projects.`,
-      brand.departmentSlug === "plumbing"
-        ? "Chosen for reliable flow, installation ease, and long service life."
+      brand.departmentSlug === "hardware"
+        ? "Chosen for reliable installation, everyday durability, and long service life."
         : "Loved for elegant finishes, smooth application, and strong colour performance.",
     ],
     trustPillars:
-      brand.departmentSlug === "plumbing"
+      brand.departmentSlug === "hardware"
         ? [
             {
-              title: "Reliable flow",
-              description: "Built for smooth, consistent performance in daily use.",
+              title: "Reliable performance",
+              description: "Built for consistent performance across everyday projects.",
             },
             {
               title: "Installation ready",
-              description: "Designed to work cleanly with common residential setups.",
+              description: "Designed to work cleanly across common residential setups.",
             },
             {
               title: "Long service life",
@@ -2148,7 +1856,7 @@ export async function getLiveBrandBySlug(slug: string) {
             },
             {
               title: "Trusted by contractors",
-              description: "Frequently chosen for professional plumbing projects.",
+              description: "Frequently chosen for professional project work.",
             },
           ]
         : [
@@ -2189,7 +1897,7 @@ export async function getLiveDepartmentBySlug(slug: string) {
     slug: department.slug,
     title: department.name,
     description: department.description,
-    eyebrow: slug === "plumbing" ? "Plumbing specialist" : "Paint specialist",
+    eyebrow: `${department.name} specialist`,
     categories: snapshot.categories
       .filter((category) => category.departmentSlug === slug)
       .slice(0, 8)
@@ -2205,7 +1913,7 @@ export async function getLiveDepartmentBySlug(slug: string) {
       .slice(0, 8)
       .map((brand) => ({
         name: brand.name,
-        category: slug === "plumbing" ? ("Plumbing" as const) : ("Paint" as const),
+        category: department.name,
         description: brand.description,
         initials: initialsFrom(brand.name),
         href: `/brand/${brand.slug}`,

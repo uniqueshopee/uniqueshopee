@@ -16,8 +16,8 @@ export async function generateMetadata({ searchParams }: SearchPageProps): Promi
   return createPageMetadata({
     title: query ? `Search results for "${query}" | UniqueShopee` : "Search | UniqueShopee",
     description: query
-      ? `Search results for ${query} across UniqueShopee's premium Paint and Plumbing catalog.`
-      : "Search UniqueShopee's premium Paint and Plumbing catalog.",
+      ? `Search results for ${query} across UniqueShopee's live catalog.`
+      : "Search UniqueShopee's live catalog.",
     pathname: "/search",
   });
 }

@@ -71,7 +71,7 @@ export interface NavLink {
 }
 
 export interface Department {
-  id: "paints" | "plumbing";
+  id: string;
   title: string;
   items: string[];
   ctaLabel: string;

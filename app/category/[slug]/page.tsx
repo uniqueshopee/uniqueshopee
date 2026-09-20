@@ -1,34 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { getLiveCategoryBySlug } from "@/lib/catalog";
+import { getCatalogSnapshot, getLiveCategoryBySlug } from "@/lib/catalog";
 import { createPageMetadata } from "@/lib/seo";
-
-const FALLBACK_CATEGORY_SLUGS = [
-  "paints",
-  "interior-paint",
-  "exterior-paint",
-  "primer",
-  "wall-putty",
-  "waterproofing",
-  "paint-accessories",
-  "plumbing",
-  "pvc-pipes",
-  "cpvc-pipes",
-  "fittings",
-  "faucets",
-  "valves",
-  "water-tanks",
-];
-
-const PLUMBING_CATEGORY_SLUGS = new Set([
-  "plumbing",
-  "pvc-pipes",
-  "cpvc-pipes",
-  "fittings",
-  "faucets",
-  "valves",
-  "water-tanks",
-]);
 
 type CategoryPageProps = {
   params: Promise<{
@@ -37,7 +10,8 @@ type CategoryPageProps = {
 };
 
 export async function generateStaticParams() {
-  return FALLBACK_CATEGORY_SLUGS.map((slug) => ({ slug }));
+  const snapshot = await getCatalogSnapshot();
+  return snapshot.categories.map((category) => ({ slug: category.slug }));
 }
 
 export async function generateMetadata({ params }: CategoryPageProps): Promise<Metadata> {
@@ -65,11 +39,12 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
     notFound();
   }
 
-  const department = PLUMBING_CATEGORY_SLUGS.has(slug) ? "plumbing" : "paints";
-  const query = new URLSearchParams({ department });
-  if (category.title !== (department === "paints" ? "Paints" : "Plumbing")) {
-    query.set("category", category.title);
+  const snapshot = await getCatalogSnapshot();
+  const liveCategory = snapshot.byCategorySlug.get(slug);
+  if (!liveCategory) {
+    notFound();
   }
+  const query = new URLSearchParams({ department: liveCategory.departmentSlug, category: liveCategory.slug });
 
   redirect(`/products?${query.toString()}`);
 }

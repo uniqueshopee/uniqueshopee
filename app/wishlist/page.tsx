@@ -4,7 +4,7 @@ import { getLiveProducts } from "@/lib/catalog";
 
 export const metadata: Metadata = {
   title: "Wishlist | UniqueShopee",
-  description: "Track your favorite Paint and Plumbing products in one premium wishlist.",
+  description: "Track your favorite products across every UniqueShopee department.",
 };
 
 export default async function WishlistRoute() {

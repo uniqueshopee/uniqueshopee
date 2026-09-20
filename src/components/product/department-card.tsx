@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, BadgeCheck, Paintbrush, Wrench } from "lucide-react";
+import { ArrowRight, BadgeCheck, House, Lightbulb, MoreHorizontal, Paintbrush, Wrench } from "lucide-react";
 import { motion } from "framer-motion";
 import type { Department } from "@/types";
 import { Card } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const DEPARTMENT_VISUALS: Record<
-  Department["id"],
+  string,
   {
     surface: string;
     glow: string;
@@ -19,7 +19,7 @@ const DEPARTMENT_VISUALS: Record<
     summary: string;
   }
 > = {
-  paints: {
+  paint: {
     surface: "from-amber-50 via-white to-orange-50",
     glow: "bg-amber-300/30",
     accent: "bg-amber-500",
@@ -27,18 +27,31 @@ const DEPARTMENT_VISUALS: Record<
     chips: ["Interior", "Exterior", "Finishes"],
     summary: "Color systems, coatings, and finish essentials.",
   },
-  plumbing: {
+  hardware: {
     surface: "from-sky-50 via-white to-cyan-50",
     glow: "bg-sky-300/30",
     accent: "bg-sky-500",
     icon: Wrench,
-    chips: ["Pipes", "Fittings", "Fixtures"],
-    summary: "Water movement, fittings, and installation gear.",
+    chips: ["Plumbing", "Tools", "Fittings"],
+    summary: "Hardware, tools, fittings, and installation essentials.",
   },
+  electric: { surface: "from-emerald-50 via-white to-teal-50", glow: "bg-emerald-300/30", accent: "bg-emerald-500", icon: Lightbulb, chips: ["Wire & Cable", "Lighting", "Switches"], summary: "Reliable electrical essentials for every space." },
+  "home-improvement": { surface: "from-violet-50 via-white to-fuchsia-50", glow: "bg-violet-300/30", accent: "bg-violet-500", icon: House, chips: ["Home", "Spaces", "Living"], summary: "Thoughtful products for better spaces and better living." },
+  others: { surface: "from-slate-50 via-white to-gray-50", glow: "bg-slate-300/30", accent: "bg-slate-500", icon: MoreHorizontal, chips: ["More", "Essentials", "Home"], summary: "Useful essentials for projects around the home." },
 };
 
-function getDepartmentVisual(departmentId: Department["id"]) {
-  return departmentId === "plumbing" ? DEPARTMENT_VISUALS.plumbing : DEPARTMENT_VISUALS.paints;
+type DepartmentVisual = {
+  surface: string;
+  glow: string;
+  accent: string;
+  icon: typeof Paintbrush;
+  chips: [string, string, string];
+  summary: string;
+};
+
+function getDepartmentVisual(departmentId: Department["id"]): DepartmentVisual {
+  const fallback = DEPARTMENT_VISUALS.others!;
+  return DEPARTMENT_VISUALS[departmentId] ?? fallback;
 }
 
 function DepartmentCard({ department }: { department: Department }) {
@@ -66,7 +79,7 @@ function DepartmentCard({ department }: { department: Department }) {
                 <span className="rounded-full border border-white/80 bg-white/90 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-muted">
                   Department
                 </span>
-                <BadgeCheck className={cn("h-4 w-4", department.id === "paints" ? "text-amber-500" : "text-sky-500")} aria-hidden="true" />
+                <BadgeCheck className={cn("h-4 w-4", department.id === "paint" ? "text-amber-500" : "text-sky-500")} aria-hidden="true" />
               </div>
               <h3 className="mt-2 text-[1.35rem] font-bold text-text">{department.title}</h3>
               <p className="mt-1 text-sm font-medium leading-6 text-muted">{visual.summary}</p>

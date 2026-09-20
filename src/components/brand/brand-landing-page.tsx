@@ -132,7 +132,7 @@ function BrandHeroArtwork({
               <div className="relative flex h-full flex-col justify-between p-5">
                 <div className="flex items-center justify-between gap-3">
                   <Badge variant="neutral" className="eyebrow-font">
-                    {brand.theme === "paint" ? "Colour systems" : "Flow systems"}
+                    {brand.theme === "paint" ? "Colour systems" : "Project systems"}
                   </Badge>
                   <span className={cn("h-1.5 w-16 rounded-full bg-gradient-to-r", tone.accent)} aria-hidden="true" />
                 </div>
@@ -263,7 +263,7 @@ function BrandCard({ brand }: { brand: BrandContent }) {
         <div className="flex h-full flex-col gap-4 p-4">
           <div className="flex items-center justify-between gap-3">
             <Badge variant={brand.theme === "paint" ? "accent" : "neutral"} className="shrink-0">
-              {brand.theme === "paint" ? "Paint" : "Plumbing"}
+              {brand.theme === "paint" ? "Paint" : "Hardware"}
             </Badge>
             <span className={cn("h-1.5 w-16 rounded-full bg-gradient-to-r", tone.accent)} aria-hidden="true" />
           </div>
@@ -361,7 +361,7 @@ function BrandLandingPage({ brand, featuredProducts, recentProducts, relatedBran
           <div className="grid gap-8 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
             <div className="max-w-3xl">
               <Badge variant={tone.badge} className="mb-4 eyebrow-font">
-                {brand.theme === "paint" ? "Paint brand" : "Plumbing brand"}
+                {brand.theme === "paint" ? "Paint brand" : "Hardware brand"}
               </Badge>
               <h1 id="brand-title" className="text-text">
                 {brand.name}

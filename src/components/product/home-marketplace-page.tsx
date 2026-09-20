@@ -18,7 +18,7 @@ import {
   UserCircle2,
   Wrench,
 } from "lucide-react";
-import type { CatalogProduct } from "@/lib/catalog";
+import type { CatalogDepartment, CatalogProduct } from "@/lib/catalog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -27,6 +27,7 @@ import { SearchBar } from "@/components/layout/navbar/search-bar";
 import { buildLoginRedirectPath } from "@/lib/auth";
 import { loadUserAddresses, type CheckoutAddress } from "@/lib/address-service";
 import { cn, formatPrice } from "@/lib/utils";
+import { DEPARTMENTS } from "@/lib/constants";
 import { calculateCustomerPrice } from "@/lib/pricing-engine";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { addValidatedCartItem } from "@/lib/cart-service";
@@ -56,6 +57,7 @@ type HomeProduct = {
 type HomeMarketplacePageProps = {
   products: CatalogProduct[];
   featuredProducts: CatalogProduct[];
+  departments: CatalogDepartment[];
 };
 
 const FALLBACK_HOME_IMAGE =
@@ -77,15 +79,6 @@ const FALLBACK_HOME_IMAGE =
 
 const SEO_NOISE_RE = /(test|demo|placeholder|sample|dummy|qa)/i;
 
-const SHOP_CATEGORIES = [
-  { label: "Paints", href: "/products?department=paints", icon: Paintbrush, tone: "bg-amber-500/12 text-amber-600" },
-  { label: "Wall Putty", href: "/products?department=paints&category=Wall%20Putty", icon: Sparkles, tone: "bg-orange-500/12 text-orange-600" },
-  { label: "Waterproofing", href: "/products?department=paints&category=Waterproofing", icon: ShieldCheck, tone: "bg-emerald-500/12 text-emerald-600" },
-  { label: "Primer", href: "/products?department=paints&category=Primer", icon: Wrench, tone: "bg-slate-500/12 text-slate-600" },
-  { label: "Plumbing", href: "/products?department=plumbing", icon: Droplets, tone: "bg-sky-500/12 text-sky-600" },
-  { label: "Fittings", href: "/products?department=plumbing&category=Fittings", icon: Wrench, tone: "bg-cyan-500/12 text-cyan-700" },
-];
-
 const ITEM_VARIANTS = {
   hidden: { opacity: 0, y: 10 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.25, ease: [0.16, 1, 0.3, 1] } },
@@ -96,7 +89,7 @@ function toHomeProduct(product: CatalogProduct, badge: HomeProduct["badge"] = pr
     id: product.id,
     title: product.name,
     subtitle: product.brandName,
-    categoryLabel: product.departmentSlug === "plumbing" ? "Plumbing" : "Paints",
+    categoryLabel: product.departmentName,
     image: product.primaryImageUrl || product.image,
     href: `/product/${product.slug}`,
     price: product.price,
@@ -120,14 +113,6 @@ function isNoiseProduct(product: CatalogProduct) {
 
 function buildHomeProducts(products: CatalogProduct[]): HomeProduct[] {
   const visibleProducts = products.filter((product) => !isNoiseProduct(product));
-  const paints = visibleProducts.filter((product) => product.departmentSlug === "paints").slice(0, 2);
-  const plumbing = visibleProducts.filter((product) => product.departmentSlug === "plumbing").slice(0, 2);
-  const ordered = [paints[0], plumbing[0], paints[1], plumbing[1]].filter(Boolean) as CatalogProduct[];
-
-  if (ordered.length > 0) {
-    return ordered.map((product) => toHomeProduct(product, product.badge));
-  }
-
   return visibleProducts.slice(0, 4).map((product) => toHomeProduct(product, product.badge));
 }
 
@@ -264,13 +249,27 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
   );
 }
 
-function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePageProps) {
+function HomeMarketplacePage({ products, featuredProducts, departments }: HomeMarketplacePageProps) {
   const shouldReduceMotion = useReducedMotion();
   const { user, loading: authLoading, isAuthenticated } = useAuth();
   const [deliveryAddress, setDeliveryAddress] = useState<CheckoutAddress | null>(null);
   const [deliveryAddressLoading, setDeliveryAddressLoading] = useState(true);
   const [heroIndex, setHeroIndex] = useState(0);
   const homeProducts = useMemo(() => buildHomeProducts(products), [products]);
+  const shopCategories = useMemo(
+    () => (departments.length > 0 ? departments.slice(0, 5).map((department, index) => ({
+      label: department.name,
+      href: `/department/${department.slug}`,
+      icon: [Paintbrush, Wrench, ShieldCheck, Sparkles, Droplets][index] ?? Sparkles,
+      tone: ["bg-amber-500/12 text-amber-600", "bg-slate-500/12 text-slate-600", "bg-emerald-500/12 text-emerald-600", "bg-violet-500/12 text-violet-600", "bg-sky-500/12 text-sky-600"][index] ?? "bg-slate-500/12 text-slate-600",
+    })) : DEPARTMENTS.map((department, index) => ({
+      label: department.title,
+      href: department.href,
+      icon: [Paintbrush, Wrench, ShieldCheck, Sparkles, Droplets][index] ?? Sparkles,
+      tone: ["bg-amber-500/12 text-amber-600", "bg-slate-500/12 text-slate-600", "bg-emerald-500/12 text-emerald-600", "bg-violet-500/12 text-violet-600", "bg-sky-500/12 text-sky-600"][index] ?? "bg-slate-500/12 text-slate-600",
+    }))),
+    [departments],
+  );
   const exclusiveOfferProducts = useMemo(
     () =>
       products
@@ -368,7 +367,7 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
 
       <div className="fixed inset-x-0 top-0 z-50 border-b border-border/70 bg-[color:var(--color-background)]/96 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-4 py-2 sm:px-6 lg:px-8">
-          <SearchBar variant="home" placeholder="Search paints, putty, primer, waterproofing..." className="w-full" />
+          <SearchBar variant="home" placeholder="Search products, brands, categories..." className="w-full" />
         </div>
       </div>
 
@@ -470,7 +469,7 @@ function HomeMarketplacePage({ products, featuredProducts }: HomeMarketplacePage
             </Link>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {SHOP_CATEGORIES.map((item) => {
+            {shopCategories.map((item) => {
               const Icon = item.icon;
               return (
                 <Link

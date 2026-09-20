@@ -38,7 +38,7 @@ function Footer() {
           <div className="col-span-2 lg:col-span-2">
             <span className="text-lg font-bold text-primary">{SITE_NAME}</span>
             <p className="mt-3 max-w-xs text-sm font-medium text-muted">
-              Premium online store for Paints, Plumbing Products and Home Improvement.
+              Premium online marketplace for paint, hardware, electrical, and home improvement essentials.
             </p>
 
             <form

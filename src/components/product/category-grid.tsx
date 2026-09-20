@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CategoryIllustration, type CategoryScene, type CategoryTone } from "./category-illustration";
 import { cn } from "@/lib/utils";
+import type { CatalogCategory } from "@/lib/catalog";
 
 type CategoryItem = {
   name: string;
@@ -22,48 +23,31 @@ type CategoryGroup = {
   toneLabel: string;
 };
 
-const PAINT_TONES: CategoryTone[] = [
+const CATEGORY_TONES: CategoryTone[] = [
   { ring: "ring-amber-200", fill: "from-amber-50 via-white to-orange-50", accentRgb: "rgb(245 158 11)", wash: "rgba(245, 158, 11, 0.16)" },
   { ring: "ring-orange-200", fill: "from-orange-50 via-white to-amber-50", accentRgb: "rgb(249 115 22)", wash: "rgba(249, 115, 22, 0.16)" },
   { ring: "ring-sky-200", fill: "from-sky-50 via-white to-cyan-50", accentRgb: "rgb(14 165 233)", wash: "rgba(14, 165, 233, 0.16)" },
   { ring: "ring-rose-200", fill: "from-rose-50 via-white to-pink-50", accentRgb: "rgb(244 63 94)", wash: "rgba(244, 63, 94, 0.16)" },
 ];
 
-const PLUMBING_TONES: CategoryTone[] = [
-  { ring: "ring-cyan-200", fill: "from-cyan-50 via-white to-sky-50", accentRgb: "rgb(6 182 212)", wash: "rgba(6, 182, 212, 0.16)" },
-  { ring: "ring-indigo-200", fill: "from-indigo-50 via-white to-blue-50", accentRgb: "rgb(99 102 241)", wash: "rgba(99, 102, 241, 0.16)" },
-  { ring: "ring-blue-200", fill: "from-blue-50 via-white to-sky-50", accentRgb: "rgb(59 130 246)", wash: "rgba(59, 130, 246, 0.16)" },
-  { ring: "ring-teal-200", fill: "from-teal-50 via-white to-emerald-50", accentRgb: "rgb(20 184 166)", wash: "rgba(20, 184, 166, 0.16)" },
-];
-
-const CATEGORY_GROUPS: CategoryGroup[] = [
-  {
-    title: "Paint Categories",
-    key: "paint-categories",
-    toneLabel: "Paint rail",
-      items: [
-      { name: "Interior Paint", description: "Beautiful living spaces with a smooth finish.", href: "/products?department=paints&category=Interior%20Paint", scene: "living-room" },
-      { name: "Exterior Paint", description: "Weather-safe protection for modern homes.", href: "/products?department=paints&category=Exterior%20Paint", scene: "house" },
-      { name: "Primer", description: "Strong base coat essentials.", href: "/products?department=paints&category=Primer", scene: "bucket" },
-      { name: "Wall Putty", description: "Create a clean, polished surface.", href: "/products?department=paints&category=Wall%20Putty", scene: "wall" },
-      { name: "Waterproofing", description: "Protect roofs and walls from moisture.", href: "/products?department=paints&category=Waterproofing", scene: "roof" },
-      { name: "Paint Accessories", description: "Tools for cleaner, faster jobs.", href: "/products?department=paints&category=Paint%20Accessories", scene: "tools" },
-    ],
-  },
-  {
-    title: "Plumbing Categories",
-    key: "plumbing-categories",
-    toneLabel: "Plumbing rail",
-      items: [
-      { name: "PVC Pipes", description: "Reliable pipes for everyday supply.", href: "/products?department=plumbing&category=PVC%20Pipes", scene: "pipes" },
-      { name: "CPVC Pipes", description: "Heat-ready piping for installations.", href: "/products?department=plumbing&category=CPVC%20Pipes", scene: "pipes-cold" },
-      { name: "Fittings", description: "Secure joints and clean connectors.", href: "/products?department=plumbing&category=Fittings", scene: "fittings" },
-      { name: "Faucets", description: "Premium fixtures for daily touchpoints.", href: "/products?department=plumbing&category=Faucets", scene: "faucet" },
-      { name: "Valves", description: "Flow control with an industrial look.", href: "/products?department=plumbing&category=Valves", scene: "valve" },
-      { name: "Water Tanks", description: "Storage for steady supply.", href: "/products?department=plumbing&category=Water%20Tanks", scene: "tank" },
-    ],
-  },
-];
+function categoryScene(name: string): CategoryScene {
+  const value = name.toLowerCase();
+  if (value.includes("interior")) return "living-room";
+  if (value.includes("exterior")) return "house";
+  if (value.includes("enamel")) return "metal";
+  if (value.includes("waterproof")) return "roof";
+  if (value.includes("painting")) return "tools";
+  if (value.includes("plumbing")) return "pipes";
+  if (value.includes("fitting")) return "fittings";
+  if (value.includes("building")) return "wall";
+  if (value.includes("hand tools")) return "tools";
+  if (value.includes("power tools")) return "tools";
+  if (value.includes("wire")) return "pipes";
+  if (value.includes("switch")) return "fittings";
+  if (value.includes("lighting")) return "living-room";
+  if (value.includes("home")) return "living-room";
+  return "tools";
+}
 
 const containerVariants = {
   hidden: { opacity: 0, y: 16 },
@@ -127,7 +111,6 @@ function CategoryCard({ item, tone }: { item: CategoryItem; tone: CategoryTone }
 }
 
 function CategoryGroupSection({ group }: { group: CategoryGroup }) {
-  const tones = group.key === "paint-categories" ? PAINT_TONES : PLUMBING_TONES;
 
   return (
     <section aria-labelledby={group.key} className="space-y-4">
@@ -150,15 +133,28 @@ function CategoryGroupSection({ group }: { group: CategoryGroup }) {
         variants={containerVariants}
       >
         {group.items.map((item, index) => (
-          <CategoryCard key={item.name} item={item} tone={tones[index % tones.length]!} />
+          <CategoryCard key={item.name} item={item} tone={CATEGORY_TONES[index % CATEGORY_TONES.length]!} />
         ))}
       </motion.ul>
     </section>
   );
 }
 
-function CategoryGrid() {
+function CategoryGrid({ categories = [] }: { categories?: CatalogCategory[] }) {
   const shouldReduceMotion = useReducedMotion();
+  const groups = categories.reduce<CategoryGroup[]>((result, category) => {
+    const key = category.departmentSlug || "other";
+    const existing = result.find((group) => group.key === key);
+    const item = {
+      name: category.name,
+      description: category.description || `Explore ${category.name} products.`,
+      href: `/category/${category.slug}`,
+      scene: categoryScene(category.name),
+    } satisfies CategoryItem;
+    if (existing) existing.items.push(item);
+    else result.push({ title: category.departmentName, key, toneLabel: category.departmentName, items: [item] });
+    return result;
+  }, []);
 
   return (
     <motion.section
@@ -189,7 +185,7 @@ function CategoryGrid() {
         </motion.header>
 
         <div className="space-y-6">
-          {CATEGORY_GROUPS.map((group) => (
+          {groups.map((group) => (
             <CategoryGroupSection key={group.key} group={group} />
           ))}
         </div>

@@ -229,36 +229,45 @@ const productStatuses = [
   "archived",
 ] as const;
 const CORE_DEPARTMENTS = [
-  { name: "Paints", slug: "paints" },
-  { name: "Plumbing", slug: "plumbing" },
+  { name: "Paint", slug: "paint" },
+  { name: "Hardware", slug: "hardware" },
+  { name: "Electric", slug: "electric" },
+  { name: "Home Improvement", slug: "home-improvement" },
+  { name: "Others", slug: "others" },
 ] as const;
 const CORE_CATEGORY_SEEDS: Record<string, Array<{ name: string; slug: string }>> = {
-  paints: [
-    { name: "Interior Paint", slug: "interior-paint" },
-    { name: "Exterior Paint", slug: "exterior-paint" },
-    { name: "Wall Putty", slug: "wall-putty" },
-    { name: "Primer", slug: "primer" },
+  paint: [
+    { name: "Interior", slug: "interior" },
+    { name: "Exterior", slug: "exterior" },
+    { name: "Enamel", slug: "enamel" },
     { name: "Waterproofing", slug: "waterproofing" },
-    { name: "Wood Finish", slug: "wood-finish" },
-    { name: "Metal Paint", slug: "metal-paint" },
-    { name: "Paint Tools", slug: "paint-tools" },
+    { name: "Painting Tools", slug: "painting-tools" },
   ],
-  plumbing: [
-    { name: "Pipes", slug: "pipes" },
+  hardware: [
+    { name: "Plumbing", slug: "plumbing" },
     { name: "Fittings", slug: "fittings" },
-    { name: "Faucets", slug: "faucets" },
-    { name: "Valves", slug: "valves" },
-    { name: "Pumps", slug: "pumps" },
-    { name: "Bathroom Accessories", slug: "bathroom-accessories" },
-    { name: "Water Tanks", slug: "water-tanks" },
-    { name: "Sealants", slug: "sealants" },
+    { name: "Hardware Fittings", slug: "hardware-fittings" },
+    { name: "Building Materials & Safety", slug: "building-materials-safety" },
+    { name: "Hand Tools", slug: "hand-tools" },
+    { name: "Power Tools", slug: "power-tools" },
+  ],
+  electric: [
+    { name: "Wire & Cable", slug: "wire-cable" },
+    { name: "Switch & Sockets", slug: "switch-sockets" },
+    { name: "Lighting", slug: "lighting" },
+  ],
+  "home-improvement": [
+    { name: "Home Improvements", slug: "home-improvements" },
+  ],
+  others: [
+    { name: "Others", slug: "others" },
   ],
 };
 const DEPARTMENT_FIELD_PRESETS: Record<
   string,
   Array<{ key: string; label: string; placeholder: string }>
 > = {
-  paints: [
+  paint: [
     { key: "paint_type", label: "Paint Type", placeholder: "Emulsion, enamel, primer" },
     { key: "finish", label: "Finish", placeholder: "Matte, glossy, satin" },
     { key: "colour", label: "Colour", placeholder: "White, ivory, custom shade" },
@@ -271,7 +280,7 @@ const DEPARTMENT_FIELD_PRESETS: Record<
       placeholder: "Interior wall, wood, metal",
     },
   ],
-  plumbing: [
+  hardware: [
     { key: "material", label: "Material", placeholder: "Brass, PVC, steel" },
     { key: "pipe_size", label: "Pipe Size", placeholder: "1/2 inch" },
     { key: "size", label: "Size", placeholder: "20 mm" },
@@ -1306,7 +1315,7 @@ function ProductsAdminPage() {
         categoryId: "",
         brandId: "",
         variants:
-          nextDepartmentSlug === "paints" && current.variants.length === 0
+          nextDepartmentSlug === "paint" && current.variants.length === 0
             ? [
                 createVariantDraft({
                   variantName: "Default",
@@ -1621,7 +1630,7 @@ function ProductsAdminPage() {
     const stock = parseNumber(form.stockQuantity);
     const reserved = parseNumber(form.reservedQuantity);
     const threshold = parseNumber(form.lowStockThreshold);
-    const isPaintProduct = selectedDepartmentSlug === "paints";
+    const isPaintProduct = selectedDepartmentSlug === "paint";
 
     if (!form.name.trim()) errors.name = "Product name is required";
     if (!form.departmentId) errors.departmentId = "Department is required";
@@ -1771,7 +1780,7 @@ function ProductsAdminPage() {
               primary: true,
             }),
           ];
-    const isPaintProduct = selectedDepartmentSlug === "paints";
+    const isPaintProduct = selectedDepartmentSlug === "paint";
     const defaultIndex = variants.findIndex((variant) => variant.primary);
     const normalizedVariants = variants.map((variant, index) => {
       const sku = normalizedVariantSku(variant, index, productSku);
@@ -2107,7 +2116,7 @@ function ProductsAdminPage() {
       const inventoryPayload = savedVariants.map((variant, index) => {
         const sourceDraft = variantsToInsert[index]?.draft;
         const isPrimaryVariant = Boolean(sourceDraft?.primary) || index === 0;
-        const isPaintProduct = selectedDepartmentSlug === "paints";
+        const isPaintProduct = selectedDepartmentSlug === "paint";
         const currentQuantity = isPaintProduct
           ? parseNumber(sourceDraft?.stock || form.stockQuantity)
           : isPrimaryVariant
@@ -3484,7 +3493,7 @@ function ProductsAdminPage() {
                             Default
                           </label>
                         </div>
-                        {selectedDepartmentSlug === "paints" ? (
+                        {selectedDepartmentSlug === "paint" ? (
                           <div className="grid gap-3 lg:grid-cols-3">
                             <FormField
                               label="Finish"

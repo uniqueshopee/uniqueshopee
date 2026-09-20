@@ -10,6 +10,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
 import { buildLoginRedirectPath } from "@/lib/auth";
+import type { CatalogDepartment } from "@/lib/catalog";
 
 const QUICK_SHOP_ACTIONS = [
   { label: "All Products", href: "/products", icon: LayoutGrid, tone: "bg-primary/8 text-primary" },
@@ -41,7 +42,7 @@ const itemVariants = {
   },
 };
 
-function DepartmentGrid() {
+function DepartmentGrid({ departments = [] }: { departments?: CatalogDepartment[] }) {
   const shouldReduceMotion = useReducedMotion();
   const { isAuthenticated } = useAuth();
 
@@ -123,7 +124,15 @@ function DepartmentGrid() {
           </Card>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
-            {DEPARTMENTS.map((department) => (
+            {(departments.length > 0
+              ? departments.map((department) => ({
+                  id: department.slug,
+                  title: department.name,
+                  items: department.categories.map((category) => category.name),
+                  ctaLabel: `Explore ${department.name}`,
+                  href: `/department/${department.slug}`,
+                }))
+              : DEPARTMENTS).map((department) => (
               <motion.div key={department.id} variants={itemVariants} className="h-full">
                 <DepartmentCard department={department} />
               </motion.div>

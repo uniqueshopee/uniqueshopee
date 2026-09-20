@@ -5,22 +5,19 @@ import { CategoryIllustration, type CategoryScene } from "@/components/product/c
 import type { DepartmentCategoryItem } from "@/lib/department-data";
 
 function getSceneFromCategoryName(name: string): CategoryScene {
-  if (name.includes("Interior")) return "living-room";
-  if (name.includes("Exterior")) return "house";
-  if (name.includes("Primer")) return "bucket";
-  if (name.includes("Wall Putty")) return "wall";
-  if (name.includes("Waterproofing")) return "roof";
-  if (name.includes("Wood")) return "wood";
-  if (name.includes("Metal")) return "metal";
-  if (name.includes("Accessories")) return "tools";
-  if (name.includes("PVC")) return "pipes";
-  if (name.includes("CPVC")) return "pipes-cold";
-  if (name.includes("Fittings")) return "fittings";
-  if (name.includes("Faucets")) return "faucet";
-  if (name.includes("Valves")) return "valve";
-  if (name.includes("Pumps")) return "pump";
-  if (name.includes("Tank")) return "tank";
-  return "bathroom";
+  const value = name.toLowerCase();
+  if (value.includes("interior") || value.includes("home improvement")) return "living-room";
+  if (value.includes("exterior")) return "house";
+  if (value.includes("enamel")) return "metal";
+  if (value.includes("waterproof")) return "roof";
+  if (value.includes("paint") || value.includes("tool")) return "tools";
+  if (value.includes("plumb") || value.includes("pipe")) return "pipes";
+  if (value.includes("fitting")) return "fittings";
+  if (value.includes("wire") || value.includes("cable")) return "pipes";
+  if (value.includes("switch") || value.includes("socket")) return "fittings";
+  if (value.includes("light")) return "metal";
+  if (value.includes("building") || value.includes("safety")) return "wall";
+  return "tools";
 }
 
 function DepartmentCategoryCard({ category }: { category: DepartmentCategoryItem }) {

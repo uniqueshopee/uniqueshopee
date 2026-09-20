@@ -454,7 +454,7 @@ function SearchHeader({
               type="search"
               value={inputValue}
               autoComplete="off"
-              placeholder="Search paints, plumbing, brands, categories..."
+              placeholder="Search products, brands, categories..."
               aria-label="Search products, brands, and categories"
               aria-expanded={suggestionsOpen}
               aria-controls="search-suggestions"

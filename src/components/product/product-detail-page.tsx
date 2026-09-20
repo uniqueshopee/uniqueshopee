@@ -67,7 +67,7 @@ const SECTION_VARIANTS = {
 
 function getBrandTone(accent: ProductDetail["brandAccent"]) {
   switch (accent) {
-    case "plumbing":
+    case "hardware":
       return {
         wash: "from-cyan-50 via-white to-sky-50",
       };

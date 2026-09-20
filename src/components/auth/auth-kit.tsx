@@ -192,7 +192,7 @@ function AuthBrandMark({ compact = false }: { compact?: boolean }) {
           UniqueShopee
         </p>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">
-          Paints | Plumbing | Home Improvement
+          Paint | Hardware | Electric | Home Improvement | Others
         </p>
       </div>
     </div>

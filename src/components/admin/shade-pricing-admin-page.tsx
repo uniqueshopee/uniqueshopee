@@ -95,7 +95,7 @@ export function ShadePricingAdminPage() {
       client
         .from("departments")
         .select("id")
-        .eq("slug", "paints")
+      .eq("slug", "paint")
         .is("deleted_at", null),
       client
         .from("products")

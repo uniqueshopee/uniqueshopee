@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { ProductListingPage } from "@/components/product/product-listing-page";
-import { getLiveProducts } from "@/lib/catalog";
+import { getCatalogSnapshot } from "@/lib/catalog";
 import { createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
   title: "Products | UniqueShopee",
-  description: "Browse premium Paint, Plumbing, Hardware and Home Improvement products.",
+  description: "Browse premium paint, hardware, electrical, and home improvement products.",
   pathname: "/products",
 });
 
@@ -19,15 +19,18 @@ type ProductsPageProps = {
 
 export default async function ProductsPage({ searchParams }: ProductsPageProps) {
   const { department, category, q } = await searchParams;
-  const products = await getLiveProducts();
-  const initialDepartment = department === "plumbing" ? "plumbing" : "paints";
+  const snapshot = await getCatalogSnapshot();
+  const requestedDepartment = snapshot.byDepartmentSlug.get(department ?? "");
+  const initialDepartment = requestedDepartment?.slug ?? snapshot.departments[0]?.slug ?? "";
+  const requestedCategory = snapshot.byCategorySlug.get(category ?? "");
+  const initialCategory = requestedCategory?.slug ?? "";
 
   return (
     <main>
       <ProductListingPage
-        products={products}
+        products={snapshot.products}
         initialDepartment={initialDepartment}
-        initialCategory={typeof category === "string" ? category : ""}
+        initialCategory={initialCategory}
         initialQuery={typeof q === "string" ? q : ""}
       />
     </main>

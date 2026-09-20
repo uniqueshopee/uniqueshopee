@@ -11,20 +11,20 @@ import { cn } from "@/lib/utils";
 
 type BrandItem = {
   name: string;
-  category: "Paint" | "Plumbing";
+  category: "Paint" | "Hardware";
   description: string;
   href: string;
 };
 
 const BRAND_ITEMS: BrandItem[] = [
-  { name: "Asian Paints", category: "Paint", description: "Reliable coatings for interiors and exteriors.", href: "/products?department=paints" },
-  { name: "Berger", category: "Paint", description: "Finish-first systems for modern spaces.", href: "/products?department=paints" },
-  { name: "Nerolac", category: "Paint", description: "Everyday colour with trusted performance.", href: "/products?department=paints" },
-  { name: "Indigo Paints", category: "Paint", description: "Fresh color-led home improvement picks.", href: "/products?department=paints" },
-  { name: "Astral", category: "Plumbing", description: "Durable water systems built for installations.", href: "/products?department=plumbing" },
-  { name: "Supreme", category: "Plumbing", description: "Strong pipe and fitting essentials.", href: "/products?department=plumbing" },
-  { name: "Finolex", category: "Plumbing", description: "Utility-focused plumbing solutions.", href: "/products?department=plumbing" },
-  { name: "Jaquar", category: "Plumbing", description: "Premium fixtures with refined styling.", href: "/products?department=plumbing" },
+  { name: "Asian Paints", category: "Paint", description: "Reliable coatings for interiors and exteriors.", href: "/products?department=paint" },
+  { name: "Berger", category: "Paint", description: "Finish-first systems for modern spaces.", href: "/products?department=paint" },
+  { name: "Nerolac", category: "Paint", description: "Everyday colour with trusted performance.", href: "/products?department=paint" },
+  { name: "Indigo Paints", category: "Paint", description: "Fresh color-led home improvement picks.", href: "/products?department=paint" },
+  { name: "Astral", category: "Hardware", description: "Durable water systems built for installations.", href: "/products?department=hardware&category=plumbing" },
+  { name: "Supreme", category: "Hardware", description: "Strong pipe and fitting essentials.", href: "/products?department=hardware&category=plumbing" },
+  { name: "Finolex", category: "Hardware", description: "Utility-focused plumbing solutions.", href: "/products?department=hardware&category=plumbing" },
+  { name: "Jaquar", category: "Hardware", description: "Premium fixtures with refined styling.", href: "/products?department=hardware&category=plumbing" },
 ];
 
 const containerVariants = {

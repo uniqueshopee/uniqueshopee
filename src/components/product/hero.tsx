@@ -22,8 +22,8 @@ import { buildLoginRedirectPath } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const QUICK_ACTIONS = [
-  { label: "Paints", href: "/products?department=paints", icon: Paintbrush, tone: "bg-amber-500/12 text-amber-600" },
-  { label: "Plumbing", href: "/products?department=plumbing", icon: Wrench, tone: "bg-sky-500/12 text-sky-600" },
+  { label: "Paint", href: "/products?department=paint", icon: Paintbrush, tone: "bg-amber-500/12 text-amber-600" },
+  { label: "Hardware", href: "/products?department=hardware", icon: Wrench, tone: "bg-sky-500/12 text-sky-600" },
   { label: "Search", href: "/search", icon: Search, tone: "bg-violet-500/12 text-violet-600" },
   { label: "Deals", href: "/products", icon: BadgeCheck, tone: "bg-emerald-500/12 text-emerald-600" },
   { label: "Wishlist", href: "/wishlist", icon: Heart, tone: "bg-rose-500/12 text-rose-600" },
@@ -137,7 +137,7 @@ function Hero() {
 
               <div className="mt-5 space-y-3">
                 <h1 className="max-w-xl text-white">
-                  Paints and plumbing, organized for fast, confident shopping.
+                  Paint, hardware, electric, and home improvement essentials.
                 </h1>
                 <p className="max-w-xl text-sm font-medium leading-6 text-white/78 sm:text-base sm:leading-7">
                   Discover trusted brands, compact category rails, and reliable essentials for
@@ -147,13 +147,13 @@ function Hero() {
 
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Button variant="accent" size="lg" asChild className="w-full sm:w-auto">
-                  <Link href="/products?department=paints">
-                    Shop Paints
+                  <Link href="/products?department=paint">
+                    Shop Paint
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </Link>
                 </Button>
                 <Button variant="outline" size="lg" asChild className="w-full border-white/15 bg-white/10 text-white hover:bg-white/15 sm:w-auto">
-                  <Link href="/products?department=plumbing">Shop Plumbing</Link>
+                  <Link href="/products?department=hardware">Shop Hardware</Link>
                 </Button>
                 <Button variant="ghost" size="lg" asChild className="w-full justify-start text-white hover:bg-white/10 sm:w-auto">
                   <Link href="/products">Browse all</Link>

@@ -239,7 +239,7 @@ function AccountPage() {
       if (navigator.share) {
         await navigator.share({
           title: "UniqueShopee",
-          text: "Check out UniqueShopee for paints and plumbing essentials.",
+          text: "Check out UniqueShopee for paint, hardware, and home improvement essentials.",
           url: shareUrl,
         });
         return;

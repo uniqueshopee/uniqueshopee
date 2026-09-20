@@ -6,7 +6,7 @@ import type { Product } from "@/types";
  * generic plumbing and home-improvement products remain on the variant flow.
  */
 export function isPaintProduct(product: Pick<Product, "supportsShades" | "departmentSlug" | "categorySlug"> | null | undefined) {
-  return product?.supportsShades === true || product?.departmentSlug === "paints" || product?.categorySlug === "paint";
+  return product?.supportsShades === true || product?.departmentSlug === "paint";
 }
 
 export function supportsPaintConfiguration(product: Pick<Product, "supportsShades"> | null | undefined) {

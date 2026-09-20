@@ -14,7 +14,7 @@ type SearchProduct = Product & {
 type SearchBrand = {
   slug: string;
   name: string;
-  category: "Paint" | "Plumbing";
+  category: string;
   tagline: string;
   href: string;
   logo: string;

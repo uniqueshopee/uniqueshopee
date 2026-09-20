@@ -204,7 +204,7 @@ function WishlistPageShell({ products }: { products: Product[] }) {
         <div className="mt-8 space-y-6">
           <ProductShowcase
             title="Recommended Products"
-            subtitle="Explore more premium Paint and Plumbing essentials curated for your next project."
+            subtitle="Explore more premium essentials curated for your next project."
             products={recommendedProducts.length > 0 ? recommendedProducts : products.slice(0, 4)}
             viewAllHref="/products"
             badge="Recommended"

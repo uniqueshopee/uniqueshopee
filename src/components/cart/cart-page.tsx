@@ -938,7 +938,7 @@ function CartPageShell() {
               </div>
               <h2 className="text-text mt-4 text-2xl font-bold">Your cart is empty</h2>
               <p className="text-muted mx-auto mt-2 max-w-xl text-sm leading-7 font-medium">
-                Add premium products from our Paint and Plumbing catalog to start building
+                Add premium products from our live catalog to start building
                 your order.
               </p>
               <Button asChild variant="primary" size="md" className="mt-5">

@@ -119,7 +119,7 @@ export function PaintCompatibilityAdminPage() {
       ]);
     const paintDepartmentIds = new Set(
       (departmentData ?? [])
-        .filter((department) => department.is_active !== false && department.slug === "paints")
+      .filter((department) => department.is_active !== false && department.slug === "paint")
         .map((department) => department.id as string),
     );
     const variantsByProductId = new Map<string, ProductVariant[]>();

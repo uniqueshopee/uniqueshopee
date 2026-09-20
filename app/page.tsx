@@ -5,7 +5,7 @@ import { createPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = createPageMetadata({
   title: "UniqueShopee",
-  description: "Shop premium Paints, Plumbing Products, and Home Improvement essentials from trusted brands.",
+  description: "Shop premium paint, hardware, electrical, and home improvement essentials from trusted brands.",
   pathname: "/",
 });
 
@@ -16,6 +16,7 @@ export default async function HomePage() {
     <HomeMarketplacePage
       products={homeData.products}
       featuredProducts={homeData.featuredProducts}
+      departments={homeData.departments}
     />
   );
 }

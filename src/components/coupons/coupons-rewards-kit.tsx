@@ -445,7 +445,7 @@ function CouponsPage() {
           <motion.div variants={itemVariants}>
             <Header
               title="Coupons"
-              subtitle="Save more with curated offers across paints, plumbing, bank deals, and contractor rewards."
+              subtitle="Save more with curated offers across paint, hardware, bank deals, and contractor rewards."
               countLabel="available coupons"
               countValue={String(availableCount)}
             />

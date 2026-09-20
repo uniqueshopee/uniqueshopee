@@ -5,6 +5,9 @@ import { motion, useReducedMotion } from "framer-motion";
 import {
   Check,
   Filter,
+  House,
+  Lightbulb,
+  MoreHorizontal,
   Paintbrush,
   Search,
   Wrench,
@@ -17,7 +20,7 @@ import { Modal } from "@/components/ui/modal";
 import { ProductCard } from "./product-card";
 import type { CatalogProduct } from "@/lib/catalog";
 
-type DepartmentKey = "paints" | "plumbing";
+type DepartmentKey = string;
 type ProductDensity = "comfortable" | "dense";
 
 type Department = {
@@ -28,23 +31,18 @@ type Department = {
 
 type ProductListingPageProps = {
   products: CatalogProduct[];
-  initialDepartment?: DepartmentKey;
+  initialDepartment?: string;
   initialQuery?: string;
   initialCategory?: string;
 };
 
 const DEPARTMENTS: Department[] = [
-  { key: "paints", label: "Paints", icon: Paintbrush },
-  { key: "plumbing", label: "Plumbing", icon: Wrench },
+  { key: "paint", label: "Paint", icon: Paintbrush },
+  { key: "hardware", label: "Hardware", icon: Wrench },
+  { key: "electric", label: "Electric", icon: Lightbulb },
+  { key: "home-improvement", label: "Home Improvement", icon: House },
+  { key: "others", label: "Others", icon: MoreHorizontal },
 ];
-
-const PAINT_FILTERS = {
-  rooms: [] as string[],
-};
-
-const PLUMBING_FILTERS = {
-  rooms: [] as string[],
-};
 
 const ANIM_CONTAINER = {
   hidden: { opacity: 0, y: 10 },
@@ -152,7 +150,7 @@ function DepartmentEmptyState({
 
 function getProductTags(product: CatalogProduct) {
   return {
-    categories: [product.categoryName, product.departmentName].filter(Boolean) as string[],
+    categories: [product.categoryName, product.categorySlug, product.departmentName, product.departmentSlug].filter(Boolean) as string[],
     collections: [
       product.brandName,
       product.featured ? "Featured" : null,
@@ -164,7 +162,7 @@ function getProductTags(product: CatalogProduct) {
   };
 }
 
-function ProductListingPage({ products, initialDepartment = "paints", initialQuery = "", initialCategory = "" }: ProductListingPageProps) {
+function ProductListingPage({ products, initialDepartment = "paint", initialQuery = "", initialCategory = "" }: ProductListingPageProps) {
   const shouldReduceMotion = useReducedMotion();
 
   const [query, setQuery] = useState(initialQuery);
@@ -220,12 +218,12 @@ function ProductListingPage({ products, initialDepartment = "paints", initialQue
     );
 
     return {
-      categories: categories.length > 0 ? categories : department === "paints" ? ["Interior Paint", "Exterior Paint"] : ["PVC Pipes", "Faucets"],
+      categories,
       collections,
-      rooms: department === "paints" ? PAINT_FILTERS.rooms : PLUMBING_FILTERS.rooms,
+      rooms: [],
       finishes,
     };
-  }, [brands, department, departmentProducts]);
+  }, [brands, departmentProducts]);
 
   const filteredProducts = useMemo(() => {
     const term = deferredQuery.trim().toLowerCase();
@@ -262,8 +260,8 @@ function ProductListingPage({ products, initialDepartment = "paints", initialQue
     selectedFinishes,
   ]);
 
-  const activeDepartment = DEPARTMENTS.find((item) => item.key === department) ?? DEPARTMENTS[0]!;
-  const oppositeDepartment = department === "paints" ? DEPARTMENTS[1]! : DEPARTMENTS[0]!;
+  const activeDepartment = DEPARTMENTS.find((item) => item.key === department) ?? { key: department, label: department || "Products", icon: MoreHorizontal };
+  const oppositeDepartment = DEPARTMENTS.find((item) => item.key !== department) ?? DEPARTMENTS[0]!;
   const activeFilterCount =
     selectedBrands.length +
     selectedCategories.length +
@@ -330,7 +328,7 @@ function ProductListingPage({ products, initialDepartment = "paints", initialQue
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search paints, plumbing, brands..."
+              placeholder="Search products, brands, categories..."
               className="h-11 rounded-full border-border/80 bg-white/95 pl-10 shadow-none sm:h-12"
             />
           </form>

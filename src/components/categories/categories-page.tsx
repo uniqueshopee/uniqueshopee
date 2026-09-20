@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   ChevronRight,
   LayoutGrid,
+  MoreHorizontal,
   Paintbrush,
   Search,
   Sparkles,
@@ -20,12 +21,16 @@ import { TrustedBrandsSection } from "@/components/product/trusted-brands-sectio
 import { ShopByBrandSection } from "@/components/product/shop-by-brand-section";
 import { ProductShowcase } from "@/components/product/product-showcase";
 import { cn } from "@/lib/utils";
+import type { CatalogCategory, CatalogDepartment } from "@/lib/catalog";
 
 const FEATURED_PRODUCTS: never[] = [];
 
 const QUICK_PILLS = [
-  { label: "Paints", href: "/category/paints", icon: Paintbrush, tone: "bg-amber-500/12 text-amber-600" },
-  { label: "Plumbing", href: "/category/plumbing", icon: Wrench, tone: "bg-sky-500/12 text-sky-600" },
+  { label: "Paint", href: "/department/paint", icon: Paintbrush, tone: "bg-amber-500/12 text-amber-600" },
+  { label: "Hardware", href: "/department/hardware", icon: Wrench, tone: "bg-sky-500/12 text-sky-600" },
+  { label: "Electric", href: "/department/electric", icon: Sparkles, tone: "bg-emerald-500/12 text-emerald-600" },
+  { label: "Home Improvement", href: "/department/home-improvement", icon: LayoutGrid, tone: "bg-violet-500/12 text-violet-600" },
+  { label: "Others", href: "/department/others", icon: MoreHorizontal, tone: "bg-slate-500/12 text-slate-600" },
   { label: "Search", href: "/search", icon: Search, tone: "bg-violet-500/12 text-violet-600" },
   { label: "Offers", href: "/products", icon: BadgeCheck, tone: "bg-emerald-500/12 text-emerald-600" },
 ];
@@ -61,7 +66,7 @@ const itemVariants = {
   },
 };
 
-function CategoriesPage() {
+function CategoriesPage({ departments = [], categories = [] }: { departments?: CatalogDepartment[]; categories?: CatalogCategory[] }) {
   const shouldReduceMotion = useReducedMotion();
 
   return (
@@ -88,7 +93,7 @@ function CategoriesPage() {
                   Categories
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm font-medium leading-6 text-muted sm:text-base sm:leading-7">
-                  Jump into paint and plumbing aisles, then refine by brand, category, or the
+                  Jump into the canonical departments, then refine by brand, category, or the
                   products customers buy most often.
                 </p>
               </div>
@@ -149,10 +154,10 @@ function CategoriesPage() {
         </motion.div>
 
         <div id="departments" className="pt-2">
-          <DepartmentGrid />
+          <DepartmentGrid departments={departments} />
         </div>
         <div id="categories">
-          <CategoryGrid />
+          <CategoryGrid categories={categories} />
         </div>
         <div id="brands">
           <TrustedBrandsSection />

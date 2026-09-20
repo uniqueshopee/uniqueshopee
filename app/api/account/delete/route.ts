@@ -130,6 +130,7 @@ export async function POST(request: Request) {
 
     const cleaned = await updateAccountDeletionState(requestRow.id, "DATA_CLEANED");
     if (cleaned.error) return NextResponse.json({ error: "Unable to finalize cleanup state." }, { status: 503 });
+    requestRow.state = "DATA_CLEANED";
   }
 
   const authAttempt = await markAuthDeletionInProgress(requestRow.id);

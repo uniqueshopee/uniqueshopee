@@ -118,7 +118,7 @@ function SearchBar({ className, autoFocus, onSubmit, placeholder, variant = "def
         name="q"
         type="search"
         autoFocus={autoFocus}
-        placeholder={placeholder ?? "Search paints, plumbing & home improvement..."}
+        placeholder={placeholder ?? "Search products, brands & categories..."}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         className={cn(

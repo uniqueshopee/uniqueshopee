@@ -119,7 +119,7 @@ export function DepartmentsAdminPage() {
           id: department.id,
           slug: department.slug,
           name: department.name,
-          description: department.name === "Paints" ? "Interior and exterior paint catalog" : "Plumbing and hardware catalog",
+          description: `Manage the ${department.name.toLowerCase()} catalog structure and merchandising settings.`,
           sort_order: index,
           is_active: department.is_active,
           deleted_at: department.deleted_at,

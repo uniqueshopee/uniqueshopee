@@ -11,14 +11,14 @@ import { cn } from "@/lib/utils";
 
 type Brand = {
   name: string;
-  category: "Paint" | "Plumbing";
+  category: "Paint" | "Hardware";
 };
 
 const BRAND_GROUPS: Array<{ title: string; key: string; brands: Brand[]; href: string }> = [
   {
     title: "Paint Brands",
     key: "paint-brands",
-    href: "/products?department=paints",
+    href: "/products?department=paint",
     brands: [
       { name: "Asian Paints", category: "Paint" },
       { name: "Berger", category: "Paint" },
@@ -29,16 +29,16 @@ const BRAND_GROUPS: Array<{ title: string; key: string; brands: Brand[]; href: s
     ],
   },
   {
-    title: "Plumbing Brands",
-    key: "plumbing-brands",
-    href: "/products?department=plumbing",
+    title: "Hardware Brands",
+    key: "hardware-brands",
+    href: "/products?department=hardware&category=plumbing",
     brands: [
-      { name: "Astral", category: "Plumbing" },
-      { name: "Supreme", category: "Plumbing" },
-      { name: "Finolex", category: "Plumbing" },
-      { name: "Prince Pipes", category: "Plumbing" },
-      { name: "Ashirvad", category: "Plumbing" },
-      { name: "Jaquar", category: "Plumbing" },
+      { name: "Astral", category: "Hardware" },
+      { name: "Supreme", category: "Hardware" },
+      { name: "Finolex", category: "Hardware" },
+      { name: "Prince Pipes", category: "Hardware" },
+      { name: "Ashirvad", category: "Hardware" },
+      { name: "Jaquar", category: "Hardware" },
     ],
   },
 ];
@@ -165,7 +165,7 @@ function TrustedBrandsSection() {
                 Trusted Brands
               </h2>
               <p className="mt-2 max-w-xl text-sm font-medium leading-6 text-muted sm:text-base">
-                Verified manufacturers for paint and plumbing projects that need reliable results.
+                Verified manufacturers for paint, hardware, electrical, and home improvement projects.
               </p>
             </div>
             <Badge variant="neutral" className="hidden sm:inline-flex">

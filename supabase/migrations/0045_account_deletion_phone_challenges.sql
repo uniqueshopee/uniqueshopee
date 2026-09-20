@@ -36,4 +36,4 @@ execute function public.set_updated_at();
 
 alter table public.account_deletion_phone_challenges enable row level security;
 revoke all on table public.account_deletion_phone_challenges from public, anon, authenticated;
-grant select, insert, update on table public.account_deletion_phone_challenges to service_role;
+grant select, insert, update, delete on table public.account_deletion_phone_challenges to service_role;

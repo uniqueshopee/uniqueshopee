@@ -16,10 +16,10 @@ export const metadata: Metadata = {
     default: "UniqueShopee",
     template: "%s | UniqueShopee",
   },
-  description: "Premium online store for Paints, Plumbing Products and Home Improvement.",
+  description: "Premium online marketplace for paint, hardware, electrical, and home improvement essentials.",
   openGraph: {
     title: "UniqueShopee",
-    description: "Premium online store for Paints, Plumbing Products and Home Improvement.",
+    description: "Premium online marketplace for paint, hardware, electrical, and home improvement essentials.",
     url: "/",
     siteName: "UniqueShopee",
     type: "website",
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "UniqueShopee",
-    description: "Premium online store for Paints, Plumbing Products and Home Improvement.",
+    description: "Premium online marketplace for paint, hardware, electrical, and home improvement essentials.",
     images: [absoluteUrl("/images/seo/og-default.svg")],
   },
   robots: {
