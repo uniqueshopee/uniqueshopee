@@ -284,6 +284,8 @@ function resolveVariantStrict(
     finish?: string | null;
   },
 ) {
+  const normalizeFinish = (value?: string | null) => value?.trim().toLowerCase() ?? "";
+
   if (selection.variantId) {
     return (
       variants.find(
@@ -293,7 +295,8 @@ function resolveVariantStrict(
             !variant.shade_id ||
             variant.shade_id === selection.shadeId) &&
           (!selection.packSize || variant.pack_size === selection.packSize) &&
-          (!selection.finish || variant.finish === selection.finish),
+          (!selection.finish ||
+            normalizeFinish(variant.finish) === normalizeFinish(selection.finish)),
       ) ?? null
     );
   }
@@ -305,7 +308,8 @@ function resolveVariantStrict(
           !variant.shade_id ||
           variant.shade_id === selection.shadeId) &&
         (!selection.packSize || variant.pack_size === selection.packSize) &&
-        (!selection.finish || variant.finish === selection.finish),
+        (!selection.finish ||
+          normalizeFinish(variant.finish) === normalizeFinish(selection.finish)),
     ) ?? null
   );
 }

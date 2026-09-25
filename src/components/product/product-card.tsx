@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Heart, ShoppingCart, Star } from "lucide-react";
 import { motion } from "framer-motion";
@@ -12,11 +13,13 @@ import { buildLoginRedirectPath } from "@/lib/auth";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { addValidatedCartItem } from "@/lib/cart-service";
 import { calculateCustomerPrice } from "@/lib/pricing-engine";
+import { LoginRequiredDialog } from "@/components/auth/login-required-dialog";
 
 function ProductCard({ product }: { product: Product }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const [loginPromptOpen, setLoginPromptOpen] = useState(false);
   const isWishlisted = useWishlistStore((s) => s.has(product.id));
   const toggleWishlist = useWishlistStore((s) => s.toggle);
   const isOutOfStock = !product.inStock || (product.stockCount ?? 0) <= 0;
@@ -30,8 +33,12 @@ function ProductCard({ product }: { product: Product }) {
       return;
     }
 
+    if (authLoading) {
+      return;
+    }
+
     if (!isAuthenticated) {
-      router.push(loginRedirect);
+      setLoginPromptOpen(true);
       return;
     }
 
@@ -64,11 +71,18 @@ function ProductCard({ product }: { product: Product }) {
   }
 
   return (
-    <motion.div
-      whileHover={{ y: -2 }}
-      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-      className="group relative"
-    >
+    <>
+      <LoginRequiredDialog
+        open={loginPromptOpen}
+        description="Please login first to add products to your cart."
+        onOpenChange={setLoginPromptOpen}
+        onLogin={() => router.push(loginRedirect)}
+      />
+      <motion.div
+        whileHover={{ y: -2 }}
+        transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+        className="group relative"
+      >
       <div className="overflow-hidden rounded-[1.35rem] border border-white/75 bg-white/92 shadow-[var(--shadow-sm)] transition-all duration-[var(--duration-base)] hover:-translate-y-0.5 hover:border-accent/20 hover:shadow-[var(--shadow-lg)]">
         <Link
           href={`/product/${product.slug}`}
@@ -152,7 +166,8 @@ function ProductCard({ product }: { product: Product }) {
           </button>
         </div>
       </div>
-    </motion.div>
+      </motion.div>
+    </>
   );
 }
 

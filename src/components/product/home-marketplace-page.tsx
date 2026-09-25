@@ -32,6 +32,7 @@ import { calculateCustomerPrice } from "@/lib/pricing-engine";
 import { useWishlistStore } from "@/store/wishlist-store";
 import { addValidatedCartItem } from "@/lib/cart-service";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { LoginRequiredDialog } from "@/components/auth/login-required-dialog";
 
 type HomeProduct = {
   id: string;
@@ -119,7 +120,8 @@ function buildHomeProducts(products: CatalogProduct[]): HomeProduct[] {
 function CompactProductCard({ product }: { product: HomeProduct }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const [loginPromptOpen, setLoginPromptOpen] = useState(false);
   const isWishlisted = useWishlistStore((state) => state.has(product.id));
   const toggleWishlist = useWishlistStore((state) => state.toggle);
   const isOutOfStock = !product.inStock || (product.stockCount ?? 0) <= 0;
@@ -136,8 +138,12 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
       return;
     }
 
+    if (authLoading) {
+      return;
+    }
+
     if (!isAuthenticated) {
-      router.push(loginRedirect);
+      setLoginPromptOpen(true);
       return;
     }
 
@@ -161,7 +167,14 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
   };
 
   return (
-    <motion.article variants={ITEM_VARIANTS} className="group h-full">
+    <>
+      <LoginRequiredDialog
+        open={loginPromptOpen}
+        description="Please login first to add products to your cart."
+        onOpenChange={setLoginPromptOpen}
+        onLogin={() => router.push(loginRedirect)}
+      />
+      <motion.article variants={ITEM_VARIANTS} className="group h-full">
       <Card className="h-full overflow-hidden rounded-[1.75rem] border-white/80 bg-white/95 p-3 shadow-[var(--shadow-sm)]">
         <div className="relative">
           <Link
@@ -245,7 +258,8 @@ function CompactProductCard({ product }: { product: HomeProduct }) {
           </Button>
         </div>
       </Card>
-    </motion.article>
+      </motion.article>
+    </>
   );
 }
 

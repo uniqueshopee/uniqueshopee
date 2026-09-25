@@ -27,6 +27,7 @@ import { buildLoginRedirectPath } from "@/lib/auth";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { cn, formatPrice } from "@/lib/utils";
 import { addValidatedCartItem } from "@/lib/cart-service";
+import { LoginRequiredDialog } from "@/components/auth/login-required-dialog";
 import { toast } from "@/hooks/use-toast";
 import { PaintConfigurationPicker } from "./paint-configuration-picker";
 import { isPaintProduct } from "@/lib/paint-capabilities";
@@ -270,7 +271,7 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
   const shouldReduceMotion = useReducedMotion();
   const router = useRouter();
   const pathname = usePathname();
-  const { isAuthenticated, profile, user } = useAuth();
+  const { isAuthenticated, loading: authLoading, profile, user } = useAuth();
   const { flushSync } = useCartSync();
   const [quantity, setQuantity] = useState(1);
   const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
@@ -281,6 +282,7 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [consultationOpen, setConsultationOpen] = useState(false);
   const [consultationSubmitting, setConsultationSubmitting] = useState(false);
+  const [loginPrompt, setLoginPrompt] = useState<"cart" | "buyNow" | null>(null);
   const [consultationForm, setConsultationForm] = useState({
     fullName: "",
     phone: "",
@@ -558,8 +560,12 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
       return;
     }
 
+    if (authLoading) {
+      return;
+    }
+
     if (!isAuthenticated) {
-      router.push(buildLoginRedirectPath(pathname));
+      setLoginPrompt("cart");
       return;
     }
 
@@ -630,6 +636,15 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
 
   const handleBuyNow = async () => {
     if (isOutOfStock) {
+      return;
+    }
+
+    if (authLoading) {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      setLoginPrompt("buyNow");
       return;
     }
 
@@ -778,7 +793,20 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
   );
 
   return (
-    <main className="bg-background pb-64 sm:pb-72 lg:pb-8">
+    <>
+      <LoginRequiredDialog
+        open={loginPrompt !== null}
+        description={
+          loginPrompt === "buyNow"
+            ? "Please login first to continue with your purchase."
+            : "Please login first to add products to your cart."
+        }
+        onOpenChange={(open) => {
+          if (!open) setLoginPrompt(null);
+        }}
+        onLogin={() => router.push(buildLoginRedirectPath(pathname))}
+      />
+      <main className="bg-background pb-64 sm:pb-72 lg:pb-8">
       <motion.section
         aria-labelledby="product-detail-title"
         className="border-border surface-warm relative isolate overflow-hidden border-b"
@@ -1577,7 +1605,8 @@ function ProductDetailPage({ product, detail, relatedProducts }: ProductDetailPa
           </div>
         </div>
       </Modal>
-    </main>
+      </main>
+    </>
   );
 }
 
