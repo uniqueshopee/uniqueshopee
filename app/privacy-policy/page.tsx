@@ -16,7 +16,7 @@ const SUPPORT_PHONE_DIGITS = CONTACT_DETAILS.customerCare.replace(/\D/g, "");
 const WHATSAPP_URL = SUPPORT_PHONE_DIGITS ? `https://wa.me/${SUPPORT_PHONE_DIGITS}` : "https://wa.me/";
 const CALL_URL = SUPPORT_PHONE_DIGITS ? `tel:${SUPPORT_PHONE_DIGITS}` : `tel:${CONTACT_DETAILS.customerCare.replace(/\s+/g, "")}`;
 const EMAIL_URL = CONTACT_DETAILS.supportEmail ? `mailto:${CONTACT_DETAILS.supportEmail}` : "mailto:";
-const LAST_UPDATED = "September 6, 2026";
+const LAST_UPDATED = "September 21, 2026";
 
 type PolicySection = { title: string; body?: string; bullets?: string[] };
 
@@ -68,10 +68,12 @@ const SECTIONS: PolicySection[] = [
   },
   {
     title: "Account Deletion and Retained Records",
-    body: "You can start deletion in the website or app account settings, or use our public account deletion page. Email/password accounts require current-password confirmation; phone accounts require a deletion-specific one-time code. When deletion completes, we remove addresses, cart items, wishlist items, notifications, paint calculations, room visualizations, profile roles, phone-auth credentials, and authenticated-user-scoped objects in the applicable users and room-visualizer storage locations.",
+    body: "You can start deletion in the website or app account settings, or use our public account deletion page. Email/password accounts require current-password confirmation; phone accounts require a deletion-specific one-time code. When deletion completes, your account and profile are removed, active saved addresses are removed, cart and wishlist data are removed, and notifications and other applicable account-scoped data are removed, including authenticated-user-scoped objects in the applicable users and room-visualizer storage locations. The deleted account is no longer maintained as an active account.",
     bullets: [
-      "Order history, order items, reviews, support records, consultations, coupon usage, and certain verification records may be retained where necessary for legal, security, fraud prevention, dispute resolution, or regulatory purposes.",
-      "Temporary account-deletion authentication challenges are removed as part of account deletion. Documents and support storage, together with required order history, snapshots, notes, and related records, may remain where needed for those purposes.",
+      "Certain historical records may be retained for legitimate purposes such as preserving transaction and order history, maintaining payment and accounting or other business records, preventing fraud and security abuse, resolving disputes, and meeting legal or regulatory obligations.",
+      "Historical order and payment records may retain transaction snapshots containing information such as the name, phone number, delivery or billing address, city, state, country, PIN or postal code, landmark, address type, or related transaction details where necessary to preserve the historical transaction record, support disputes, prevent fraud, or meet legal or regulatory obligations.",
+      "The active address record is removed, but a historical transaction or payment snapshot may remain as part of the retained order or payment record. We do not claim that all personal information is immediately erased from every retained historical record.",
+      "Temporary account-deletion authentication challenges are removed as part of account deletion. Documents, support records, order history, payment records, snapshots, notes, and related records may remain where needed for the purposes described above.",
       "Retained records are not used to maintain your deleted account. See the detailed process at /account-deletion.",
     ],
   },

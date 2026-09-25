@@ -15,8 +15,8 @@ create table if not exists public.account_deletion_phone_challenges (
   expires_at timestamptz not null,
   verified_at timestamptz,
   locked_at timestamptz,
-  consumed_at timestamptz,
   created_at timestamptz not null default now(),
+  consumed_at timestamptz,
   updated_at timestamptz not null default now()
 );
 

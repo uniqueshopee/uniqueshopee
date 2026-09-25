@@ -416,7 +416,7 @@ export async function loadAdminOrdersRows(client: SupabaseClient<Database>, limi
     payment_status: string;
     total_amount: number | string;
     placed_at: string;
-    user_id: string;
+    user_id: string | null;
     tracking_number: string | null;
   }>;
   const orderIds = orderRows.map((order) => order.id);
@@ -482,7 +482,9 @@ export async function loadAdminOrdersRows(client: SupabaseClient<Database>, limi
   return orderRows.map((order) => ({
     id: order.id,
     orderNumber: order.order_number,
-    customer: profileById.get(order.user_id) ?? order.user_id.slice(0, 8).toUpperCase(),
+    customer: order.user_id
+      ? profileById.get(order.user_id) ?? order.user_id.slice(0, 8).toUpperCase()
+      : "Customer unavailable",
     status: order.status,
     paymentStatus: order.payment_status,
     amount: toNumber(order.total_amount),
